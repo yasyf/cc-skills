@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import uuid
 from collections.abc import Callable, Iterable
 from functools import cache
@@ -1743,6 +1744,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 CUT_LEASE_MINUTES = 60
+RELEASE_RETRY_SECONDS = 30
+GITHUB_5XX = re.compile(r"\b(?:GET|HEAD|POST|PUT|PATCH|DELETE) /\S+ failed: 5\d\d\b|\bHTTP 5\d\d\b")
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
@@ -1755,33 +1758,25 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
 
 
 def job_release(args: argparse.Namespace) -> int:
-    """Start the release a job's --release names, in the process drive job add starts for it: from the drive's checkout at the head of its default branch, `--json` added unless it starts `--manual`, which takes none, left running once `ci release` names the build it started, by release_answer, which the job keeps as its release_build in a save holding nothing else, so a later step that fails leaves it kept, before the designs it carries and each failed job it replaces end and its brief is written; a start naming none leaves the job with no build, its wait on this process ending on what it said, which the watch's FREE line names."""
+    """Start the release a job's --release names, in the process drive job add starts for it, by release_start, once more RELEASE_RETRY_SECONDS on when the first start failed on a GitHub 5xx, by GITHUB_5XX; `ci release` names the build it started, by release_answer, which the job keeps as its release_build in a save holding nothing else, so a later step that fails leaves it kept, before the designs it carries and each failed job it replaces end and its brief is written; a start naming none leaves the job with no build, its wait on this process ending on what it said, which the watch's FREE line names, and tells the coordinator and the session holding its order at once, by release_start_failed."""
     name = state.resolve(args.drive)
     command = state.load(name)["jobs"][args.id]["brief_flags"]["release"]
-    said: list[str] = []
-    answer: dict = {}
     [words] = simple_commands(command)
     manual = "manual" in brief.release_flags(words)
-    with subprocess.Popen(
-        words if manual else [*words, "--json"],
-        cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]),
-        env=os.environ | {"CLAUDE_CODE_SESSION_ID": args.session} if args.session else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    ) as release:
-        for line in release.stdout:
-            said.append(line)
-            if answer := release_answer(said, manual):
-                break
-        release.terminate()
-    if not (build := answer.get("build", {}).get("url")):
-        why = f"its release did not start: {answer.get('refused') or render.cut(''.join(said).strip(), 600) or f'exit {release.returncode}'}"
+    answer, failure = release_start(name, words, manual, args.session)
+    if failure and GITHUB_5XX.search(failure):
+        print(f"{args.id}: its release did not start, failing on GitHub: {failure}; starting it once more in {RELEASE_RETRY_SECONDS} s", file=sys.stderr, flush=True)
+        time.sleep(RELEASE_RETRY_SECONDS)
+        answer, failure = release_start(name, words, manual, args.session)
+    if failure:
+        why = f"its release did not start: {failure}"
         def job_release_write3(data: dict):
             state.drop_waits(data, args.id, dict.fromkeys(state.pid_waits(f"pid:{os.getpid()}"), f"{why}; drive job set {args.id} --state stopped ends it"))
 
         state.update(name, None, job_release_write3)
+        release_start_failed(name, args.id, command, failure)
         raise DriveError(f"{args.id}: {why}")
+    build = answer["build"]["url"]
     def job_release_write(data: dict):
         data["jobs"][args.id]["release_build"] = build
 
@@ -1796,6 +1791,38 @@ def job_release(args: argparse.Namespace) -> int:
     line, _ = write_brief(name, args.id, {})
     print("\n".join([*replaced, f"{args.id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]))
     return 0
+
+
+def release_start(name: str, words: list[str], manual: bool, session: str | None) -> tuple[dict, str | None]:
+    """Run a release start from the drive's checkout at the head of its default branch, `--json` added unless it starts `--manual`, which takes none, left running once `ci release` names the build it started, by release_answer: that answer, and None, or, for a start naming no build, what it refused or printed, else its exit status."""
+    said: list[str] = []
+    answer: dict = {}
+    with subprocess.Popen(
+        words if manual else [*words, "--json"],
+        cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]),
+        env=os.environ | {"CLAUDE_CODE_SESSION_ID": session} if session else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    ) as release:
+        for line in release.stdout:
+            said.append(line)
+            if answer := release_answer(said, manual):
+                break
+        release.terminate()
+    if answer.get("build", {}).get("url"):
+        return answer, None
+    return answer, answer.get("refused") or render.cut("".join(said).strip(), 600) or f"exit {release.returncode}"
+
+
+def release_start_failed(name: str, job_id: str, command: str, failure: str) -> None:
+    """Post one handoff record to the session acting on a job whose release start named no build and to the session holding its order, by state.job_lane and state.holding_lane, naming the start command, what it said and that the job did not start, so no slot it holds waits on a start nobody heard failed."""
+    data = state.load(name)
+    job = data["jobs"][job_id]
+    to = list(dict.fromkeys([state.job_lane(data, job), state.holding_lane(data, data["orders"][job["order"]])]))
+    text = f"RELEASE {job_id} {job['order']}: `{command}` did not start: {failure}; {job_id} did not start, and drive job release {job_id} starts it again"
+    argv = ["cci", "post", "--drive", name, "--lane", watch.LANE, "--kind", "handoff", *(arg for lane in to for arg in ("--to", f"{lane}@{name}")), "--topic", f"release-{job_id}"]
+    reads.run([*argv, "--text", reads.withheld(text)], Path.cwd(), reads.posting())
 
 
 def release_running(name: str, command: str) -> str | None:

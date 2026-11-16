@@ -1333,6 +1333,33 @@ def release_starts(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     return starts
 
 
+@pytest.fixture
+def release_posts(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Each cci post a release start that named no build sends, kept rather than run, every other read running as it does."""
+    posts: list[list[str]] = []
+    runs = cli.reads.run
+
+    def run(argv: list[str], checkout: Path, env: dict | None = None, bounded: bool = True, stdin: str | None = None) -> str:
+        if argv[0] == "cci":
+            posts.append(argv)
+            return json.dumps({"seq": 731100})
+        return runs(argv, checkout, env, bounded, stdin)
+
+    monkeypatch.setattr(cli.reads, "run", run)
+    return posts
+
+
+@pytest.fixture
+def release_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    slept: list[float] = []
+    monkeypatch.setattr(cli.time, "sleep", slept.append)
+    return slept
+
+
+def posted_to(argv: list[str]) -> list[str]:
+    return [argv[at + 1] for at, arg in enumerate(argv) if arg == "--to"]
+
+
 def starting(demo: str, job_id: str, command: str) -> str:
     return (
         f"{job_id} starts `{command}` in process {os.getpid()}, which keeps the build it starts as {job_id}'s Release build: line and writes its brief,"
@@ -1341,7 +1368,16 @@ def starting(demo: str, job_id: str, command: str) -> str:
 
 
 def test_drive_job_add_release_starts_it_on_his_answer_in_a_process_of_its_own_that_briefs_the_job_on_its_build_and_a_start_naming_no_build_frees_the_job_saying_why(
-    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]], capsys: pytest.CaptureFixture[str]
+    demo: str,
+    run: Run,
+    tmp_path: Path,
+    no_calls: list[list[str]],
+    recorded: Answers,
+    jev: Jev,
+    release_starts: list[list[str]],
+    release_posts: list[list[str]],
+    release_sleeps: list[float],
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
@@ -1392,6 +1428,9 @@ def test_drive_job_add_release_starts_it_on_his_answer_in_a_process_of_its_own_t
     after = state.load(demo)
     assert after["dropped_waits"]["j4"] == dict.fromkeys(state.pid_waits(f"pid:{os.getpid()}"), "its release did not start: a freeze holds platform; drive job set j4 --state stopped ends it")
     assert (after["jobs"]["j3"]["state"], after["jobs"]["j4"]["release_build"], (state.drive_dir(demo) / "jobs" / "j4.brief.md").exists()) == ("waiting", None, False)
+    [post] = release_posts
+    assert (posted_to(post), post[post.index("--kind") + 1], release_sleeps) == (["root@demo"], "handoff", [])
+    assert post[-1] == f"RELEASE j4 o1: `{J2666_START}` did not start: a freeze holds platform; j4 did not start, and drive job release j4 starts it again"
 
 
 def test_723003_a_release_keeps_its_build_whatever_fails_after_its_start_and_the_same_release_never_starts_while_a_job_holds_it_unbuilt_or_its_build_runs(
@@ -1433,6 +1472,39 @@ def test_723003_a_release_keeps_its_build_whatever_fails_after_its_start_and_the
         "drive: j3: its brief names the build of the release its add started, which that add's drive job release writes once the release names it:"
         f" its lines are in {state.drive_dir(demo) / cli.RELEASES_LOG}, and drive job set j3 --state stopped ends a job whose release did not start"
     )
+
+
+GITHUB_500 = "the operator failed the start: POST /app/installations/1/access_tokens failed: 500"
+
+
+@pytest.mark.parametrize("fails", [1, 2])
+def test_730933_a_release_start_failing_on_a_github_5xx_starts_once_more_30_seconds_on_and_one_still_failing_tells_the_coordinator_and_the_orders_seat(
+    demo: str,
+    run: Run,
+    no_calls: list[list[str]],
+    recorded: Answers,
+    jev: Jev,
+    release_starts: list[list[str]],
+    release_posts: list[list[str]],
+    release_sleeps: list[float],
+    capsys: pytest.CaptureFixture[str],
+    fails: int,
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
+    started = released(demo, f"""if [ $(($(wc -l < "$(dirname "$0")/../started"))) -le {fails} ]; then echo '{GITHUB_500}' >&2; exit 1; fi\necho '{STARTED}'""")
+    recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
+    jev.picks("5419ffd")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", J2666_START)[0] == 0
+    code = cli.main(["job", "release", "j2"])
+    assert (code, len(started.read_text().splitlines()), release_sleeps) == (0 if fails == 1 else 2, 2, [cli.RELEASE_RETRY_SECONDS])
+    if fails == 1:
+        assert (release_posts, state.load(demo)["jobs"]["j2"]["release_build"]) == ([], BUILD)
+        return
+    assert capsys.readouterr().err.strip().splitlines()[-1] == f"drive: j2: its release did not start: {GITHUB_500}"
+    [post] = release_posts
+    assert (posted_to(post), post[-1]) == (["root@demo"], f"RELEASE j2 o1: `{J2666_START}` did not start: {GITHUB_500}; j2 did not start, and drive job release j2 starts it again")
+    assert state.load(demo)["jobs"]["j2"]["release_build"] is None
 
 
 def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_never_the_coordinators_own_tree(
