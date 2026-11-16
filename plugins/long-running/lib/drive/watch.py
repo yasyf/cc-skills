@@ -4842,18 +4842,20 @@ def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
         ends, reclaims = {}, {}
         for job_id in ending:
             job = data["jobs"][job_id]
-            if not in_flight(job.get("end"), moment) and (held := state.reserve(data, (("jobs", job_id, "end"),))):
+            if not in_flight(job.get("end"), moment):
+                job["end"] = None
+                ends[job_id] = state.reserve(data, (("jobs", job_id, "end"),))
                 job["end"] |= {"at": at}
-                ends[job_id] = held
         for job_id, lane in reclaiming:
             job = data["jobs"][job_id]
             if in_flight((state.death_on(job, lane) or {}).get("reclaim"), moment):
                 continue
             if state.on_mac(job) and lane == job.get("dispatch"):
                 state.lane_died(job, lane, RECLAIMED, moment)
-            if held := state.reserve(data, (state.death_row(job_id, state.death_on(job, lane), "reclaim"),)):
-                state.death_on(job, lane)["reclaim"] |= {"at": at}
-                reclaims[job_id, lane] = held
+            death = state.death_on(job, lane)
+            death["reclaim"] = None
+            reclaims[job_id, lane] = state.reserve(data, (state.death_row(job_id, death, "reclaim"),))
+            death["reclaim"] |= {"at": at}
         return ends, reclaims
 
     ends, reclaims = state.write(watcher.name, claim_lanes, budget=state.WATCH_WRITE_SECONDS)
