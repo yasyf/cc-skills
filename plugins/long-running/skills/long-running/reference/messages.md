@@ -597,7 +597,7 @@ merged and installed, listing each rule now in the skill.
 - The drive owes it to whoever reported a bug the drive fixes, in the thread of the report, the moment
   the fix is live. His words, the day a hand repair went live and the reporter never heard: "Did you
   let him know it's fixed? … I told him since you never did, fix that". The order keeps that thread
-  from the share or link in his words, `drive order add --reporter`, or by itself when he gives the
+  by itself from the share or link in his words, a message a person wrote, or when he gives the
   order in that thread, whose lines then go to his DM. A second report of the same bug, such as
   another teammate's, joins it with `drive order set --reporter`, beside the first, so each thread
   hears its own note, and `drive status` says on the order's line whether each thread heard.

@@ -208,6 +208,17 @@ def thread_of(channel: str, ts: str) -> str:
     return next((message["thread_ts"] for message in messages if message["ts"] == ts and message.get("thread_ts")), ts)
 
 
+def shares(channel: str, ts: str) -> list[dict]:
+    """The messages the message at ts shares, each with its own from_user, from_claude and from_bot, read in one call."""
+    messages = thread("--channel", channel, "--thread", ts, "--limit", "1")
+    return next((message.get("shares", []) for message in messages if message["ts"] == ts), [])
+
+
+def by_person(message: dict) -> bool:
+    """Whether a person wrote the message, not him, the drive or a bot."""
+    return not (message.get("from_user") or message.get("from_claude") or message.get("from_bot"))
+
+
 def message_and_root(link: str) -> tuple[dict, dict | None]:
     """The message a Slack permalink names and the message its thread hangs from, None for a message at the channel's root, read from that thread in one call; a reply's link with no thread_ts reads the reply alone, so its parent is read from its own thread."""
     match = MESSAGE_LINK.search(link)

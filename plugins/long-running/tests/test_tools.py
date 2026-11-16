@@ -1122,7 +1122,7 @@ def recording(monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str
 
 
 def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_is_an_order_of_its_own_holding_its_reporter_carried_by_the_job_fixing_it(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     thread = "1794548764.374189"
     fixing = "the new-tree run page shows no browser views"
@@ -1131,13 +1131,17 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
     posted = recording(monkeypatch, run)
     dm, team = "https://acme.slack.com/archives/D123", "https://acme.slack.com/archives/C0TEAM"
     first_report, second_report = f"{team}/p1794541608044529", f"{team}/p1794549000000100"
+    slack_thread.messages += [
+        {"ts": "1794548764.374189", "from_user": True, "shares": [{"permalink": first_report, "from_claude": False}]},
+        {"ts": "1794549100.000200", "thread_ts": thread, "from_user": True, "shares": [{"permalink": second_report, "from_claude": False}]},
+    ]
     shared = {
         "kind": "owner",
         "text": f"<{first_report}> Shared in <#C0TEAM>: Something looks broken with browser views on run details page",
         "url": f"{dm}/p1794548764374189",
         "thread": thread,
         "about": "his work",
-        "attrs": {"job": "j1", "order": "o1", "reporter": first_report},
+        "attrs": {"job": "j1", "order": "o1"},
     }
     with pytest.raises(DriveError, match="1: refused, these words share a report someone else wrote into o1, so they become an order of their own"):
         tools.run("record", demo, {"records": [shared]})
@@ -1153,11 +1157,11 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
         shared["text"], "Browser views on run details", "Iris", "Run page", "coordinator", "slack:D123/1794548764.374189", [first_report]
     )
     assert (list(orders), list(orders["o1"]["parts"]), orders["o1"]["reporters"], carries) == (["o1", "o2"], ["Run page browser views"], [], {"o2": ["Browser views on run details"]})
-    assert [(record["to"], record["attr"]["order"], record["attr"].get("part"), record["attr"]["reporter"]) for record in posted] == [(["root@demo"], "o2", None, first_report)]
+    assert [(record["to"], record["attr"]["order"], record["attr"].get("part")) for record in posted] == [(["root@demo"], "o2", None)]
     second = shared | {
         "text": f"<{second_report}> Shared in <#C0TEAM>: the run page shows no screenshots either",
         "url": f"{dm}/p1794549100000200?thread_ts={thread}",
-        "attrs": shared["attrs"] | {"reporter": second_report, "title": "Run page screenshots"},
+        "attrs": shared["attrs"] | {"title": "Run page screenshots"},
     }
     assert tools.run("record", demo, {"records": [second]}).splitlines()[0] == "1 order add: o3"
     with state.edit(demo) as data:
@@ -1168,22 +1172,18 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
     assert list(state.load(demo)["jobs"]["j1"]["carries"]) == ["o2", "o3"]
 
 
-def test_a_report_he_shares_in_the_message_an_open_order_came_from_gives_that_order_its_reporter_as_record_686067_needed(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+def test_a_report_he_shares_in_the_message_an_open_order_came_from_is_that_orders_reporter_with_no_record_attr_as_record_686067_needed(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     asked, report = "https://acme.slack.com/archives/D123/p1794533521061139", "https://acme.slack.com/archives/C0TEAM/p1794533324854699"
+    slack_thread.messages.append({"ts": "1794533521.061139", "from_user": True, "shares": [{"permalink": report, "from_claude": False}]})
     words = f"<{report}> list the cloud agent PRs on the run page"
     run("order", "add", "--from", asked, "--title", "Cloud agent PR list", "--project", "Iris", "--workstream", "Agents", words)
     posted = recording(monkeypatch, run)
-    shared = {"kind": "owner", "text": words, "url": asked, "thread": "1794533521.061139", "about": "his work", "attrs": {"order": "o1", "reporter": report}}
-    said = tools.run("record", demo, {"records": [shared]}).splitlines()
-    assert (said[0].startswith("1 order set: "), said[-1]) == (True, "1 owner 1")
+    shared = {"kind": "owner", "text": words, "url": asked, "thread": "1794533521.061139", "about": "his work", "attrs": {"order": "o1"}}
+    assert tools.run("record", demo, {"records": [shared]}).splitlines()[-1] == "1 owner 1"
     orders = state.load(demo)["orders"]
     assert (list(orders), list(orders["o1"]["parts"]), [held["link"] for held in orders["o1"]["reporters"]], posted[0]["attr"]["order"]) == (["o1"], ["Cloud agent PR list"], [report], "o1")
-    another = "https://acme.slack.com/archives/C0TEAM/p1794533400000100"
-    tools.run("record", demo, {"records": [shared | {"attrs": shared["attrs"] | {"reporter": another}}]})
-    orders = state.load(demo)["orders"]
-    assert (list(orders), [held["link"] for held in orders["o1"]["reporters"]]) == (["o1"], [report, another])
 
 
 def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(
