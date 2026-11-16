@@ -86,6 +86,7 @@ REAL_MAILBOX = orca.mailbox
 REAL_PLUGIN_COPIES_FIRST = install.plugin_copies_first
 REAL_DOWN_MAC_BOXES = state.down_mac_boxes
 REAL_SCRATCH = state.scratch
+REAL_MACHINE = place.machine
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
@@ -870,8 +871,8 @@ def live_sessions(monkeypatch: pytest.MonkeyPatch) -> dict[str, int | None]:
 
 @pytest.fixture(autouse=True)
 def unstrained(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every test's Mac is neither loaded nor short of memory, whatever the machine running it reads; a test of the gate itself sets strained."""
-    monkeypatch.setattr(place, "strained", lambda: None)
+    """Every test's Mac reads idle with its memory free, by an injected machine read in place of the kernel's, so no test reads the load of the machine running it; a test of the gate itself sets machine or strained."""
+    monkeypatch.setattr(place, "machine", lambda: (0.0, 4, 100))
 
 
 @pytest.fixture(autouse=True)

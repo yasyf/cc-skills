@@ -149,13 +149,20 @@ def free_memory() -> int:
     return fields["MemAvailable"] * 100 // fields["MemTotal"]
 
 
+def machine() -> tuple[float, int, int]:
+    """This Mac's 1-minute load average, its cores and the percent of its memory free, as the load gate reads them: from the "machine" object of caps.json when it sets one, as a test's state root does so no test reads the load of the machine running it, else from the kernel."""
+    if given := caps().get("machine"):
+        return given["load"], given["cores"], given["free_memory"]
+    return os.getloadavg()[0], os.cpu_count() or 1, free_memory()
+
+
 def strained() -> str | None:
-    """Why this Mac takes no new local Claude lane now: its 1-minute load average is over its core count times the load_per_core of caps, or under its free_memory percent of its memory is free; None when neither holds."""
+    """Why this Mac takes no new local Claude lane now: its 1-minute load average is over its core count times the load_per_core of caps, or under its free_memory percent of its memory is free, each read by machine; None when neither holds."""
     held = caps()
-    load, cores = os.getloadavg()[0], os.cpu_count() or 1
+    load, cores, free = machine()
     if load > cores * held["load_per_core"]:
         return f"this Mac's 1-minute load is {load:.0f}, over its {cores} cores times {held['load_per_core']:g}, set by {state.root() / CAPS_FILE}"
-    if (free := free_memory()) < held["free_memory"]:
+    if free < held["free_memory"]:
         return f"{free}% of this Mac's memory is free, under {held['free_memory']:g}%, set by {state.root() / CAPS_FILE}"
     return None
 
