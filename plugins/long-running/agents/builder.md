@@ -2,7 +2,7 @@
 name: builder
 description: Use when a long-running drive's coordinator, or its meta session for drive tooling, needs one change built or one event on an open PR handled (a red check, a review, his tap to land, a merge to install and prove live). It writes the code and opens the PR, or handles that event, and returns one result line; the next PR event gets a fresh builder.
 model: opus
-effort: xhigh
+effort: high
 background: true
 autoCompactWindow: 300000
 disallowedTools: Agent, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup

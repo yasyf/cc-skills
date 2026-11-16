@@ -202,7 +202,7 @@ while its checkout moves, like this:
 WORKER_CC_REMOTE=/absolute/path/to/cc-remote \
 CC_REMOTE_CONFIG=/absolute/path/to/config.yaml \
 WORKER_RUN="<owned-run-id>" WORKER_REF=<branch> \
-  orca-worker-launch.sh "<lane>" opus xhigh "<brief.md>"
+  orca-worker-launch.sh "<lane>" opus high "<brief.md>"
 ```
 
 `WORKER_REF` names a remote branch or tag and passes through unchanged; when
@@ -245,7 +245,7 @@ extremely sensitive work, the one case for Fable:
 
 ```sh
 WORKER_RUN="<owned-run-id>" WORKER_LOCAL=1 \
-  orca-worker-launch.sh "<lane>" opus xhigh "<brief.md>"
+  orca-worker-launch.sh "<lane>" opus high "<brief.md>"
 ```
 
 The local route refuses without a repository and base branch, from
@@ -387,7 +387,7 @@ whose `env` a Claude lane exports, one `--env` flag per variable, and whose
 ```sh
 "<selected-cc-remote>" orca prepare "<lane>" --config "<configured-yaml>" \
   --provider sprites --profile agents --agent claude \
-  --model claude-opus-5-5 --effort xhigh --ref "<branch-or-tag>" \
+  --model claude-opus-5-5 --effort high --ref "<branch-or-tag>" \
   $(jq -r '.env | to_entries[] | "--env=\(.key)=\(.value)"' "<lane.json>") \
   --settings "$(jq -c '.settings + {permissions: {deny: .deniedTools}}' "<lane.json>")" \
   --brief-file "<complete-brief.md>" >"<new-prepared.json>"
@@ -435,7 +435,7 @@ checkout:
 ```sh
 "<selected-cc-remote>" orca prepare "<recorded-workspace>" --existing \
   --config "<same-config>" --provider sprites --profile agents --agent claude \
-  --model claude-opus-5-5 --effort xhigh \
+  --model claude-opus-5-5 --effort high \
   $(jq -r '.env | to_entries[] | "--env=\(.key)=\(.value)"' "<lane.json>") \
   --settings "$(jq -c '.settings + {permissions: {deny: .deniedTools}}' "<lane.json>")" \
   --brief-file "<complete-brief.md>" >"<new-prepared.json>"
@@ -781,12 +781,15 @@ inherit a local lane's shipping obligations.
 ## Models
 
 Root orchestrators and Claude implementation workers run Opus. Codex review,
-diagnosis, sweeps and shell-heavy lanes run `gpt-6.1-sol` at `xhigh` on the
-standard tier; only an incident lane adds `WORKER_SERVICE_TIER=fast` with
-`WORKER_INCIDENT=1`. Fable is for exceptional cases only: local, for the most
-sensitive implementation, using the machine's existing interactive
-authentication. Preserve explicitly requested models and effort within these
-roles. Never use Fable as a general fallback or set `fallbackModel`.
+diagnosis, sweeps and shell-heavy lanes run `gpt-6.1-sol` on the standard tier;
+only an incident lane adds `WORKER_SERVICE_TIER=fast` with `WORKER_INCIDENT=1`.
+Every lane runs at `high` effort or below, Claude and Codex alike, by the
+owner's Nov 15 words "nothing should be running at xhigh": launch with `high`
+where a brief or older page says `xhigh`. Fable is for exceptional cases only:
+local, for the most sensitive implementation, using the machine's existing
+interactive authentication. Preserve explicitly requested models and effort
+within these roles. Never use Fable as a general fallback or set
+`fallbackModel`.
 
 | Alias | Model ID | Placement |
 | --- | --- | --- |

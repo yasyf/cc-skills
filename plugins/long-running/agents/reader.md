@@ -2,7 +2,7 @@
 name: reader
 description: Answers one read-only question a long-running drive's order needs, with evidence, such as reproducing a bug or researching a build. Returns one line. Runs on Opus, or Sonnet for a one-fact lookup; the coordinator, or the meta session for drive tooling, starts it in the background.
 model: opus
-effort: xhigh
+effort: high
 background: true
 disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup
 ---
