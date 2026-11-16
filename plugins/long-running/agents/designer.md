@@ -233,7 +233,9 @@ naming no change of its list, and an `exists: none` naming no search or contradi
 report's `exists:` line on the part.
 
 Each `Change:` line of a design of several becomes a part of the order under its words before
-`(waits on …)`. The drive gives each change its own builder as your design returns. A builder
+`(waits on …)`. Write that wait only where one change cannot be built without the other's code.
+A wait that comes from a choice in the design, such as a page waiting on a conversion of old data
+it could read as it is, is designed out: shape the change so what he asked for ships first. The drive gives each change its own builder as your design returns. A builder
 waits until the builder of each change it waits on registers its PR, and is cut from that PR's
 branch. Those words are the change's identity, so when you file the design again:
 
