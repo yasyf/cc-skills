@@ -2046,6 +2046,7 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     proof.write_text("#!/bin/sh\nexit 0\n")
     proof.chmod(0o755)
     provide(monkeypatch, clone, repo=NamedRepo, release=EnvsRelease)
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     data = state.new_drive("demo", "coordinator", None, str(clone))
     state.create(data)
     data = state.load("demo")
