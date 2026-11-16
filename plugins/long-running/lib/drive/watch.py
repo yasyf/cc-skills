@@ -70,6 +70,7 @@ ANSWERS = "answers"
 LANE_WAIT = timedelta(seconds=reads.LANE_GIVES_UP)
 ANSWER_BY = timedelta(seconds=reads.ANSWER_BY)
 RELAUNCHES_LOG = "relaunches.log"
+TRANSCRIPTS_LOG = "transcripts.log"
 PROOF_TAIL = 20
 PASS_DONE = (
     "this pass's round is done: it returns DONE naming what the round did and where the next round starts, which the watch quotes to the next"
@@ -1531,7 +1532,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if not live_lanes(watcher, data):
         return []
-    lines, messages, delivered, undelivered, owed, asked, unread = [], [], {}, [], [], [], set()
+    lines, messages, delivered, undelivered, owed, asked, unread, turned = [], [], {}, [], [], [], set(), set()
     try:
         mail = lane_mail(watcher, data)
         delivered = deliveries(watcher, data, mail)
@@ -1564,6 +1565,8 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     continue
                 if message["type"] in state.TURN_ENDS and message["from_handle"] == f"dispatch:{job['dispatch']}":
                     job["turn_open"] = False
+                    if job.get("workspace") and not state.on_mac(job):
+                        turned.add(job_id)
                 if orca.unread_notice(message):
                     continue
                 if delivery := delivered.get(sending(message)):
@@ -1575,6 +1578,8 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 taken = message["type"] in state.TURN_ENDS and (state.lane_ended(job) or message["id"] in state.turn_ends(state.replies(watcher.name, job_id)))
                 lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), taken, owed))
         watcher.mailbox_seen = messages[-1]["sequence"]
+    for job_id in turned:
+        state.detach(watcher.name, ["transcripts-keep", job_id], TRANSCRIPTS_LOG)
     for job_id, said, added, unkept in owed:
         state.returned(watcher.name, data, job_id, "; ".join([*said, *render.builder_lines(watcher.name, data, added), *unkept]))
     for job_id, order_id, held, failed in undelivered:
