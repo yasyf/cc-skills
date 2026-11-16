@@ -130,9 +130,9 @@ def test_a_lane_session_the_drive_starts_on_this_mac_runs_with_an_opus_advisor_a
     settings, flags = agents.lane_session({state.DRIVE_ENV: "demo"}, agents.BUILDER, Path("/code/monorepo"))
     lane = json.loads(LANE_SPEC.read_text())
     assert (flags, settings["env"][agents.COMPACT_ENV], "CLAUDE_CODE_DISABLE_ADVISOR_TOOL" in settings["env"]) == ((*agents.LANE_RULES_ARGS, "--strict-mcp-config", "--effort", "high", "--advisor", "opus"), lane["env"][agents.COMPACT_ENV], False)
-    assert (settings["claudeMdExcludes"], settings["env"]["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"]) == ([str(install.config_dir() / "CLAUDE.md")], "1")
+    assert (settings["claudeMdExcludes"], "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD" in settings["env"]) == ([str(install.config_dir() / "CLAUDE.md")], False)
     assert {key for key, on in settings["enabledPlugins"].items() if on} == {"long-running@skills", "captain-hook@captain-hook", "open-pr@skills"}
-    assert (Path(agents.LANE_RULES_ARGS[1]) / "CLAUDE.md").is_file()
+    assert Path(agents.LANE_RULES_ARGS[1]).is_file()
 
 
 def test_a_builder_lists_each_checkout_skill_it_never_uses_by_name_alone_and_a_watchdog_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

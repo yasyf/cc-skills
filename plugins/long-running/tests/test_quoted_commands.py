@@ -174,7 +174,7 @@ def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_
         assert session.count("--settings") == 1
         settings = json.loads(session[session.index("--settings") + 1])
         assert settings == expected
-        assert ("--add-dir" in session) == (not top)
+        assert ("--append-system-prompt-file" in session) == (not top)
         assert (settings["env"]["DISABLE_AUTOUPDATER"], settings["spinnerTipsEnabled"], settings["bashOutputMaxChars"]) == ("1", False, 6000)
         assert settings["permissions"]["deny"] == lane["deniedTools"]
         assert "-p" not in session and "--print" not in session

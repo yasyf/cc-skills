@@ -41,8 +41,7 @@ COMPACT_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
 ROOT_WINDOW = "400000"
 COMMUNICATOR_WINDOW = "300000"
 ADVISOR_OFF = {"CLAUDE_CODE_DISABLE_ADVISOR_TOOL": "1"}
-LANE_RULES_ARGS = ("--add-dir", str(Path(__file__).resolve().parents[2] / "lane-rules"))
-LANE_RULES_ENV = {"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD": "1"}
+LANE_RULES_ARGS = ("--append-system-prompt-file", str(Path(__file__).resolve().parents[2] / "lane-rules" / "CLAUDE.md"))
 LANE_RULES_HOLE = "<lane rules>"
 TOP_SEATS = ("coordinator", "communicator", "meta")
 SEAT = re.compile(r"^cci session register <drive>-(\S+) ")
@@ -693,8 +692,8 @@ def take_pointed(name: str, job_id: str) -> list[str]:
 
 
 def leaf(settings: dict) -> dict:
-    """The settings of a session the drive starts below its top roots, the coordinator, communicator and meta session, which keep the user's whole ~/.claude/CLAUDE.md: that file excluded and the plugin's lane-rules/CLAUDE.md loaded in its place, as the directory LANE_RULES_ARGS adds once LANE_RULES_ENV lets Claude Code read an added directory's CLAUDE.md, so the session carries only the rules a lane needs, by his Nov 15 words "consider that we can exclude this claude.md for some of the middle or leaf nodes of our tree specifically for long-running"; each launch puts LANE_RULES_ARGS before another flag, since `--add-dir` takes every word after it up to the next one, a prompt included."""
-    return settings | {"claudeMdExcludes": [*settings.get("claudeMdExcludes", []), str(install.config_dir() / "CLAUDE.md")], "env": settings["env"] | LANE_RULES_ENV}
+    """The settings of a session the drive starts below its top roots, the coordinator, communicator and meta session, which keep the user's whole ~/.claude/CLAUDE.md: that file excluded, and the plugin's lane-rules/CLAUDE.md appended to its system prompt in its place by LANE_RULES_ARGS, a file flag rather than an added folder, since Claude Code refuses an added folder it does not trust and each install's versioned plugin path is one it never trusted, so the session carries only the rules a lane needs, by his Nov 15 words "consider that we can exclude this claude.md for some of the middle or leaf nodes of our tree specifically for long-running"."""
+    return settings | {"claudeMdExcludes": [*settings.get("claudeMdExcludes", []), str(install.config_dir() / "CLAUDE.md")]}
 
 
 def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:

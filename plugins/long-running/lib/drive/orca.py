@@ -516,7 +516,7 @@ def place(job: dict) -> str:
 
 
 def vm_brief(drive: str, job_id: str, kind: str, brief: str, route: str | None) -> str:
-    """What a job started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: the role state.JOB_AGENTS starts its kind as, by role_body, its brief, on a Sprite the plugin's lane rules, which a lane on this Mac loads as a CLAUDE.md by agents.leaf, and each of its Transcripts: a READ cannot serve named by sprite_transcripts and each other file of this Mac it names that no READ serves copied in by sprite_files."""
+    """What a job started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: the role state.JOB_AGENTS starts its kind as, by role_body, its brief, the plugin's lane rules, carried in the brief on this Mac too since an Orca worker's added folder must be trusted and an install's versioned plugin folder never is, and each of its Transcripts: a READ cannot serve named by sprite_transcripts and each other file of this Mac it names that no READ serves copied in by sprite_files."""
     on_mac = route == state.LOCAL_ROUTE
     running = (
         'on this Mac, so it reports through Orca as its "On a Sprite" section says; the rest of that section is for a Sprite'
@@ -524,7 +524,7 @@ def vm_brief(drive: str, job_id: str, kind: str, brief: str, route: str | None) 
         else 'on a Sprite, so its "On a Sprite" section applies'
     )
     role = state.JOB_AGENTS[kind][0].partition(":")[2]
-    rules = "" if on_mac else f"{LANE_RULES.read_text().strip()}\n\n"
+    rules = f"{LANE_RULES.read_text().strip()}\n\n"
     borrowed = "" if role == "builder" else " Its On a Sprite and Waits and reads sections are the builder's, for how a lane reads, waits and reports, and their steps for a PR are a builder's: you open none."
     return (
         f"Remote lane: drive {drive}, job {job_id}. You are the long-running {role} below, running as an Orca "
@@ -782,10 +782,9 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         repo = request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]
         servers = brief.with_suffix(".mcp.json")
         servers.write_text(json.dumps(agents.datadog_servers()))
-        rules = " ".join(f"{key}={value}" for key, value in agents.LANE_RULES_ENV.items())
         leafed = agents.light({"env": {}, "enabledPlugins": {}} | json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}"), agents.BUILDER, checkout)
         lane_settings = {key: value for key, value in leafed.items() if key != "env"}
-        env |= {"WORKER_LOCAL": "1", "WORKER_REPO": repo, "WORKER_ENV": f"{LANE_ENV} {rules} CCI_PARENT_SESSION={drive}", "WORKER_MCP_CONFIG": str(servers), "WORKER_ADD_DIR": agents.LANE_RULES_ARGS[1], "CLAUDE_LANE_SETTINGS": json.dumps(lane_settings)}
+        env |= {"WORKER_LOCAL": "1", "WORKER_REPO": repo, "WORKER_ENV": f"{LANE_ENV} CCI_PARENT_SESSION={drive}", "WORKER_MCP_CONFIG": str(servers), "CLAUDE_LANE_SETTINGS": json.dumps(lane_settings)}
     else:
         env |= {"WORKER_TOOLS": SPRITE_TOOLS, "WORKER_MCP_CONFIG": json.dumps(agents.sprite_servers()), "CLAUDE_LANE_SETTINGS": json.dumps(agents.sprite_lane(checkout))}
     attempt = brief.with_suffix(".worker")
