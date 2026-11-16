@@ -4270,8 +4270,9 @@ def safeguard_lines(watcher: Watcher, refusals: dict[str, tuple[str, dict, str |
     """Restart each running job whose agent or lane, the worker given, a model's safeguards stopped, in a fresh Claude session with a compact handoff, never resuming the session that was flagged, since the flag is a false positive on normal work that one context usually draws, by his order "restart the job at once in a FRESH Claude session", and ask him on a question card only once two restarts were stopped too. Each stop is kept on the job's safeguarded list by the worker it stopped, the stamp of its refused response and, for a lane on this Mac that runs as an Orca worker, the terminal it was read in, so the passes that read the same stop again while its restart runs count it once, and a stop read of a worker the job no longer runs counts nothing; safeguard_restart starts each restart, the second on SAFEGUARD_MODEL. A restart that leaves the same worker stopped is started again RELAUNCH_RETRY after its last try, at most RELAUNCH_TRIES times, and a job busy reads another drive verb acting on waits for a later pass. A third stop, or a stop whose restarts never started a worker, sets the job stopped and keeps a question for him on it by safeguard_ask, whose card safeguard_cards draws and whose Restart tap restarts the job. Each restart and stop is one LANE line to the session holding the job, naming no notice."""
     if not refusals:
         return []
-    lines = []
-    with state.edit(watcher.name) as data:
+
+    def claim_restarts(data: dict) -> tuple[list[tuple[str, str | None]], dict[str, dict]]:
+        steps, plans = [], {}
         for job_id, (worker, turn, terminal) in refusals.items():
             job = data["jobs"][job_id]
             if job["state"] != "running" or job[state.worker_key(job)] != worker or busy(watcher, job_id, moment):
@@ -4285,32 +4286,76 @@ def safeguard_lines(watcher: Watcher, refusals: dict[str, tuple[str, dict, str |
             if len(stops) > SAFEGUARD_RESTARTS or stop["tries"] >= RELAUNCH_TRIES:
                 said = f"{SAFEGUARDED} {times(len(stops))}, {restarts(job)}; his card asks whether to restart it once more"
                 job.update(state="stopped", said=said, safeguard_card=str(safeguard_ask(watcher.name, data, job_id)), updated=state.stamp(moment))
-                lines.append(
+                steps.append((
+                    job_id,
                     f"LANE {job_id} {job['order']} {said}: the watch set it stopped and asks him on his card. His Restart tap restarts it in a fresh session with no step of yours,"
-                    " and Leave it stopped keeps it stopped"
-                )
+                    " and Leave it stopped keeps it stopped",
+                ))
                 continue
             if stop["tries"] and moment - state.parse_time(stop["at"]) < RELAUNCH_RETRY:
                 continue
-            lines.append(safeguard_restart(watcher, job_id, job, stop, moment))
-    return lines
+            plans[job_id] = safeguard_claim(job_id, job, stop, moment)
+            steps.append((job_id, None))
+        return steps, plans
+
+    steps, plans = state.update(watcher.name, None, claim_restarts)
+    restarted = safeguard_restart(watcher, plans, moment)
+    return [line if line is not None else restarted[job_id] for job_id, line in steps]
 
 
-def safeguard_restart(watcher: Watcher, job_id: str, job: dict, stop: dict, moment: datetime) -> str:
-    """Start the next worker of a job a model's safeguards stopped in a fresh Claude session, in the edit the caller saves, counting the try and keeping the pid of a launch on the stop; its LANE line. The first stop on the job's safeguarded list clears the job's model, and the second sets SAFEGUARD_MODEL, which every later worker of the job starts on. A job's agent on this Mac gets `drive job launch <j> --local` by start_verb, whose takeover from an agent that stopped hands the job to a fresh `claude --bg` session on this Mac, where the watch reads its next stop, on a handoff carrying the brief and what the stopped agent left, the stopped agent's own idle session stopped first so it holds no memory, its transcript kept for that handoff; a lane on this Mac that runs as an Orca worker has the terminal its stop was read in closed instead, by orca.close_pane, so the next read finds its worker exited and death_lines' drive job resume starts its next worker in a fresh Claude session there."""
+def safeguard_claim(job_id: str, job: dict, stop: dict, moment: datetime) -> dict:
+    """Count the next try of a restart of a job a model's safeguards stopped, in the write the caller commits, and claim a launch's stop with this process's pid, so no other pass starts a second launch before safeguard_restart gives the stop that launch's pid; what that restart needs. The first stop on the job's safeguarded list clears the job's model, and the second sets SAFEGUARD_MODEL, which every later worker of the job starts on."""
     count = len(job["safeguarded"])
     job["model"] = SAFEGUARD_MODEL if count == SAFEGUARD_RESTARTS else None
     stop.update(tries=stop["tries"] + 1, at=state.stamp(moment))
-    on = f" on {SAFEGUARD_MODEL}" if job["model"] else ""
-    opening = f'LANE {job_id} {job["order"]} {SAFEGUARDED} {times(count)}, while it worked on "{cut(job["said"] or job["goal"], 60)}".'
-    if job.get("where") == "remote":
-        if refused := orca.close_pane(stop["terminal"]):
-            return f"{opening} Orca refused to close its terminal {stop['terminal']}: {refused}; the watch tries again in {RELAUNCH_RETRY.seconds // 60} minutes"
-        return f"{opening} The watch closed its terminal {stop['terminal']}, so its next read finds the worker exited and drive job resume starts the next in a fresh Claude session{on} with a handoff"
-    if session := state.own_session(job):
-        agents.end_bg(session, Path(job["bg"]["cwd"]), removed=False)
-    stop["pid"] = start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
-    return f"{opening} The watch ran drive job launch {job_id} --local, which starts it again in a fresh Claude session{on} on this Mac with a handoff, its output in the drive's {RELAUNCHES_LOG}"
+    remote = job.get("where") == "remote"
+    session = None if remote else state.own_session(job)
+    plan = {
+        "opening": f'LANE {job_id} {job["order"]} {SAFEGUARDED} {times(count)}, while it worked on "{cut(job["said"] or job["goal"], 60)}".',
+        "on": f" on {SAFEGUARD_MODEL}" if job["model"] else "",
+        "remote": remote,
+        "terminal": stop["terminal"],
+        "session": session,
+        "cwd": job["bg"]["cwd"] if session else None,
+        "at": stop["at"],
+        "before": stop["pid"],
+    }
+    if not remote:
+        stop["pid"] = os.getpid()
+    return plan
+
+
+def safeguard_restart(watcher: Watcher, plans: dict[str, dict], moment: datetime) -> dict[str, str]:
+    """Start the next worker of each job safeguard_claim counted a try on, in a fresh Claude session, once that write committed, then keep the pid of each launch on its stop in place of its claim, or put back what the claim replaced when none started, only where the claim still stands; each job's LANE line. A job's agent on this Mac gets `drive job launch <j> --local` by start_verb, whose takeover from an agent that stopped hands the job to a fresh `claude --bg` session on this Mac, where the watch reads its next stop, on a handoff carrying the brief and what the stopped agent left, the stopped agent's own idle session stopped first so it holds no memory, its transcript kept for that handoff; a lane on this Mac that runs as an Orca worker has the terminal its stop was read in closed instead, by orca.close_pane, so the next read finds its worker exited and death_lines' drive job resume starts its next worker in a fresh Claude session there."""
+    told: dict[str, str] = {}
+    spawned: dict[str, int] = {}
+    claimed = [job_id for job_id, plan in plans.items() if not plan["remote"]]
+
+    def own(data: dict) -> None:
+        for job_id in claimed:
+            for stop in data["jobs"][job_id]["safeguarded"]:
+                if (stop["pid"], stop["at"]) == (os.getpid(), plans[job_id]["at"]):
+                    stop["pid"] = spawned.get(job_id, plans[job_id]["before"])
+
+    try:
+        for job_id, plan in plans.items():
+            opening, on = plan["opening"], plan["on"]
+            if plan["remote"]:
+                refused = orca.close_pane(plan["terminal"])
+                told[job_id] = (
+                    f"{opening} Orca refused to close its terminal {plan['terminal']}: {refused}; the watch tries again in {RELAUNCH_RETRY.seconds // 60} minutes"
+                    if refused
+                    else f"{opening} The watch closed its terminal {plan['terminal']}, so its next read finds the worker exited and drive job resume starts the next in a fresh Claude session{on} with a handoff"
+                )
+                continue
+            if plan["session"]:
+                agents.end_bg(plan["session"], Path(plan["cwd"]), removed=False)
+            spawned[job_id] = start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
+            told[job_id] = f"{opening} The watch ran drive job launch {job_id} --local, which starts it again in a fresh Claude session{on} on this Mac with a handoff, its output in the drive's {RELAUNCHES_LOG}"
+    finally:
+        if claimed:
+            state.update(watcher.name, tuple(("jobs", job_id, "safeguarded") for job_id in claimed), own)
+    return told
 
 
 def times(count: int) -> str:
@@ -4326,7 +4371,7 @@ def restarts(job: dict) -> str:
 
 
 def safeguard_ask(name: str, data: dict, job_id: str) -> Path:
-    """Keep on the job, in the edit the caller saves, the question his card asks once a model's safeguards stopped it past its restarts, in plain words: what it was doing, how often the safety check stopped it and the two choices SAFEGUARD_OPTIONS names, Restart recommended, never Claude Code's notice, an API error or a request id; its ASK block kept in its own file named for its words, as drive job ask names one, with the hash kept_ask draws it under, but past drive job ask's checks and the rulings that decide a question with no card, since the drive asks it itself and only his tap answers it. The file."""
+    """Keep on the job, in the write the caller commits, the question his card asks once a model's safeguards stopped it past its restarts, in plain words: what it was doing, how often the safety check stopped it and the two choices SAFEGUARD_OPTIONS names, Restart recommended, never Claude Code's notice, an API error or a request id; its ASK block kept in its own file named for its words, as drive job ask names one, with the hash kept_ask draws it under, but past drive job ask's checks and the rulings that decide a question with no card, since the drive asks it itself and only his tap answers it. The file."""
     job = data["jobs"][job_id]
     restart, leave = SAFEGUARD_OPTIONS
     text = (
@@ -4370,17 +4415,23 @@ def safeguard_cards(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def safeguard_restarted(watcher: Watcher, job_id: str, file: Path, moment: datetime) -> str:
-    """Run a stopped job again on his Restart tap on its safeguards card, by his words "Restart relaunches the job by itself": in one edit the job runs again, its card let go, and its safeguarded list reset to the one stop his card asked about, so its next stop restarts it on SAFEGUARD_MODEL and a third asks him again, then safeguard_restart starts it in a fresh Claude session on the job's default model, as the first restart does. A job another live job of its order took a part of since starts nothing, said, so no two jobs do one part's work. Its LANE line."""
-    with state.edit(watcher.name) as data:
+    """Run a stopped job again on his Restart tap on its safeguards card, by his words "Restart relaunches the job by itself": in one write the job runs again, its card let go, and its safeguarded list reset to the one stop his card asked about, so its next stop restarts it on SAFEGUARD_MODEL and a third asks him again, safeguard_claim counting the try, then safeguard_restart starts it in a fresh Claude session on the job's default model, as the first restart does. A job another live job of its order took a part of since starts nothing, said, so no two jobs do one part's work. Its LANE line."""
+
+    def restart_claimed(data: dict) -> tuple[str, dict | None]:
         job = data["jobs"][job_id]
         if job["state"] != "stopped" or job.get("safeguard_card") != str(file):
-            return f"LANE {job_id} {job['order']}: his Restart tap on its safeguards card finds it {job['state']}, so the watch starts nothing"
+            return f"LANE {job_id} {job['order']}: his Restart tap on its safeguards card finds it {job['state']}, so the watch starts nothing", None
         job["safeguard_card"] = None
         if taken := [other_id for part in job["parts"] for other_id, other in state.part_jobs(data, job["order"], part) if other_id != job_id and other["state"] not in state.FINISHED_JOB_STATES]:
-            return f"LANE {job_id} {job['order']}: his Restart tap on its safeguards card starts nothing, since {', '.join(dict.fromkeys(taken))} took its parts since it stopped"
+            return f"LANE {job_id} {job['order']}: his Restart tap on its safeguards card starts nothing, since {', '.join(dict.fromkeys(taken))} took its parts since it stopped", None
         stop = job["safeguarded"][-1] | {"tries": 0, "pid": None}
         job.update(state="running", said=f"restarted on his tap, {SAFEGUARDED} {times(len(job['safeguarded']))}", safeguarded=[stop], updated=state.stamp(moment))
-        return safeguard_restart(watcher, job_id, job, stop, moment) + ", on his Restart tap on its safeguards card"
+        return "", safeguard_claim(job_id, job, stop, moment)
+
+    said, plan = state.update(watcher.name, None, restart_claimed)
+    if plan is None:
+        return said
+    return safeguard_restart(watcher, {job_id: plan}, moment)[job_id] + ", on his Restart tap on its safeguards card"
 
 
 def budget_lines(watcher: Watcher, moment: datetime) -> list[str]:
