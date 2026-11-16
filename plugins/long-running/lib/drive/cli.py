@@ -1390,14 +1390,6 @@ def order_backlog(args: argparse.Namespace) -> int:
     return emit(args, line, {"tooling_backlog": args.switch == "on", "held": held})
 
 
-def order_owed(args: argparse.Namespace) -> int:
-    """Read the post an order last sent him for a promised time, by talk.read_owed."""
-    from drive import talk
-
-    name = state.resolve(args.drive)
-    return emit(args, talk.read_owed(name, args.id, args.post), {"id": args.id})
-
-
 def order_check(args: argparse.Namespace) -> int:
     """Run a standing part's check, the pass the watch starts in place of a codex job, with no model session: its shell command in the drive's folder, bound to no session, drive or cci agent by CHECK_UNBOUND, so the records it posts go out as the lane and drive it names, cut off at STANDING_EVERY, its output printed to the log the watch detached it on and its exit code and closing line kept on the part, which the part's gap reads, so a check that fails is said once as its ORPHAN line and one that passes holds the part until its next run."""
     name = state.resolve(args.drive)
@@ -8159,10 +8151,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the order")
     verb.add_argument("--part", required=True, type=str.strip, help="the standing part whose check it runs")
     verb.set_defaults(run=order_check)
-    verb = order.add_parser("owed", parents=both, help="what say detaches after a post on an order: read the post for the next step it promised him by a time and keep that time on the order, for the watch to wake its holder once if it passes with nothing posted after")
-    verb.add_argument("id", help="the order")
-    verb.add_argument("--post", required=True, help="the permalink of the post to read, which must still be the order's last")
-    verb.set_defaults(run=order_owed)
     verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, delivering no part, or the answer a part owes him, which the report record it carries delivers, there or in any other channel; or the session holding the order closes a part from the drive's post that already answered it")
     verb.add_argument("id", help="the order")
     posted = verb.add_mutually_exclusive_group(required=True)
