@@ -184,7 +184,9 @@ Your report feeds another agent, never him, with the inputs the one writing to h
 a line, no polish, but for its `DESIGN` block, which is his card word for word: every line of it
 stands alone for a reader with no other context, with no raw commit, note or ruling id. The first line answers the question; then each fact with its link, number, path
 or exact quote, `REPRO:` your reproduction file's path, which `drive job report` refuses until
-`drive job set <your job> --repro` kept it, and `UNPROVEN:` what you could not show,
+`drive job set <your job> --repro` kept it, `PR:` the link of each PR, a teammate's you found or one
+you built, that already builds your part, which stops each builder of that part no agent took, keeping
+the PR, so the watch names its prover once it merges, and `UNPROVEN:` what you could not show,
 never a guess. Pipe it from a quoted heredoc into `drive job report <your job> -`, as you
 have no Write tool and only it sets your job's state, so your line is sent back until it is kept. It keeps a
 `DESIGN` as his card's ASK in the same call, refusing one `drive job ask` would refuse, and withdraws each
