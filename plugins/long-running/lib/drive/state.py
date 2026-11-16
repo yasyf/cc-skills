@@ -852,10 +852,8 @@ def acked(name: str, job_id: str, ids: list[str]) -> None:
 
 
 def replay(name: str) -> list[str]:
-    """Deliver what each job's outbox still holds, which a process that died between a write's commit and its delivery left, by deliver_owed, each message kept once whoever else delivers it meanwhile; one load and nothing more while no outbox holds anything, so the start of each watch pass can call it."""
-    for job_id, job in load(name)["jobs"].items():
-        if job.get("outbox"):
-            deliver_owed(name, job_id, job["outbox"])
+    """Deliver what each job's outbox still holds, which a process that died between a write's commit and its delivery left, by deliver_owed, each message kept once whoever else delivers it meanwhile; one load and nothing more while no outbox holds anything, so the start of each watch pass can call it. Each job's delivery runs apart, by ran, so a job whose history cannot be written holds back no other job's, the failures raised together once every job was tried, while within one job delivery still stops at its first failure, so no later message lands ahead of it."""
+    ran([functools.partial(deliver_owed, name, job_id, job["outbox"]) for job_id, job in load(name)["jobs"].items() if job.get("outbox")], [])
     return []
 
 
