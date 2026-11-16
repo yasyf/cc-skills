@@ -879,7 +879,7 @@ def label(name: str) -> str:
 
 def start(name: str, port: int) -> list[str]:
     """The drive's dashboard links, tailnet first, its server kept by the drive's launch agent: one no agent keeps is stopped and the agent loaded, and a kept one not serving these links is started again at once. A proof's or a script's drive, whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves, gets a server on this code and no agent, which would outlive it."""
-    log = state.drive_dir(name) / "dashboard.log"
+    log = (lane_store.drive_dir(name) if lane_store.live(name) else state.drive_dir(name)) / "dashboard.log"
     drawn = serving(name, port)
     links = links_of(port, tailnet())
     keeping = not state.scratch() and launchd.kept(label(name))
