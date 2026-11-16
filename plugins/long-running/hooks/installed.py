@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+LOADED_ENV = "LONG_RUNNING_LOADED_PLUGIN"
+
 
 def root() -> Path:
     """The newest installed long-running, so a live session runs the hooks installed now, never the ones it loaded at start; a checkout runs its own."""
@@ -100,6 +102,7 @@ def main(hook: str) -> None:
     script = plugin / "hooks" / hook
     if not registered(plugin, hook):
         return
+    os.environ[LOADED_ENV] = str(Path(__file__).resolve().parent.parent)
     os.environ["CLAUDE_PLUGIN_ROOT"] = str(plugin)
     runpy.run_path(str(script), run_name="__main__")
 

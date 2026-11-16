@@ -291,8 +291,14 @@ def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_a_thread_lined
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator}) == []
 
 
-def test_a_compaction_brings_the_newest_installed_skill_page_as_a_hook_output_of_its_own_beside_the_role_block(demo: str) -> None:
+def test_a_compaction_brings_the_newest_installed_skill_page_as_a_hook_output_of_its_own_beside_the_role_block_unless_the_session_loaded_that_page(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     payload = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"}
+    loaded = tmp_path / "skills" / "long-running" / "SKILL.md"
+    loaded.parent.mkdir(parents=True)
+    loaded.write_text("---\nname: long-running\n---\nAn older page.\n")
+    monkeypatch.setenv("LONG_RUNNING_LOADED_PLUGIN", str(tmp_path))
     page = (compacted_skill.PLUGIN / "skills" / "long-running" / "SKILL.md").read_text()
     body = page.split("\n---\n", 1)[1].strip()
     skill = compacted_skill.respond(payload)["hookSpecificOutput"]
@@ -303,6 +309,8 @@ def test_a_compaction_brings_the_newest_installed_skill_page_as_a_hook_output_of
     assert compacted_skill.respond({**payload, "session_id": "someone-else"}) is None
     hooks = json.loads((compacted_skill.PLUGIN / "hooks" / "hooks.json").read_text())["hooks"]["SessionStart"]
     assert [group["matcher"] for group in hooks if group["hooks"][0]["command"].endswith(" compacted_skill.py")] == ["compact"]
+    monkeypatch.setenv("LONG_RUNNING_LOADED_PLUGIN", str(compacted_skill.PLUGIN))
+    assert compacted_skill.respond(payload) is None
 
 
 def test_session_start_gives_a_subagent_of_a_role_no_role_context(demo: str) -> None:
