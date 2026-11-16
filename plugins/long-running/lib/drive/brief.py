@@ -1258,7 +1258,7 @@ def unproven(text: str, job_id: str, job: dict, data: dict) -> str | None:
             else "drive job prove proves them, running its proof file and reading"
         )
         return f"{job_id}'s brief names {len(told)} user stories, which no DONE's words prove: {prover} in what it prints {STORY_LINES}"
-    if shut := dead(proofs("\n".join([text.strip().splitlines()[0], *CHECK.findall(text)]), data)):
+    if shut := dead(proofs("\n".join([text.strip().splitlines()[0], *CHECK.findall(text)])), data):
         return f"a DONE's links each open as he would open them, and {shut[0]}: link the live post, page or run itself, or name the saved file of the check"
     real = [proof for line in CHECK.findall(text) for proof in proofs(line) if held(proof, data)]
     if not real:

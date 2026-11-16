@@ -697,6 +697,9 @@ class HomeRelease(providers.ReleaseProvider):
 
     rehearsal_envs = frozenset({"plat-usw2-staging", "plat-usw2-sandbox"})
 
+    def gives_way(self, words: list[str]) -> bool:
+        return "--for-production" in words
+
     def start(self, words: list[str]) -> dict[str, tuple[str, ...]] | None:
         if Path(words[0]).name not in CI_BINARIES or words[1:2] != ["release"] or words[2:3] not in (["start"], ["hotfix"]):
             return None

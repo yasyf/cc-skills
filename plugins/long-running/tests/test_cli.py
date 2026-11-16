@@ -4994,8 +4994,11 @@ STAND_IN = "https://example.slack.com/archives/D0PROOF/p1794600000000100"
 OFF_WORKSPACE = "it is on example.slack.com, not his Slack workspace acme.slack.com"
 
 
+UNCACHED_READ = brief.unopened.__wrapped__
+
+
 def read_link(link: str) -> str | None:
-    return brief.unopened.__wrapped__(link, HomeBuild(Path(), Path(), {}))
+    return UNCACHED_READ(link, HomeBuild(Path(), Path(), {}))
 
 
 def test_a_proof_naming_the_demos_placeholder_slack_link_is_refused_on_a_done_and_on_order_set_proof_and_one_naming_what_opens_is_kept(
