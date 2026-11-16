@@ -596,12 +596,24 @@ def provide(monkeypatch: pytest.MonkeyPatch, checkout: Path, **roles: type[provi
     built = {role: made(checkout, checkout, {}) for role, made in (HOME | roles).items()}
     monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None, {}, **built))
     monkeypatch.setattr(providers, "at", lambda clone, checkout=None: providers.Providers(None, {}, **built))
+    monkeypatch.setattr(providers, "default_head", lambda clone: "0" * 40)
+
+
+QUEUE_REASON = (
+    "Refused on purpose: {key} lands only through the Trunk merge queue, since every other way into Forge-AI/monorepo"
+    " skips the checks it runs. Enqueue it with `.agents/skills/submit-pr/scripts/stack-enqueue <PR>...`, naming every"
+    ' PR of its stack. An incident fix skips the queue only once `drive pr set <url> --exempt "incident fix"` records it'
+)
 
 
 class HomeRepo(providers.RepoProvider):
     name = "Forge-AI/monorepo"
     guarded_owner = "forge-ai"
     review_ask = "@forge-pr-reviewer review"
+
+    def queue(self) -> providers.Queue:
+        commands = ((("ci", "trunk", "submit"), frozenset({"priority"}), ()), (("stack-enqueue",), frozenset(), ("check", "status", "dequeue")))
+        return providers.Queue(".agents/skills/submit-pr/scripts/stack-enqueue", commands, QUEUE_REASON)
 
 
 class HomeStaging(providers.StagingProvider):
@@ -617,6 +629,9 @@ class HomeBuild(providers.BuildProvider):
     build_url = re.compile(r"https://buildkite\.com/(?P<pipeline>[\w-]+/[\w-]+)/builds/(?P<number>\d+)")
     receiver_path = "/buildkite"
     graders = "Buildkite and forge-pr-reviewer"
+
+    def log_tip(self, job_url: str) -> str:
+        return f"`tools/ci bk log '{job_url}'`"
 
 
 HOME: dict[str, type[providers.Provider]] = {"repo": HomeRepo, "staging": HomeStaging, "mac_box": HomeMacBox, "build": HomeBuild}

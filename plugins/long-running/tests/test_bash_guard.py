@@ -9,7 +9,7 @@ from pathlib import Path
 
 import bash_guard
 import pytest
-from conftest import SESSION, commit_files, git_in
+from conftest import HOME, SESSION, commit_files, git_in
 from drive import agents, github, install, land, limits, orca, providers, reports, settled, state
 from drive.orca import OrcaError
 
@@ -105,18 +105,9 @@ class TeamData(providers.DataProvider):
             return RUNS_ROUTE.format(team=found[1])
         return NO_ROUTE.format(prefix=f"{found[0]}/" if found else location)
 
-class TrunkRepo(providers.RepoProvider):
-    def queue(self) -> providers.Queue:
-        return providers.Queue(".agents/skills/submit-pr/scripts/stack-enqueue", ((("stack-enqueue",), frozenset(), ("check", "status", "dequeue")),), "")
-
-
-class LoggedBuild(providers.BuildProvider):
-    def log_tip(self, job_url: str) -> str:
-        return f"`tools/ci bk log '{job_url}'`"
-
 
 def guarded(clone: Path, checkout: Path | None = None) -> providers.Providers:
-    return providers.Providers(None, {}, repo=TrunkRepo(clone, clone, {}), build=LoggedBuild(clone, clone, {}), data=TeamData(clone, clone, {}))
+    return providers.Providers(None, {}, **{role: made(clone, clone, {}) for role, made in (HOME | {"data": TeamData}).items()})
 
 
 @pytest.fixture(autouse=True)

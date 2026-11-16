@@ -19,7 +19,7 @@ import quiet_turn
 import role_rules
 import scratch_folder
 import session_start
-from conftest import ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
+from conftest import QUEUE_REASON, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -2903,7 +2903,7 @@ def test_guard_holds_a_merge_through_the_api_to_his_tap_and_the_incident_exempti
     approve(drive_pr)
     assert landing_guard.deny_reason(bash(command)) is None
     driving = bash(command) | {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}
-    assert landing_guard.deny_reason(driving) == landing_guard.QUEUE_REASON.format(key=drive_pr)
+    assert landing_guard.deny_reason(driving) == QUEUE_REASON.format(key=drive_pr)
     with state.edit("demo") as data:
         data["prs"][drive_pr]["exempt"] = "incident fix"
     assert landing_guard.deny_reason(driving) is None

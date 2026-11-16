@@ -14,7 +14,6 @@ from pathlib import Path
 from drive import agents, github, install, providers, served, state, train, view
 from drive.render import cut
 
-ENQUEUE = Path(".agents/skills/submit-pr/scripts/stack-enqueue")
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 LOG = "landings.log"
 LANDINGS = "landing"
@@ -40,9 +39,9 @@ STACKED = "must be merged using the asynchronous merge REST API"
 ASYNC_SECONDS = 2
 MERGE = ("gh", "pr", "merge")
 # TODO: delete with its case in stage.unlanded once no lander of an install that refused mid-check still runs: its record() reopens on this install with this outcome.
-NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
+NEWER_INSTALL = "not landed: a newer long-running saved the drive while the merge queue's script ran its check, so the landing runs again on it"
 OWN_FAILURE = "the lander could not"
-NO_ENQUEUE = f"{OWN_FAILURE} finish stack-enqueue"
+NO_ENQUEUE = f"{OWN_FAILURE} finish the merge queue's script"
 NO_DEQUEUE = f"{OWN_FAILURE} take"
 ENQUEUE_FAILED = 5
 HELD = "not landed while he holds it"
@@ -335,7 +334,7 @@ def uncleared_below(data: dict, keys: list[str]) -> list[str]:
 
 def held_below(keys: list[str], below: list[str]) -> str:
     return (
-        f"not landed: {', '.join(below)} sits below {', '.join(keys)} in its stack with neither his Approve nor an exempt class, and stack-enqueue queues a stack"
+        f"not landed: {', '.join(below)} sits below {', '.join(keys)} in its stack with neither his Approve nor an exempt class, and the merge queue queues a stack"
         " from its bottom, so landing a PR above would land it too; it lands once he approves each of them or they merge"
     )
 
@@ -460,16 +459,18 @@ def unqueue(name: str, keys: list[str], why: str) -> int:
 def dequeue(name: str, keys: list[str], why: str) -> str:
     """Take a unit Trunk's merge queue holds out of it with stack-enqueue --dequeue on each PR, its top first, the entry Trunk queued the unit by, from a fresh() worktree of its repository's default branch as a landing runs it, then record why and what stack-enqueue said as its outcome, so each PR reads that hold and lands again once he approves it; on a failure of its own, no worktree, stack-enqueue failing itself, or no PR of the unit answering DEQUEUED, as #56900's NOT_QUEUED once Trunk had passed its tests, the dequeue took nothing out, so undequeued() says so and the watch's next pass dequeues it again while Trunk still holds it."""
     repo = github.repo_of(keys[0])
+    data = state.load(name)
     try:
-        with fresh(name, Path(state.load(name)["roles"]["coordinator"]["cwd"]), repo, github.default_branch(repo)) as (checkout, _):
-            done = [subprocess.run([str(checkout / ENQUEUE), "--dequeue", key.split("#")[1]], cwd=checkout, env=os.environ | {MISE_TRUST: str(checkout)}, capture_output=True, text=True) for key in reversed(keys)]
-    except github.GithubError as error:
+        enqueue = providers.of(data).repo.queue().script
+        with fresh(name, Path(data["roles"]["coordinator"]["cwd"]), repo, github.default_branch(repo)) as (checkout, _):
+            done = [subprocess.run([str(checkout / enqueue), "--dequeue", key.split("#")[1]], cwd=checkout, env=os.environ | {MISE_TRUST: str(checkout)}, capture_output=True, text=True) for key in reversed(keys)]
+    except (github.GithubError, providers.ProviderError) as error:
         return undequeued(name, keys, cut(str(error), SAID_CHARS))
     output = "".join(each.stdout + each.stderr for each in done)
     print(output, flush=True)
     if any(each.returncode == ENQUEUE_FAILED for each in done) or not DEQUEUED_LINE.search(output):
         return undequeued(name, keys, f"{said(output)}; its whole output is in {state.drive_dir(name) / LOG}")
-    return record(name, keys, f"{why}; stack-enqueue --dequeue said {said(output)}", [], {})
+    return record(name, keys, f"{why}; {Path(enqueue).name} --dequeue said {said(output)}", [], {})
 
 
 def undequeued(name: str, keys: list[str], why: str) -> str:
@@ -630,7 +631,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             elif below:
                 outcome = held_below(keys, below)
             elif state.queued_by_lander(keys[0]):
-                outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), keys, data["prs"], asked, dry_run, any(requeues(data, data["prs"][key]) for key in keys))
+                outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), providers.of(data).repo.queue().script, keys, data["prs"], asked, dry_run, any(requeues(data, data["prs"][key]) for key in keys))
             else:
                 pr = data["prs"][keys[0]]
                 outcome = f"would merge it with {' '.join(MERGE)} --{pr['merge_method']} --match-head-commit {pr['head'][:12]}" if dry_run else merged(name, keys[0], pr["merge_method"], ["--match-head-commit", pr["head"]])
@@ -684,7 +685,7 @@ def said(output: str) -> str:
     return cut("; ".join([line for line in output.splitlines() if line.strip()][-SAID_LINES:]), SAID_CHARS)
 
 
-def enqueued(name: str, coordinator: Path, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:
+def enqueued(name: str, coordinator: Path, enqueue: str, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:
     """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of this Mac's landing clone and never from the coordinator's checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose exit of ENQUEUE_FAILED ends the landing as the lander's own failure, by unfinished(), as the same exit of --watch does, and whose BLOCKED lines name each head approved only on an older one, which stack-enqueue names only once ai-review finished on the head; a dry run stops there, saying what it would queue and the BLOCKED lines it read; then forge-pr-reviewer is asked to review each such head that prs, the drive's PRs as the lander read them at its start, records no ask of, each head it asks added to asked for record() to keep, and --watch, which alone tells a wait from a fix, such as GitHub still computing mergeability from a conflict, waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it, a GitHub read that failed before anything queued, the landing clone's fetch included, not landed by UNREAD's rule. It reads and writes no drive state, so an install that saves the drive while it makes the worktree, runs --check or waits on Trunk never ends the landing."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
@@ -693,9 +694,9 @@ def enqueued(name: str, coordinator: Path, keys: list[str], prs: dict, asked: di
     try:
         branch = github.default_branch(repo)
         with fresh(name, coordinator, repo, branch) as (checkout, sha):
-            script = str(checkout / ENQUEUE)
+            script = str(checkout / enqueue)
             trusted = os.environ | {MISE_TRUST: str(checkout)}
-            print(f"{', '.join(keys)}: stack-enqueue from {checkout}, a fresh worktree of {repo}'s {branch} at {sha}", flush=True)
+            print(f"{', '.join(keys)}: {Path(enqueue).name} from {checkout}, a fresh worktree of {repo}'s {branch} at {sha}", flush=True)
             try:
                 checked = subprocess.run([script, "--check", *flags, *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
             except OSError as error:
@@ -706,7 +707,7 @@ def enqueued(name: str, coordinator: Path, keys: list[str], prs: dict, asked: di
             blocked = list(BLOCKED_LINE.finditer(checked.stdout))
             if dry_run:
                 read = f"; --watch waits out or stops on what --check read: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}" if blocked else ""
-                return f"would queue {', '.join(keys)} through stack-enqueue {' '.join(['--watch', *flags])} from {branch} at {sha[:12]}: every PR below it is merged, approved by him or exempt{read}"
+                return f"would queue {', '.join(keys)} through {Path(enqueue).name} {' '.join(['--watch', *flags])} from {branch} at {sha[:12]}: every PR below it is merged, approved by him or exempt{read}"
             for line in blocked:
                 key = f"{repo}#{line['number']}"
                 if not OLDER_HEAD.search(line["gaps"]) or prs[key]["review_asked"] == line["head"]:
@@ -725,7 +726,7 @@ def enqueued(name: str, coordinator: Path, keys: list[str], prs: dict, asked: di
     print(done.stdout + done.stderr, flush=True)
     if done.returncode == 0:
         return QUEUED
-    return unfinished(name, "--watch", keys, done) or f"not landed: stack-enqueue --watch exited {done.returncode}: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
+    return unfinished(name, "--watch", keys, done) or f"not landed: {Path(enqueue).name} --watch exited {done.returncode}: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
 
 
 def unfinished(name: str, mode: str, keys: list[str], done: subprocess.CompletedProcess) -> str | None:

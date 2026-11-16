@@ -50,11 +50,7 @@ SHELLS = {"sh", "bash", "zsh", "dash"}
 FALSE_WORDS = {"0", "f", "false"}
 MERGE_ENDPOINT = re.compile(r"/?repos/([^/\s]+/[^/\s]+)/pulls/(\d+)/merge(?:-async)?")
 INCIDENT_FIX = "incident fix"
-QUEUE_REASON = (
-    "Refused on purpose: {key} lands only through the Trunk merge queue, since every other way into Forge-AI/monorepo"
-    " skips the checks it runs. Enqueue it with `.agents/skills/submit-pr/scripts/stack-enqueue <PR>...`, naming every"
-    ' PR of its stack. An incident fix skips the queue only once `drive pr set <url> --exempt "incident fix"` records it'
-)
+PR_REF = re.compile(r"#?\d+")
 CARD_REASON = (
     "Refused on purpose: his open card {cards} holds {key}, and its recommended option never stands in for his answer."
     " Land and enqueue nothing: return `WAITING {cards}`; the watch says FREE once he answers"
@@ -75,7 +71,7 @@ UNASKED = (
 )
 STACK_REASON = (
     "Refused on purpose: {named} leaves out {left}, which his Approve lands with it: the PRs his card drew and every PR under them."
-    " Name each of them: `stack-enqueue {every}`"
+    " Name each of them: `{step} {every}`"
 )
 COORDINATOR_STEP = (
     "Refused on purpose: the {who} does no order's work itself, so its turn never blocks, and `{step}` is such"
@@ -198,8 +194,6 @@ LANDINGS = (
         endpoint=True,
     ),
     Landing(("ccx", "vcs", "merge"), frozenset({"repo", "match-head-commit", "red-on-main"}), {"R": "repo"}),
-    Landing(("ci", "trunk", "submit"), frozenset({"priority"}), every_pr=True, repo=state.MONOREPO),
-    Landing(("stack-enqueue",), frozenset(), every_pr=True, repo=state.MONOREPO, reads=("check", "status", "dequeue")),
 )
 BODY_POSTS = (
     Landing(
@@ -338,7 +332,24 @@ def switched_on(options: dict[str, list[str]], name: str) -> bool:
     return name in options and options[name][-1].lower() not in FALSE_WORDS
 
 
-def landing_of(words: list[str], landings: tuple[Landing, ...] = LANDINGS) -> tuple[Landing, list[str], dict[str, list[str]]] | None:
+def queue_landings(cwd: str) -> tuple[Landing, ...]:
+    """The landings the merge queue of the repository at cwd's default branch runs, each naming every PR of its stack; none for a folder that is no clone, while providers that fail to load raise."""
+    try:
+        providers.default_head(Path(cwd))
+    except providers.ProviderError:
+        return ()
+    repo = providers.at(Path(cwd)).repo
+    if (queue := repo.queue()) is None:
+        return ()
+    return tuple(Landing(path, valued, every_pr=True, repo=repo.name, reads=reads) for path, valued, reads in queue.commands)
+
+
+def names_pr(words: list[str]) -> bool:
+    """Whether a command names a PR by number or URL, as every merge-queue landing does, so a command naming none loads no providers."""
+    return any(PR_REF.fullmatch(word) or state.PR_URL.search(word) for word in words[1:])
+
+
+def landing_of(words: list[str], landings: tuple[Landing, ...]) -> tuple[Landing, list[str], dict[str, list[str]]] | None:
     for landing in landings:
         if Path(words[0]).name != landing.path[0]:
             continue
@@ -427,8 +438,8 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
         return f"{key}: {why}. {TAP_HINT}"
     if away := land.unattended(state.load(name), key, state.now()):
         return f"{key}: refused: {away}"
-    if shell.driving and not landing.repo and state.queued_by_lander(key) and pr.get("exempt") != INCIDENT_FIX:
-        return QUEUE_REASON.format(key=key)
+    if shell.driving and not landing.repo and state.queued_by_lander(key) and pr.get("exempt") != INCIDENT_FIX and (queue := providers.at(Path(shell.cwd)).repo.queue()):
+        return queue.reason.format(key=key)
     return None
 
 
@@ -475,7 +486,7 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
         listed = {key.lower() for key in keys}
         if left := [member for member in every if member.lower() not in listed]:
             numbers = " ".join(member.split("#")[1] for member in every)
-            return STACK_REASON.format(named=", ".join(keys), left=", ".join(left), every=numbers)
+            return STACK_REASON.format(named=", ".join(keys), left=", ".join(left), step=" ".join(landing.path), every=numbers)
     return next(filter(None, (pr_reason(landing, key, shell) for key in keys)), None)
 
 
@@ -693,7 +704,7 @@ def run_through(nodes: list, shell: Shell) -> Generator[tuple[list[str], list[st
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
-    reasons = (landing_reason(*found, run_in) if (found := landing_of(words)) else cut_reason(words, run_in) or job_reason(words, run_in) for _, words, run_in in commands(script, shell))
+    reasons = (landing_reason(*found, run_in) if (found := landing_of(words, LANDINGS) or (names_pr(words) and landing_of(words, queue_landings(run_in.cwd)))) else cut_reason(words, run_in) or job_reason(words, run_in) for _, words, run_in in commands(script, shell))
     return next(filter(None, reasons), None)
 
 

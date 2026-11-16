@@ -7,7 +7,7 @@ from pathlib import Path
 
 import landing_guard
 import pytest
-from conftest import LEAD, SESSION, SHORT_ASK, Answers
+from conftest import QUEUE_REASON, LEAD, SESSION, SHORT_ASK, Answers
 from drive import agents, brief, github, land, limits, render, settled, shell, stage, state, view
 
 Run = Callable[..., tuple[int, str]]
@@ -331,7 +331,7 @@ def test_a_sprite_lanes_release_verb_is_refused_while_the_coordinators_mac_does_
 def test_a_tapped_monorepo_pr_landed_around_the_queue_is_refused_naming_stack_enqueue(drive_pr: str, no_calls: None, command: str) -> None:
     approve(drive_pr)
     reason = landing_guard.deny_reason(bash(command))
-    assert reason == landing_guard.QUEUE_REASON.format(key=drive_pr)
+    assert reason == QUEUE_REASON.format(key=drive_pr)
     assert "stack-enqueue" in reason
     assert landing_guard.deny_reason(bash(command, session_id="ordinary")) is None
 
@@ -427,9 +427,9 @@ def test_enqueueing_a_pr_of_a_stored_stack_needs_every_pr_his_card_drew_and_thos
         for key in stored_stack[:2]:
             data["prs"][key]["stack"] = data["prs"][key]["tap"]["card"] = stored_stack[:2]
         data["prs"][stored_stack[2]] |= {"stack": stored_stack[2:], "hold_label": True, "tap": None}
-    assert landing_guard.deny_reason(bash("stack-enqueue 41")) == landing_guard.STACK_REASON.format(named=stored_stack[0], left=stored_stack[1], every="41 42")
+    assert landing_guard.deny_reason(bash("stack-enqueue 41")) == landing_guard.STACK_REASON.format(named=stored_stack[0], left=stored_stack[1], step="stack-enqueue", every="41 42")
     reason = landing_guard.deny_reason(bash("stack-enqueue 42"))
-    assert reason == landing_guard.STACK_REASON.format(named=stored_stack[1], left=stored_stack[0], every="41 42")
+    assert reason == landing_guard.STACK_REASON.format(named=stored_stack[1], left=stored_stack[0], step="stack-enqueue", every="41 42")
     assert reason.endswith("`stack-enqueue 41 42`")
     assert landing_guard.deny_reason(bash("stack-enqueue 42 2>&1 | tail -20")) == reason
     assert landing_guard.deny_reason(bash("stack-enqueue 41 42")) is None
@@ -624,7 +624,7 @@ def test_a_drive_session_lands_no_pr_someone_else_opened_that_no_order_of_his_na
     assert landing_guard.deny_reason(bash(command)) == f"Refused on purpose: {state.foreign(drive_pr, 'rowan', [])}. Land, enqueue, label and rebase nothing of it"
     assert landing_guard.deny_reason(bash(command, session_id="ordinary")) is None
     on_github["author"] = {"login": "yasyf", "is_bot": False}
-    assert landing_guard.deny_reason(bash(command)) == (None if "stack-enqueue" in command else landing_guard.QUEUE_REASON.format(key=drive_pr))
+    assert landing_guard.deny_reason(bash(command)) == (None if "stack-enqueue" in command else QUEUE_REASON.format(key=drive_pr))
 
 
 def test_a_staging_start_passes_only_for_the_job_holding_that_envs_slot_now(monkeypatch: pytest.MonkeyPatch) -> None:

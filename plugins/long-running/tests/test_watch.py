@@ -110,6 +110,9 @@ REPLAYED_685794 = [
 ]
 
 
+ENQUEUE = Path(".agents/skills/submit-pr/scripts/stack-enqueue")
+
+
 def proven(data: dict, job_id: str = "j1", **fields: object) -> None:
     data["jobs"][job_id].update(state="done", said=PROVEN, **fields)
     state.deliver_proven(data, job_id, PROVEN.removeprefix("DONE "))
@@ -7791,9 +7794,9 @@ def on_main(tmp_path: Path, name: str, script: str) -> str:
     if not origin.exists():
         origin.mkdir()
         git_in(origin, "init", "-q", "-b", "main")
-        (origin / land.ENQUEUE).parent.mkdir(parents=True)
-        (origin / land.ENQUEUE).touch(mode=0o755)
-    head = commit_files(origin, "stack-enqueue", {str(land.ENQUEUE): script})
+        (origin / ENQUEUE).parent.mkdir(parents=True)
+        (origin / ENQUEUE).touch(mode=0o755)
+    head = commit_files(origin, "stack-enqueue", {str(ENQUEUE): script})
     if not clone.exists():
         git_in(tmp_path, "clone", "-q", str(origin), str(clone))
         with state.edit(name) as data:
@@ -7923,7 +7926,7 @@ def test_a_lander_runs_stack_enqueue_as_the_default_branchs_head_holds_it_from_a
     approve(demo, KEY)
     enqueue_exiting(tmp_path, demo, 3)
     clone = tmp_path / "clone"
-    (clone / land.ENQUEUE).write_text('#!/bin/sh\necho "the checkout said $*"\nexit 3\n')
+    (clone / ENQUEUE).write_text('#!/bin/sh\necho "the checkout said $*"\nexit 3\n')
     head = on_main(tmp_path, demo, '#!/bin/sh\necho "main said $*"\n')
     untouched = (git_in(clone, "rev-parse", "HEAD"), git_in(clone, "status", "--porcelain"))
     assert land.run(demo, [KEY]) == land.QUEUED
@@ -8232,7 +8235,7 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
     head = enqueue_exiting(tmp_path, demo, 0)
     monkeypatch.setattr(land.github, "below", lambda key: ["Forge-AI/monorepo#41", KEY] if key == OTHER else [])
     held = (
-        f"not landed: Forge-AI/monorepo#41, {KEY} sits below {OTHER} in its stack with neither his Approve nor an exempt class, and stack-enqueue queues a stack"
+        f"not landed: Forge-AI/monorepo#41, {KEY} sits below {OTHER} in its stack with neither his Approve nor an exempt class, and the merge queue queues a stack"
         " from its bottom, so landing a PR above would land it too; it lands once he approves each of them or they merge"
     )
     assert land.run(demo, [OTHER], dry_run=True) == held
