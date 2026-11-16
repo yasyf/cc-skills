@@ -1975,9 +1975,9 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 def asks_missed(name: str, order_id: str, command: str, why: str, starts: bool) -> None:
-    """Post one handoff record to the session holding the order a release was made for, by state.holding_lane, before the release starts, saying which asks it names it leaves out and why, so his thread hears that from that session before the release starts, not after: on the first try, which the gate refuses once, and again on the repeat that starts it."""
-    data = state.load(name)
-    lane = state.holding_lane(data, find(data["orders"], order_id, "order"))
+    """Post one handoff record to the communicator, the one voice in his threads, before a release made for his asks starts, saying which asks it names it leaves out and why, so his thread hears that before the release starts, not after: on the first try, which the gate refuses once, and again on the repeat that starts it."""
+    find(state.load(name)["orders"], order_id, "order")
+    lane = "communicator"
     text = f"RELEASE {order_id}: `{command}` {'starts now, as a repeat' if starts else 'was refused once'}: {why}. Tell him in the order's thread, before it starts, which of his asks it leaves out and why, naming each by his words"
     argv = ["cci", "post", "--drive", name, "--lane", watch.LANE, "--kind", "handoff", "--to", f"{lane}@{name}", "--topic", f"release-{order_id}"]
     reads.run([*argv, "--text", reads.withheld(text)], Path.cwd(), reads.posting())
