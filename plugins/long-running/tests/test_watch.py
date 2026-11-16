@@ -2922,7 +2922,7 @@ def test_a_sendmessage_written_before_he_gave_his_words_leaves_his_answer_undeli
     assert [line.split(":")[0] for line in watch.undelivered_lines(watcher(demo), tapped + timedelta(minutes=10))] == ["ANSWER undelivered j1"]
 
 
-def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_builder_never_started_once_its_waits_end_leaving_an_agent_its_starter_reaches_to_its_sendmessage(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_leaves_a_builder_never_started_to_the_work_queue_and_an_agent_its_starter_reaches_to_its_sendmessage(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     detached = []
 
     def detach(name: str, args: list[str], log: str) -> int:
@@ -2947,7 +2947,7 @@ def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_bui
     with edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
     watch.carry_held(watching, T0 + timedelta(minutes=11))
-    assert detached == [["job", "resume", "j2"], ["job", "launch", "j5"], ["job", "resume", "j2"], ["job", "launch", "j3"], ["job", "launch", "j5"]]
+    assert detached == [["job", "resume", "j2"], ["job", "launch", "j5"], ["job", "resume", "j2"], ["job", "launch", "j5"]]
 
 
 def test_the_watch_starts_no_launch_of_a_codex_job_while_its_codex_ask_run_goes_and_launches_it_with_its_held_text_once_it_returned(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3008,7 +3008,7 @@ def test_a_codex_job_waiting_on_a_process_it_started_on_this_mac_holds_while_it_
     assert detached == [["job", "launch", "j2"]]
 
 
-def test_a_free_line_for_a_never_started_job_the_watch_launches_with_his_answers_says_so_and_names_no_brief_so_no_session_starts_a_second_worker(
+def test_a_briefed_never_started_builder_whose_waits_end_holding_his_answers_is_a_ready_build_item_with_no_free_line_or_launch_so_only_the_queue_starts_it(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -3029,14 +3029,13 @@ def test_a_free_line_for_a_never_started_job_the_watch_launches_with_his_answers
     watching = watcher(demo)
     observer.kill()
     observer.wait()
-    assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == [
-        f"FREE j2 o1: process {observer.pid} on this Mac ended, nothing else holds it, and the watch now launches it with the texts it holds, his answers among them: start no agent for it"
-    ]
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == []
     watch.carry_held(watching, T0 + timedelta(minutes=1))
-    assert detached == [["job", "launch", "j2"]]
+    data = state.load(demo)
+    assert (detached, data["jobs"]["j2"]["waits"], work.KIND[work.BUILD].ready(data, "j2")) == ([], [], True)
 
 
-def test_a_job_waiting_on_a_job_that_returned_built_is_freed_on_its_branch_and_head_and_launched_cutting_from_it_while_a_pr_waiting_on_it_holds_as_j5696_did_not(
+def test_a_job_waiting_on_a_job_that_returned_built_is_freed_on_its_branch_and_head_and_told_to_cut_from_it_while_a_pr_waiting_on_it_holds_as_j5696_did_not(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -3062,14 +3061,14 @@ def test_a_job_waiting_on_a_job_that_returned_built_is_freed_on_its_branch_and_h
         data["prs"][KEY]["waits"] = ["j2"]
     watching = watcher(demo)
     built = "j2 built on durable-agents-j2 at 299fb6f36add, durable-agents-j2-docs, which Forge-AI/monorepo does not hold"
-    assert watch.waits_lines(watching, T0) == [f"FREE {job_id} o1: {built}, nothing else holds it, and the watch now launches it with the texts it holds: start no agent for it" for job_id in ("j3", "j4")]
+    assert watch.waits_lines(watching, T0) == [f"FREE {job_id} o1: {built}, nothing else holds it" for job_id in ("j3", "j4")]
     data = state.load(demo)
     held = [[kept["words"] for kept in data["jobs"][job_id]["undelivered"]] for job_id in ("j3", "j4")]
     based = f"{built}, the change yours builds on, its PR held on his answer: cut your branch from that head, so your PR stacks on it"
     assert (data["jobs"]["j3"]["waits"], data["jobs"]["j4"]["waits"], held, data["prs"][KEY]["waits"], len(asked)) == ([], [], [[based], [based]], ["j2"], 1)
     assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == []
     watch.carry_held(watching, T0 + timedelta(minutes=1))
-    assert (detached, len(asked)) == ([["job", "launch", "j3"], ["job", "launch", "j4"]], 1)
+    assert (detached, len(asked)) == ([], 1)
 
 
 def test_a_tester_whose_return_names_a_built_job_gets_no_stack_on_line_and_a_builder_named_it_again_hears_it_once_as_j7599_did_every_20_minutes(
@@ -5026,7 +5025,7 @@ def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_productio
     freezes.append({"freeze": {"id": "f8erwzvg6c", "holders": [f"{demo}/j1", f"{demo}/j2", f"{demo}/j3"], "notices": [{**gave, "id": "bypassed-0189", "forProduction": False}, gave]}, "text": text})
     watching = watcher(demo)
     reason = f"freeze f8erwzvg6c it holds gave way to the staging release for production {build}"
-    launch = "nothing else holds it, and the watch now launches it with the texts it holds: start no agent for it"
+    launch = "nothing else holds it"
     assert [line for line in watch.run_pass(watching, T0) if line.startswith("FREE ")] == [f"FREE j1 o1: {reason}, {launch}", f"FREE j2 o1: {reason}, {launch}"]
     data = state.load(demo)
     leased, unleased = (watch.gave_way_text(freezes[0]["freeze"], gave, held) for held in (True, False))
@@ -5038,7 +5037,7 @@ def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_productio
     holder = data["slots"][STAGING_ENV]["holder"]
     assert (holder["job"], holder["since"], holder["until"], holder["extended"], holder["gave_way_to"]) == ("j1", state.stamp(T0), state.stamp(T0 + state.CLAIM_WAIT + timedelta(minutes=30)), False, build)
     assert [(data["jobs"][job_id]["waits"], data["jobs"][job_id]["gave_way"]) for job_id in ("j1", "j2", "j3")] == [([], ["f8erwzvg6c/bypassed-0190"])] * 2 + [([], [])]
-    assert ["job", "launch", "j1"] in launched and ["job", "launch", "j2"] in launched
+    assert ["job", "launch", "j1"] not in launched and ["job", "launch", "j2"] not in launched
     with edit(demo) as data:
         for job_id in ("j1", "j2"):
             data["jobs"][job_id]["undelivered"].clear()

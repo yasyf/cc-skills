@@ -1943,8 +1943,6 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if args.agent:
             job["session"] = session
             state.start(job)
-        if crowd := args.kind == "builder" and not args.remote and not job["agent"] and not job["waits"] and not work.item_of(data, job) and place.crowded(data, job_id, state.now()):
-            job["where"] = "remote"
         builder_id = waiting_builder(data, job_id, created)
         order["updated"] = created
         if not args.release:
@@ -1952,15 +1950,11 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         replaced = [] if args.release else state.end_replaced(data, [args.order], created)
         named = state.named_prs(data, args.order, args.goal)
         history = {key: state.pr_orders(data, key, args.order) for key in named}
-        return data, job_id, job, builder_id, crowd, slotted, took, replaced, named, history, new_parts
+        return data, job_id, job, builder_id, slotted, took, replaced, named, history, new_parts
 
-    data, job_id, job, builder_id, crowd, slotted, took, replaced, named, history, new_parts = state.write(name, job_added)
+    data, job_id, job, builder_id, slotted, took, replaced, named, history, new_parts = state.write(name, job_added)
     waiting = [f"{job_id} waits on {', '.join(job['waits'])}: start no agent for it until the watch's FREE line says its last wait ended"] if job["waits"] and not job["agent"] else []
     waiting += render.builder_lines(name, data, [builder_id] if builder_id else [])
-    if crowd:
-        waiting.append(
-            f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
-        )
     carriage = [f"{job_id} carries his ask {line}" for line in carried.values()] + [f"{job_id} leaves out his ask {line}: an owed deliver item tracks it" for line in missed.values()] + [
         f'{job_id} leaves out his open ask {ask_id} on {order_id}, "{render.cut(ask["words"], 120)}": its post names it as left out'
         for order_id in ([args.order] if args.release else [])
@@ -4323,10 +4317,6 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
         unstopped(args.id, job)
         if resume and text is None and not job["undelivered"]:
             return emit(args, f"{args.id} holds no message to send", {"id": args.id, "how": None})
-        if resume and work.item_of(data, job):
-            if text is not None:
-                state.write(name, lambda data: state.hold_text(data["jobs"][args.id], text, state.held_sender(data)))
-            return emit(args, f"{args.id} is a work queue item: the brief the next worker that pulls it reads carries each text it holds", {"id": args.id, "how": "queue"})
         if resume and state.own_session(job):
             lane = state.session_lane(data, job["session"]) or state.holding_job_lane(data, job)
             return held_to_starter(args, name, job, lane) if text is None else to_starter(args, name, job, lane)

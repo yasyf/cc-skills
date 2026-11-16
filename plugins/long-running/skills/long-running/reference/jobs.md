@@ -140,8 +140,8 @@ Contents:
    is a research or design item the same way: a research worker answers a group of one order's
    reads, and a design worker takes one design at a time, each as its own `claude --bg` session
    here or an Orca lane on a Sprite. Each item's return reaches you as its own job's does.
-   `drive job resume <j> "<text>"` on an item holds the text, and the brief the next worker that
-   pulls the item reads carries it. A worker outlives your session.
+   Each text an item holds, his answers among them, goes into the brief the next worker that pulls
+   it reads. A worker outlives your session.
 3. A local job has no Orca terminal, dispatch or Run. It starts faster and leaves no Orca state,
    but shows in no Orca sidebar, so `claude --bg` and the drive's own death and gap reads track it.
    A Sprite lane, and a role that needs a visible terminal or Orca's ask and reply, runs through

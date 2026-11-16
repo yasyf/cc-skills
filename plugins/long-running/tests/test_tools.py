@@ -455,7 +455,7 @@ def test_a_grant_whose_record_for_root_cci_refuses_runs_no_command(
         (["pr", "set", "Forge-AI/monorepo#42", "--tap"], "drive pr set: refused, nothing ran: a lane's pr set takes only --flaky, and it names --tap"),
         (
             ["pr", "set", "Forge-AI/monorepo#42", "--flaky", "TestX", "Forge-AI/monorepo#43"],
-            "drive pr set: refused, nothing ran: a lane's pr set acts on a PR its own job, j7, carries, and Forge-AI/monorepo#42 is none of them",
+            "drive pr set: refused, nothing ran: a lane's pr set acts on a PR its own job, j7, or an item it holds as a worker of the queue carries, and Forge-AI/monorepo#42 is none of them",
         ),
         (["status", "--drive", "other"], "drive status: refused, nothing ran: it names drive other, and a lane acts on its own drive, demo, alone"),
         (["status", "--dri", "other"], "drive status: refused, nothing ran: it names drive other"),

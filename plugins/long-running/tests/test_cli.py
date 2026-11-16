@@ -8752,58 +8752,27 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
     assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
 
 
-def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprite_at_once_and_never_refuses_a_monorepo_one_for_load(
+def test_job_add_records_a_builder_past_the_macs_load_as_a_build_item_for_the_queue_and_never_refuses_a_monorepo_one_for_load(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
     monkeypatch.setattr(place, "limit", lambda: 0.8)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip", "--parts", *(f"strip {number}" for number in range(1, 12)))
-    assert run("job", "add", "builder", "--order", "o1", "--part", "strip 1", "--goal", "land", "--repo", "Forge-AI/monorepo") == (0, "j1")
-    for number in range(2, place.LOCAL_BUILDERS + 1):
-        assert run("job", "add", "builder", "--order", "o1", "--part", f"strip {number}", "--goal", "land", "--repo", "yasyf/cc-skills", "--agent", "a")[0] == 0
-    assert run("job", "add", "builder", "--order", "o1", "--part", "strip 9", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
-    assert state.load(demo)["jobs"]["j9"]["state"] == "waiting"
-    with edit("demo") as data:
-        data["jobs"]["j9"].update(state.local_lane("dispatch-9"), worktree="/work/demo-j9")
-        state.start(data["jobs"]["j9"])
-    mac_only = f"one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
-    code, added = run("job", "add", "builder", "--order", "o1", "--part", "strip 10", "--goal", "land", "--repo", "yasyf/cc-skills")
-    added_id, sprite, *_ = added.splitlines()
-    assert (code, added_id) == (0, "j10")
-    assert sprite.startswith(f"j10 starts on a Sprite at once, since 8 builders already run on this Mac, its cap of 8 {place.CAP_RULE} (j2 on o1")
-    assert sprite.endswith(f"; j9 on o1, its Orca lane dispatch-9, its session not started yet): drive job launch j10 <brief>; {mac_only}")
-    routed = state.load(demo)["jobs"]["j10"]
-    assert (routed["state"], routed["waits"], routed["agent"], routed["where"]) == ("waiting", [], None, "remote")
-    with edit("demo") as data:
-        data["jobs"]["j2"]["state"] = "done"
-        place.queue(data["jobs"]["j10"], state.now())
-    assert run("job", "add", "builder", "--order", "o1", "--part", "strip 11", "--goal", "land", "--repo", "yasyf/cc-skills")[1].splitlines()[1] == (
-        "j11 starts on a Sprite at once, since builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j10):"
-        f" drive job launch j11 <brief>; {mac_only}"
-    )
-    assert place.waiting_builders(state.load(demo)) == ["j10"]
-    assert "j10 builder waiting: land; waits on a builder slot on this Mac, 1 of 1 in line" in run("status", "o1", "--full")[1]
-    assert json.loads(run("status", "o1", "--json")[1])["jobs"]["j10"]["in_line"] == "1 of 1 in line"
-    assert run("job", "add", "reader", "--order", "o1", "--part", "strip 1", "--goal", "read")[0] == 0
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip", "--parts", "strip 1", "strip 2")
+    code, added = run("job", "add", "builder", "--order", "o1", "--part", "strip 1", "--goal", "land", "--repo", "Forge-AI/monorepo")
+    data = state.load(demo)
+    job = data["jobs"]["j1"]
+    assert (code, added.splitlines()[0], job["state"], job["waits"], job["where"], "Sprite" in added) == (0, "j1", "waiting", [], "local", False)
+    assert work.item_of(data, job) is work.KIND[work.BUILD]
 
 
-def test_job_add_starts_an_open_incidents_fix_builder_31st_in_line_and_an_immediate_fix_at_once_past_the_macs_cap(run: Run, demo: str) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"doc {number}" for number in range(place.LOCAL_BUILDERS + 30)))
-    for number in range(place.LOCAL_BUILDERS):
-        assert run("job", "add", "builder", "--order", "o1", "--part", f"doc {number}", "--goal", "build", "--agent", "a")[0] == 0
-    for number in range(place.LOCAL_BUILDERS, place.LOCAL_BUILDERS + 30):
-        assert "starts on a Sprite at once" in run("job", "add", "builder", "--order", "o1", "--part", f"doc {number}", "--goal", "wait")[1]
-    with edit(demo) as data:
-        for job in data["jobs"].values():
-            if job["where"] == "remote":
-                place.queue(job, state.now())
+def test_job_add_records_an_open_incidents_fix_builder_and_an_immediate_fix_as_build_items_that_start_past_the_macs_cap(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "you broke something again fix this asap", "--incident", "--parts", "fix", "first check")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the card is broken", "--parts", "the card", "immediate fix")
-    for order_id, part in (("o2", "fix"), ("o3", "immediate fix")):
+    for order_id, part in (("o1", "fix"), ("o2", "immediate fix")):
         code, added = run("job", "add", "builder", "--order", order_id, "--part", part, "--goal", "fix it")
-        job = state.load(demo)["jobs"][added.splitlines()[0]]
-        assert (code, job["state"], job["waits"], job["where"], "Sprite" in added) == (0, "waiting", [], "local", False)
-    assert len(place.waiting_builders(state.load(demo))) == 30
+        data = state.load(demo)
+        job = data["jobs"][added.splitlines()[0]]
+        assert (code, job["state"], job["waits"], job["where"], "Sprite" in added, work.item_of(data, job) is work.KIND[work.BUILD], place.preempts(data, job)) == (0, "waiting", [], "local", False, True, True)
 
 
 def test_job_add_records_an_agent_already_running_past_the_macs_cap_and_its_limit(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
