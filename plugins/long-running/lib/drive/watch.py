@@ -3866,7 +3866,9 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if branch := ((worker.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/"):
                     heads.setdefault(job_id, set()).add((job.get("repo"), branch))
     if found or boxes:
-        with state.edit(watcher.name) as data:
+
+        def taken_mail(data: dict) -> tuple[dict, dict]:
+            idle = {}
             for job_id, lane in found.items():
                 data["jobs"][job_id].update(lane)
             for job_id, (dispatch, box, shown) in boxes.items():
@@ -3876,6 +3878,9 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     job["turn_open"] = job["turn_open"] or len(job["queued"]) < unread
                     if job["queued"] and not job["turn_open"]:
                         idle[job_id] = shown
+            return idle, data
+
+        idle, data = state.update(watcher.name, None, taken_mail)
     lines += unread_lines(watcher, finished, {job_id for job_id, job in finished.items() if job_id in deaths and job["state"] == "running"}, moment)
     lines += wake_lines(watcher, idle, moment)
     watcher.made += lines
