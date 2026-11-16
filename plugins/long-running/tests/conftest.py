@@ -1091,6 +1091,14 @@ class SessionLaunches:
 
 
 @pytest.fixture(autouse=True)
+def channels_opened(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """No drive start makes a Slack channel: each drive it would make its own channel for is listed."""
+    opened: list[str] = []
+    monkeypatch.setattr(cli, "channel_opened", lambda name, data: opened.append(name) or "")
+    return opened
+
+
+@pytest.fixture(autouse=True)
 def session_launches(monkeypatch: pytest.MonkeyPatch) -> SessionLaunches:
     launches = SessionLaunches()
 

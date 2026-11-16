@@ -191,6 +191,19 @@ def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_bin
     assert len(session_launches.started) == 2
 
 
+def test_a_coordinators_start_makes_the_drives_channel_and_starts_the_communicator_that_holds_it_once_until_it_binds(
+    run: Run, monkeypatch: pytest.MonkeyPatch, session_launches: SessionLaunches, channels_opened: list[str]
+) -> None:
+    out = run("start", "demo", "--role", "coordinator")[1]
+    assert "\nstarted the communicator, which holds the drive's Slack channels, in Orca terminal term_communicator2\n" in out
+    assert (channels_opened, state.load("demo")["launched"]) == (["demo"], {"meta": "term_meta1", "communicator": "term_communicator2"})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    run("start", "demo", "--role", "communicator")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    assert "the communicator, which holds" not in run("start", "demo", "--role", "coordinator")[1]
+    assert (channels_opened, [role for _, role, _, _ in session_launches.started]) == (["demo"] * 3, ["meta", "communicator"])
+
+
 def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_under_and_a_new_session_replaces_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess
 ) -> None:

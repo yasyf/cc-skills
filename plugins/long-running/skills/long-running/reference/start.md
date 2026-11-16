@@ -40,7 +40,7 @@ orca terminal create --worktree path:<worktree> --title <alias> --command "cci s
 
 | Session | Binds with | A compaction keeps |
 |---|---|---|
-| communicator | `drive start <name> --role communicator` | Each handler still out and each acked message of his with no handler yet, in at most 1,500 characters. |
+| communicator | `drive start <name> --role communicator`, in the Orca terminal another role's `drive start` opened for it while none was bound, so no drive runs without one | Each handler still out and each acked message of his with no handler yet, in at most 1,500 characters. |
 | coordinator | `drive start <name> --role coordinator [--watch <channel id>]...` | Each operation it owns that the drive file does not record, his words no order or answer holds yet, and the step it was in, in at most 3,000. |
 | sub-coordinator | `drive start <name> --role coordinator --project <project>` | As the coordinator, for its project. |
 | meta | `drive start <name> --role meta`, which binds it and prints its block, in the Orca terminal another role's `drive start` opened for it | Each agent it started that is still out, each record it took whose `job` call has not run, and the step it was in, in at most 1,500. |
