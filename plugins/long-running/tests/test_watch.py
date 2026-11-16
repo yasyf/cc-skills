@@ -435,7 +435,7 @@ def test_the_watch_classifies_a_head_through_a_provider_the_loader_executes_from
     (clone / ".claude" / "long-running").mkdir(parents=True)
     (clone / ".claude" / "long-running.toml").write_text('[providers]\nmodule = ".claude/long-running/providers.py"\nrepo = "Repo"\n')
     (clone / ".claude" / "long-running" / "providers.py").write_text(
-        "from drive.providers import RepoProvider\n\n\nclass Repo(RepoProvider):\n    def dangerous_paths(self, paths):\n        return [path for path in paths if '/builtins/' in path]\n"
+        "from drive.providers import RepoProvider\n\n\nclass Repo(RepoProvider):\n    name = 'Forge-AI/monorepo'\n\n    def dangerous_paths(self, paths):\n        return [path for path in paths if '/builtins/' in path]\n"
     )
     for argv in (["init", "-q", "-b", "main"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "providers"], ["update-ref", "refs/remotes/origin/HEAD", "HEAD"]):
         subprocess.run(["git", "-C", str(clone), *argv], check=True)
@@ -456,10 +456,11 @@ def test_a_head_read_under_an_older_classifier_is_read_again_once_the_classifier
     monkeypatch.setattr(github, "paths", lambda keys: {key: changed[key] for key in keys if key in changed})
     monkeypatch.setattr(state, "classifier", lambda data: "old")
     monkeypatch.setattr(state, "repo_config", lambda data: {})
+    monkeypatch.setattr(HomePaths, "dangerous_paths", lambda self, paths: [])
     assert watch.dangerous_lines(watcher(demo), T0) == []
     assert (state.load(demo)["prs"][KEY]["paths_by"], state.unmarked(state.load(demo))) == ("old", [])
     monkeypatch.setattr(state, "classifier", lambda data: "new")
-    monkeypatch.setattr(providers.RepoProvider, "dangerous_paths", lambda self, paths: [path for path in paths if "/builtins/" in path])
+    monkeypatch.setattr(HomePaths, "dangerous_paths", lambda self, paths: [path for path in paths if "/builtins/" in path])
     assert KEY in state.unmarked(state.load(demo))
     [line] = watch.dangerous_lines(watcher(demo), T0)
     assert line.startswith(f"PR {KEY}: ") and state.load(demo)["prs"][KEY]["waits"] == [f"o1:{state.STAGING_TEST.format(number=42)}"]
