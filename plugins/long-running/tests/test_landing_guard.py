@@ -604,3 +604,20 @@ def test_a_drive_session_lands_no_pr_someone_else_opened_that_no_order_of_his_na
     assert landing_guard.deny_reason(bash(command, session_id="ordinary")) is None
     on_github["author"] = {"login": "yasyf", "is_bot": False}
     assert landing_guard.deny_reason(bash(command)) == (None if "stack-enqueue" in command else landing_guard.QUEUE_REASON.format(key=drive_pr))
+
+
+def test_a_staging_start_passes_only_for_the_job_holding_that_envs_slot_now(monkeypatch: pytest.MonkeyPatch) -> None:
+    later = state.stamp(state.now() + timedelta(minutes=20))
+    data = {"slots": {"plat-usw2-staging": {"holder": {"job": "j7394", "until": later}, "queue": []}}}
+    shell = landing_guard.Shell("/", {}, "s1", True, True)
+    monkeypatch.setenv(state.JOB_ENV, "demo/j7394/a1/s1")
+    start = "tools/ci release start sandsql --from b --emergency --env plat-usw2-staging --order 23eefb9".split()
+    assert landing_guard.leased_start(start, data, shell) is True
+    assert landing_guard.leased_start([*start[:-4], "--env=plat-usw2-staging"], data, shell) is True
+    assert landing_guard.leased_start([word for word in start if word not in ("--env", "plat-usw2-staging")], data, shell) is False
+    assert landing_guard.leased_start([*start, "--env", "core-usw2-prod"], data, shell) is False
+    monkeypatch.setenv(state.JOB_ENV, "demo/j7400/a2/s1")
+    assert landing_guard.leased_start(start, data, shell) is False
+    monkeypatch.setenv(state.JOB_ENV, "demo/j7394/a1/s1")
+    data["slots"]["plat-usw2-staging"]["holder"]["until"] = state.stamp(state.now() - timedelta(minutes=1))
+    assert landing_guard.leased_start(start, data, shell) is False

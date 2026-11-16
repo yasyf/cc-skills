@@ -1,4 +1,5 @@
 import csv
+import itertools
 import json
 import os
 import re
@@ -10,7 +11,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, card, github, land, limits, public_check, render, reports, settled, slack, state, superseded
+from drive import (
+    agents,
+    brief,
+    card,
+    github,
+    land,
+    limits,
+    public_check,
+    render,
+    reports,
+    settled,
+    slack,
+    state,
+    superseded,
+)
 from drive.cli import sent_kept, tap_verdict
 from drive.github import repo_name
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, runnable
@@ -502,6 +517,8 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
                 f" the top coordinator of drive {name} (session {top}) does, one at a time. Send it a record at root@{name} naming"
                 " the merged changes the cut must carry"
             )
+    if verb == "start" and job and (held_in := names or list(filter(None, [os.environ.get(state.DRIVE_ENV)]))) and leased_start(words, state.load(held_in[0]), shell):
+        return None
     if verb in brief.RELEASE_STARTS and (shell.driving or job):
         return RELEASE_BY_HAND.format(command=" ".join(words))
     if lane:
@@ -519,6 +536,17 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
         return hold and brief.hold_refusal(release, data, hold) or record and verb in SCOPED_FOLLOWS and brief.scope_refusal(release, record, data, said) or brief.away_refusal(verb, release, data, state.now())
     except state.DriveError as error:
         return HOLD_UNREAD.format(command=" ".join(words), error=error)
+
+
+def leased_start(words: list[str], data: dict, shell: Shell) -> bool:
+    """Whether a job's `ci release start` reaches one staging env alone, by one `--env`, and the job holds that env's staging slot now, by drive slot claim, so a tester starts its own cut in its lease, by his ruling that a test starts once the staging freeze names it as a holder, while every production start stays the top coordinator's."""
+    envs = [word.partition("=")[2] for word in words if word.startswith("--env=")] + [after for before, after in itertools.pairwise(words) if before == "--env"]
+    if len(envs) != 1 or envs[0] not in brief.REHEARSAL_CLUSTERS:
+        return False
+    started = os.environ.get(state.JOB_ENV)
+    job_id = started.split("/")[1] if started else state.agent_job(data, shell.caller.get("agent_id"))
+    held = (data["slots"].get(envs[0]) or {}).get("holder")
+    return bool(job_id and held and held["job"] == job_id and state.parse_time(held["until"]) > state.now())
 
 
 def job_reason(words: list[str], shell: Shell) -> str | None:
