@@ -7942,7 +7942,7 @@ def test_a_queued_pr_put_back_on_its_staging_test_leaves_the_merge_queue_in_the_
     queued(demo)
     state.write(demo, lambda data: state.wait_on_staging(data, KEY))
     assert landers == [("--dequeue", KEY)]
-    assert (stage.alone(state.load(demo), KEY, NO_CARDS).name, state.holder(state.load(demo)["prs"][KEY]["lander"]["dequeue"])) == ("waiting", os.getpid())
+    assert (stage.alone(state.load(demo), KEY, NO_CARDS).name, state.holder(state.load(demo)["prs"][KEY]["lander"]["dequeue"])) == ("red", os.getpid())
 
 
 def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while_he_is_away_and_lands_again_at_his_next_word(
@@ -12793,7 +12793,7 @@ def test_a_prover_waits_on_no_staging_deploy_once_a_production_cluster_of_every_
     assert watch.shipped(watching, state.load(demo), {key}) == {key: "dashboard on plat-usw2-prod serves c0ffee12; sand-next on plat-usw2-prod serves c0ffee12"}
     [line] = watch.shipped_lines(watching, T0)
     assert "waits on no staging deploy: production already carries" in line
-    assert state.load(demo)["jobs"]["j9"]["waits"] == []
+    assert list(state.load(demo)["dropped_waits"]["j9"]) == [f"staging:dashboard/plat-usw2-staging@{'b' * 40}"]
 
 def test_a_gate_refusal_on_his_ask_owes_one_blocked_step_naming_its_findings_and_the_episode_ends_once_the_refusal_is_older_than_gate_holds(demo: str) -> None:
     moment = state.parse_time("2026-11-09T05:07:00-08:00")
