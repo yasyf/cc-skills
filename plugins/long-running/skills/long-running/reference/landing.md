@@ -745,18 +745,24 @@ the patch.
   a Job it starts on any cluster but `plat-usw2-staging` or `plat-usw2-sandbox`: the hook refuses
   starting it, creating its build, unblocking its build's gate and rerunning that build until an
   answer of his recorded after the hold orders that CronJob on that cluster at that
-  moment. Jev reads each answer of his the Job's `--reason` names by id and those
+  moment. Opus reads each answer of his the Job's `--reason` names by id and those
   `ccn answer match` ranks nearest it, beside the hold and the time now in Pacific, so 34c9f21's
   "the other three after your hold lifts" orders no production dry run while the hold stands. Name
   his answer's id in `--reason`, which the build keeps in `CLUSTER_JOB` for its unblock and rerun
-  to read. While he is away, the hook refuses that start, unblock or rerun on a production cluster
+  to read. When Opus is unsure or gives no reading, the call is the top coordinator's, never his:
+  from its own session it reads his words itself and, when they order the Job, starts it with that
+  reading in `--reason`, as `--reason "<answer id> reading: <why his words order it, quoting
+  them>"`; a reading counts from no other session, and a confident no still goes to him. While he is away, the hook refuses that start, unblock or rerun on a production cluster
   whatever answer it names. A Sprite lane asks with `drive job held --cluster <env> --cronjob <name>
   --reason <why>`. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes nothing. It holds a drive session, its agents, a Sprite lane, which asks the coordinator's Mac
-  with `drive job held --release`, and a codex job's run, through the codex PreToolUse hook
-  `drive job launch` keeps in `~/.codex/hooks.json`.
+  with `drive job held --release`, a codex job's run, through the codex PreToolUse hook
+  `drive job launch` keeps in `~/.codex/hooks.json`, and the watchdog, whose environment names its
+  drive, its rerun of a release build reading the release of the job that started that build.
 - A start reaching past staging and sandbox names his exception in `--order`. A job's approve,
-  resume, rerun or rollback passes on the `--order` of its `Release:` line. A call naming none is
-  refused, with no answer of his read, unless it runs on staging or sandbox alone. An
+  resume, rerun or rollback passes on the pass its job kept when `drive job add --release` started
+  it since the hold, Opus's read or the top coordinator's reading, and reads the `--order` of its
+  `Release:` line again only when it kept none. A call naming none is refused, with no answer of his
+  read, unless it runs on staging or sandbox alone. An
   incident's order passes on its words, never on its label. Ask
   him with `drive job ask` and record his answer with `drive answer`. Once he says releases can go
   again, supersede the hold with that answer: `ccn answer supersede <hold> --by <id>`. Record a new
@@ -801,7 +807,7 @@ the patch.
   or tap orders a `release start` carrying only targets, `--env`, `--without`, `--from` or `--commit`, `--order` and
   `--emergency`, with a target and a place, when the option's words name each target and they or his
   words past the number name each place it runs on, so his "1" on a card whose option deploys the
-  branch's cloudrunner-next build to plat-usw2-staging orders that start; Jev reads any other answer beside the card it answers,
+  branch's cloudrunner-next build to plat-usw2-staging orders that start; Opus reads any other answer beside the card it answers,
   the drive's `Notes:` on his words, his answers recorded before it in the same Slack thread and the
   places the release runs on with each one's stage, ordering only what his words name, so
   his words to get work built or tested on a sandbox or staging order no release on production. A staging release started with `--for-production`, which go/ci
@@ -820,9 +826,13 @@ the patch.
   migration, delete and replace against the code at the release's commit, then runs `tools/ci release
   approve <id> --via <agent>`, naming in `--leave-out` each stack it cannot vouch for, never
   cancelling the release or asking him, by his pick "Land whole stacks and read the gate: no schema
-  change merges without its writer; a stack's bottom waits for its top". Jev reads his approval once:
-  `drive job add --release` refuses a start whose `--order <id>` Jev does not read as his order or
-  pick to release, unless the answer is an incident's, labelled `incident`, and the `landing_guard`
+  change merges without its writer; a stack's bottom waits for its top". Opus reads his approval once:
+  `drive job add --release` refuses a start whose `--order <id>` Opus does not read as his order or
+  pick to release, unless the answer is an incident's, labelled `incident`, and the job keeps the pass
+  for the release's resume, approve, rerun and rollback. When Opus is unsure or gives no reading, the
+  call is the top coordinator's, never his: from its own session it reads his words itself and, when
+  they order the release, adds `--reading "<why his words order it, quoting them>"`, which the job
+  keeps in place of Opus's pass; a confident no still goes to him, by 15c4de1. The `landing_guard`
   hook refuses every `ci release start` and `hotfix` a drive session or agent runs itself.
 - A release-order rule stays prose, a cc-notes note labeled `drive:<drive>` and `release-order` or
   `release` whose title names the PR or commit the rule turns on, as 3e6822d's "no SandSQL cut

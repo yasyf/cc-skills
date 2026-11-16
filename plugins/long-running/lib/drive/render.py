@@ -223,7 +223,7 @@ META_RULES = (
         ' "in geernal keeps implifying all this tuff", which every tooling brief\'s Decisions that bind carries. Your jobs'
         " decide every detail of the tooling and build its recommended option, asking him only a high-level preference: what"
         " reaches him or when, a post or card's shape, a tap or gate he owes, a cost he pays, a ruling of his lifted, or what"
-        f" the drive takes on, by his ruling {TOOLING_DETAILS_RULING}, and drive job ask keeps a question Jev reads as a detail"
+        f" the drive takes on, by his ruling {TOOLING_DETAILS_RULING}, and drive job ask keeps a question Opus reads as a detail"
         " decided, drawing no card. You never"
         ' touch his product orders, their jobs or PRs: drive order add refuses you an order not opening "Drive tooling:", and job'
         " add an order the coordinator holds."

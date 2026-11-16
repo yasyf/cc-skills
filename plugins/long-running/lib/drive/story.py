@@ -86,7 +86,7 @@ def digest(told: dict) -> str:
 
 def question(name: str, asked: dict) -> dict:
     """The story of his question card, its options carrying the card's own labels, in its order; refused when the story names another count of options."""
-    told = served.structured(name, QUESTION_RULES, f"<card>\n{json.dumps({field: asked.get(field) for field in ASKED}, indent=1)}\n</card>", QUESTION, STORY_SECONDS, "writing the story of his card")
+    told = served.structured(state.drive_dir(name), QUESTION_RULES, f"<card>\n{json.dumps({field: asked.get(field) for field in ASKED}, indent=1)}\n</card>", QUESTION, STORY_SECONDS, "writing the story of his card")
     if len(told["options"]) != len(asked["options"]):
         raise DriveError(f"the story written for his card drew {len(told['options'])} options for its {len(asked['options'])}")
     return told | {"options": [option | {"label": label} for option, label in zip(told["options"], asked["options"], strict=True)]}
@@ -101,7 +101,7 @@ def change(name: str, entry: dict) -> dict:
     facts = [f"checks {entry['checks']}", f"review {entry['review']}", entry["staging"], (entry["stage"] or {}).get("why"), entry["approve_waits"] and f"after his Approve it waits on {entry['approve_waits']}"]
     body = cut(card.body_of(read), BODY_CHARS) if read else "GitHub gave no description"
     told = "\n".join([f'{entry["key"]} "{entry["title"]}"', f"Lead: {json.dumps(entry['lead'])}", f"State: {'; '.join(filter(None, facts))}", "", body])
-    return served.structured(name, CHANGE_RULES, f"<order>\n{words}\n</order>\n\n<change>\n{told}\n</change>", CHANGE, STORY_SECONDS, f"writing the story of {entry['key']}")
+    return served.structured(state.drive_dir(name), CHANGE_RULES, f"<order>\n{words}\n</order>\n\n<change>\n{told}\n</change>", CHANGE, STORY_SECONDS, f"writing the story of {entry['key']}")
 
 
 class Writer:

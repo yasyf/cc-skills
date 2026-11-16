@@ -15,7 +15,7 @@ from drive import github, install, state
 from drive.state import DriveError
 
 PLUGIN = "cc-review@cc-review"
-MODEL = "claude-sonnet-5-5"
+MODEL = "claude-opus-5-5"
 START_SECONDS = 120
 ATTACH_SECONDS = 20 * 60
 WATCH_BACKOFF_SECONDS = 30

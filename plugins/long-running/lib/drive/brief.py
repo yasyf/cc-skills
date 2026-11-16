@@ -116,18 +116,30 @@ REHEARSAL_CLUSTERS = frozenset({state.STAGING_ENV, "plat-usw2-sandbox"})
 RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order", "stack", "commit"})
 RELEASE_ASIDE = frozenset({"json"})
 REHEARSAL_SAID = '"You never have to ask for sandbox"'
+UNSURE_READING = (
+    "When Opus is unsure whether his words order it, or gave no reading, the call is the top coordinator's, never his: from its own"
+    " session, read them yourself and, when they order it,"
+)
+READING = re.compile(r"\breading:", re.IGNORECASE)
+RELEASE_READING = (
+    f'{UNSURE_READING} start it with `drive job add --release "<its ci release start or hotfix>" --reading "<why his words order it, quoting them>"`,'
+    " which its job keeps for the release's resume, approve, rerun and rollback; a confident no still goes to him"
+)
 RELEASE_APPROVAL = (
     "A release reaching any place but plat-usw2-staging and plat-usw2-sandbox starts only on words of his ordering it, whatever card or thread"
     " they answer, or on an incident's order, the answer labelled incident, whose words approve the incident's own cut. Name in `--order` the"
     " answer `drive answer` recorded for those words, or read its `tools/ci release plan` and ask him with `drive job ask` whether to start that"
-    f" exact command. One on those two places alone starts with no --order and no card, by his words {REHEARSAL_SAID}"
+    " exact command. "
+    + RELEASE_READING
+    + f". One on those two places alone starts with no --order and no card, by his words {REHEARSAL_SAID}"
 )
 RELEASE_HELD = (
     'refused: he holds every release reaching past plat-usw2-staging and plat-usw2-sandbox, by his words "{said}" ({where}), and only he grants an'
     " exception, one release at a time, so `{release}` runs only on an answer of his recorded since that approves it: {why}. Ask him with `drive job ask`"
     " whether to release it, record his answer with `drive answer`, and name it in the release's `--order`, which a job's resume,"
-    " approve, rerun or rollback reads from its brief's `Release:` line; a release on those two places alone runs with none."
-    " Once he says releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
+    " approve, rerun or rollback reads from its brief's `Release:` line; a release on those two places alone runs with none. "
+    + RELEASE_READING
+    + ". Once he says releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
 )
 UNCARRIED = (
     'refused: `--order {order}` names his answer to the card asking "{asked}", which names {named}, and {why}: start it from a commit'
@@ -137,7 +149,9 @@ JOB_HELD = (
     'refused: he holds every release, by his words "{said}" ({where}), and only he grants an exception, so the {cronjob} Job on {cluster},'
     " a production cluster, starts only on an answer of his recorded since that orders that Job there now: {why}. Start, unblock and rerun"
     " nothing of it: ask him with `drive job ask` whether to start it, record his answer with `drive answer`, and start the Job naming"
-    " that answer's id in its `--reason`, which its build keeps for its gate's unblock to read"
+    f" that answer's id in its `--reason`, which its build keeps for its gate's unblock to read. {UNSURE_READING} start the Job with"
+    ' that reading in its `--reason`: `tools/ci cluster-job ... --reason "<answer id> reading: <why his words order it, quoting them>"`;'
+    " a confident no still goes to him"
 )
 CLAIMED_JOB = (
     "refused: {order} of drive {drive} claims staging until {until} in {link}, and the repository's staging-claim rule holds staging for"
@@ -255,13 +269,13 @@ def rehearsal(release: str) -> bool:
     return bool(reads) and all(settled.FOR_PRODUCTION not in read and (places := set(read.get("env", ())) - set(read.get("without", ()))) and places <= REHEARSAL_CLUSTERS for read in reads)
 
 
-def approval_refusal(command: str, data: dict) -> str | None:
-    """Why the one release a command starts may not start on the answer of his its --order names: none for a rehearsal(); while he holds every release, hold_refusal() refuses it; else it is no incident's order, and `settled.unordered` reads it as ordering another release, or Jev gave no answer."""
+def approval_refusal(command: str, data: dict, reading: str | None = None) -> str | None:
+    """Why the one release a command starts may not start on the answer of his its --order names: none for a rehearsal(); while he holds every release, hold_refusal() refuses it; else it is no incident's order, and `settled.unordered` reads it as ordering another release, or Opus is unsure or gave no answer and the top coordinator gave no reading of its own."""
     if rehearsal(command):
         return None
     cwd = data["roles"]["coordinator"]["cwd"]
     if hold := settled.hold(cwd):
-        return hold_refusal(command, data, hold)
+        return hold_refusal(command, data, hold, reading)
     [flags] = started(command)
     answer_id = flags["order"][-1]
     try:
@@ -271,7 +285,9 @@ def approval_refusal(command: str, data: dict) -> str | None:
     except state.DriveError as error:
         return f"refused: `--order {answer_id}` names no answer of his that could be read: {error}. {RELEASE_APPROVAL}"
     except settled.Unheard as failure:
-        return f"refused: Jev did not say whether his answer {answer_id} approves this release ({failure}); run it again once Jev answers. {RELEASE_APPROVAL}"
+        if reading:
+            return None
+        return f"refused: Opus did not settle whether his answer {answer_id} approves this release ({failure}). {RELEASE_APPROVAL}"
     asked, said = cut(answer["title"], 200), cut(settled.his(answer["body"]), settled.QUOTED_CHARS)
     return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and {why}. {RELEASE_APPROVAL}'
 
@@ -341,12 +357,12 @@ def harmless(release: str, data: dict) -> bool:
     return not any(land.danger(data, f"{state.MONOREPO}#{number}") for number in pulls)
 
 
-def cluster_job_refusal(job: dict, data: dict, moment: datetime) -> str | None:
-    """Why a Job may not start now from a suspended CronJob, by `tools/ci cluster-job`, a `ci bk api` write creating the forge/release build it starts or writing to it, such as unblocking its gate, or a rerun of that build, each its cluster, CronJob and reason as the build's CLUSTER_JOB keeps them: claimed_job_refusal() inside another drive's staging claim, job_hold_refusal() while he holds every release, else away_job_refusal() while he is not present; DriveError when his hold could not be read."""
+def cluster_job_refusal(job: dict, data: dict, moment: datetime, top: bool = False) -> str | None:
+    """Why a Job may not start now from a suspended CronJob, by `tools/ci cluster-job`, a `ci bk api` write creating the forge/release build it starts or writing to it, such as unblocking its gate, or a rerun of that build, each its cluster, CronJob and reason as the build's CLUSTER_JOB keeps them: claimed_job_refusal() inside another drive's staging claim, job_hold_refusal() while he holds every release, a reading in its reason counting only in the top coordinator's session, top, else away_job_refusal() while he is not present; DriveError when his hold could not be read."""
     if claimed := claimed_job_refusal(job, data["name"], moment):
         return claimed
     hold = settled.hold(data["roles"]["coordinator"]["cwd"])
-    return hold and job_hold_refusal(job, data, hold, moment) or away_job_refusal(job["cluster"], data, moment)
+    return hold and job_hold_refusal(job, data, hold, moment, top) or away_job_refusal(job["cluster"], data, moment)
 
 
 def claimed_job_refusal(job: dict, name: str, moment: datetime) -> str | None:
@@ -357,8 +373,8 @@ def claimed_job_refusal(job: dict, name: str, moment: datetime) -> str | None:
     return CLAIMED_JOB.format(drive=claim["drive"], order=claim["order"], until=claim["until"], link=claim["link"], cronjob=job["cronJob"], cluster=job["cluster"])
 
 
-def job_hold_refusal(job: dict, data: dict, hold: dict, moment: datetime) -> str | None:
-    """Why a Job may not start on a production cluster, any but REHEARSAL_CLUSTERS, under his hold on every release, as hold_refusal() refuses a release: no answer of his recorded after the hold, read by settled.job_unordered(), orders that CronJob on that cluster at this moment, or his answers could not be read or Jev gave no reading."""
+def job_hold_refusal(job: dict, data: dict, hold: dict, moment: datetime, top: bool = False) -> str | None:
+    """Why a Job may not start on a production cluster, any but REHEARSAL_CLUSTERS, under his hold on every release, as hold_refusal() refuses a release: no answer of his recorded after the hold, read by settled.job_unordered(), orders that CronJob on that cluster at this moment, or his answers could not be read, or Opus is unsure or gave no reading and the top coordinator's session, top, put no reading of its own in the Job's reason."""
     if job["cluster"] in REHEARSAL_CLUSTERS:
         return None
     try:
@@ -367,7 +383,9 @@ def job_hold_refusal(job: dict, data: dict, hold: dict, moment: datetime) -> str
     except state.DriveError as error:
         why = f"his answers could not be read: {error}"
     except settled.Unheard as failure:
-        why = f"Jev did not say whether his answers since order it ({failure}); run it again once Jev answers"
+        if top and READING.search(job["reason"]):
+            return None
+        why = f"Opus did not settle whether his answers since order it ({failure})"
     return JOB_HELD.format(said=hold_words(hold), where=hold_where(hold, data), cronjob=job["cronJob"], cluster=job["cluster"], why=why)
 
 
@@ -381,9 +399,9 @@ def away_job_refusal(cluster: str, data: dict, moment: datetime) -> str | None:
     )
 
 
-def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
-    """Why a release may not run under his hold on every release reaching past REHEARSAL_CLUSTERS: it is no rehearsal() and not a `ci release start` or `hotfix` naming one --order, his exception for that one release, recorded after the hold that `settled.unordered` reads as ordering it, never a tap on a PR card; an incident's order passes on no label, the hold included."""
-    if rehearsal(release):
+def hold_refusal(release: str, data: dict, hold: dict, reading: str | None = None) -> str | None:
+    """Why a release may not run under his hold on every release reaching past REHEARSAL_CLUSTERS: it is no rehearsal() and not a `ci release start` or `hotfix` naming one --order, his exception for that one release, recorded after the hold that `settled.unordered` reads as ordering it, never a tap on a PR card, nor one whose Opus read is unsure or failed given the top coordinator's reading; an incident's order passes on no label, the hold included. A release a job keeps a pass for since the hold, by kept_pass(), runs on it unread, so its resume, approve, rerun and rollback never read his words again."""
+    if rehearsal(release) or kept_pass(release, data, hold):
         return None
     cwd = data["roles"]["coordinator"]["cwd"]
     named = started(release)
@@ -400,8 +418,15 @@ def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
     except state.DriveError as error:
         why = f"his answers could not be read: {error}"
     except settled.Unheard as failure:
-        why = f"Jev did not say whether his answer {orders[-1]} approves it ({failure}); run it again once Jev answers"
+        if reading:
+            return None
+        why = f"Opus did not settle whether his answer {orders[-1]} approves it ({failure})"
     return RELEASE_HELD.format(said=hold_words(hold), where=hold_where(hold, data), hold=hold["id"][:7], release=release, why=why)
+
+
+def kept_pass(release: str, data: dict, hold: dict) -> bool:
+    """Whether a job keeps a pass for this very release, Opus's or the top coordinator's reading, from `drive job add --release` since his hold."""
+    return any((kept := job["release_pass"]) and kept["release"] == release and state.parse_time(kept["at"]) > state.parse_time(hold["created_at"]) for job in data["jobs"].values())
 
 
 def hold_where(hold: dict, data: dict) -> str:

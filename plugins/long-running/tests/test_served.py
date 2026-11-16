@@ -2,6 +2,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -12,6 +13,7 @@ from drive import cli, github, land, limits, refs, served, settled, slack, stage
 from drive.state import DriveError
 
 KEY = "Forge-AI/monorepo#42"
+OPUS = settled.opus
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
 READ_CHANGE = served.change
 SHOWN = settled.shown
@@ -406,9 +408,9 @@ def clocks(run: Callable[..., tuple[int, str]]) -> None:
     run("job", "add", "builder", "--order", "o1", *(word for part in CLOCKS for word in ("--part", part)), "--goal", "land")
 
 
-def stacked(run: Callable[..., tuple[int, str]], demo: str, numbers: list[int], base: str) -> list[str]:
+def stacked(run: Callable[..., tuple[int, str]], demo: str, numbers: list[int], base: str, parts: tuple[str, ...] = ()) -> list[str]:
     for number in numbers:
-        assert run("pr", "add", f"https://github.com/Forge-AI/monorepo/pull/{number}", "--job", "j1", *LEAD)[0] == 0
+        assert run("pr", "add", f"https://github.com/Forge-AI/monorepo/pull/{number}", "--job", "j1", *(word for part in parts for word in ("--part", part)), *LEAD)[0] == 0
     with state.edit(demo) as data:
         for below, number in zip([base, *(f"b{number}" for number in numbers)], numbers, strict=False):
             under = next((key for key, pr in data["prs"].items() if pr["branch"] == below and pr["state"] == "open"), None)
@@ -420,7 +422,7 @@ def test_one_check_judges_a_whole_stack_and_keeps_its_verdict_on_each_pr_so_a_re
     run: Callable[..., tuple[int, str]], demo: str, judge: Judge, checkers: list[str]
 ) -> None:
     clocks(run)
-    keys = stacked(run, demo, [42, 43, 44], "main")
+    keys = stacked(run, demo, [42, 43, 44], "main", CLOCKS)
     assert served.verdict(demo, keys[0]).startswith(f"{served.CHECKED} against the words of o1 at head42")
     [(said, changes)] = judge.asked
     assert list(changes) == keys and f"this change delivers: {'; '.join(CLOCKS)}" in said and "other open PRs" not in said
@@ -432,7 +434,7 @@ def test_one_check_judges_a_whole_stack_and_keeps_its_verdict_on_each_pr_so_a_re
     assert served.carry(demo, keys) == [keys[2]]
     data = state.load(demo)
     assert all(state.checked(data, data["prs"][key]) for key in keys) and data["prs"][keys[0]]["checked"]["beside"][keys[2]] == "head44r"
-    joined = (*keys, *stacked(run, demo, [45], "b44"))
+    joined = (*keys, *stacked(run, demo, [45], "b44", CLOCKS))
     data = state.load(demo)
     assert land.landing_stacks(data)[keys[0]] == joined and not any(served.stands(data, key, joined) for key in keys)
     with state.edit(demo) as data:
@@ -454,7 +456,7 @@ def test_an_objection_to_a_file_faults_only_the_prs_of_the_stack_changing_it(
     run: Callable[..., tuple[int, str]], demo: str, judge: Judge, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clocks(run)
-    keys = stacked(run, demo, [42, 43, 44], "main")
+    keys = stacked(run, demo, [42, 43, 44], "main", CLOCKS)
     heads = {key: data["head"] for key, data in state.load(demo)["prs"].items()}
     monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "body": "", "head": heads[key], "diff": added(f"{key[-2:]}.py", b"x")})
     judge.against = [{"order": "o1", "words": "each alarm is its own clock timer", "file": "43.py", "change": "one timer serves every alarm"}]
@@ -528,7 +530,7 @@ def test_a_not_ready_judged_apart_from_the_stack_its_pr_sits_in_is_no_try_so_the
     run: Callable[..., tuple[int, str]], demo: str
 ) -> None:
     clocks(run)
-    keys = stacked(run, demo, [42, 43], "main")
+    keys = stacked(run, demo, [42, 43], "main", CLOCKS)
     with state.edit(demo) as data:
         for pid, key in enumerate(keys, start=100):
             pr = data["prs"][key]
@@ -547,7 +549,7 @@ def test_a_not_ready_judged_apart_from_the_stack_its_pr_sits_in_is_no_try_so_the
 
 def test_a_not_ready_stands_while_the_answers_binding_its_job_come_back_in_another_order_and_is_judged_again_once_one_is_added(run: Callable[..., tuple[int, str]], demo: str) -> None:
     clocks(run)
-    [key] = stacked(run, demo, [42], "main")
+    [key] = stacked(run, demo, [42], "main", CLOCKS)
     with state.edit(demo) as data:
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123", "beef456"]}
     with state.edit(demo) as data:
@@ -561,7 +563,7 @@ def test_a_not_ready_stands_while_the_answers_binding_its_job_come_back_in_anoth
     assert not served.tried(demo, state.load(demo), key, (key,), moment)
 
 
-def test_a_pr_added_naming_its_part_is_judged_on_that_part_alone_and_one_naming_a_part_its_job_lacks_is_refused_with_nothing_added(
+def test_a_pr_added_naming_its_part_is_judged_on_that_part_alone_and_one_naming_no_part_or_a_part_its_job_lacks_is_refused_with_nothing_added(
     run: Callable[..., tuple[int, str]], demo: str, judge: Judge, capsys: pytest.CaptureFixture[str]
 ) -> None:
     clocks(run)
@@ -573,7 +575,40 @@ def test_a_pr_added_naming_its_part_is_judged_on_that_part_alone_and_one_naming_
     other = "https://github.com/Forge-AI/monorepo/pull/43"
     assert cli.main(["pr", "add", other, "--job", "j1", "--part", "a part nobody ordered", *LEAD]) == 2
     assert "Forge-AI/monorepo#43: refused, nothing added: its job j1 delivers no part a part nobody ordered" in capsys.readouterr().err
+    assert cli.main(["pr", "add", other, "--job", "j1", *LEAD]) == 2
+    listed = " ".join(f"--part {shlex.quote(part)}" for part in CLOCKS)
+    assert f"Forge-AI/monorepo#43: refused, nothing added: its job j1 delivers 3 parts, and drive pr check judges a PR only against the words of the parts it serves, so name each this one delivers: {listed}" in capsys.readouterr().err
     assert "Forge-AI/monorepo#43" not in state.load(demo)["prs"]
+
+
+def test_opus_reads_every_question_on_one_whole_state_in_one_request_answering_each_by_its_own_key_and_a_failed_read_is_unheard(monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: list[tuple[dict, dict]] = []
+
+    def structured(cwd: Path, rules: str, prompt: str, schema: dict, seconds: float, doing: str) -> dict:
+        requests.append((json.loads(prompt), schema))
+        return {"q1": 0.9, "q2": "later"}
+
+    monkeypatch.setattr(served, "structured", structured)
+    orders, when = settled.Noul("Does `answer.said` order it?"), settled.Pick("When does `answer.said` ship it?", {"now": None, "later": None})
+    told = {"answer": {"said": "ship it after the soak"}, "earlier": {"a1": "hold it"}}
+    assert OPUS(told, {"orders.a1": orders, "when": when}) == {"orders.a1": 0.9, "when": "later"}
+    [(prompt, schema)] = requests
+    assert prompt == {"state": told, "questions": {"q1": orders._asdict(), "q2": when._asdict()}}
+    assert schema["properties"] == {"q1": {"type": "number", "minimum": 0, "maximum": 1}, "q2": {"type": "string", "enum": ["now", "later"]}}
+    monkeypatch.setattr(served, "structured", lambda *args: (_ for _ in ()).throw(DriveError("Opus's read timed out after 120s")))
+    with pytest.raises(settled.Unheard, match="timed out after 120s"):
+        OPUS(told, {"orders.a1": orders})
+
+
+def test_his_answer_labelled_with_the_repository_root_is_judged_against_the_lines_the_diff_changes_and_one_below_it_on_its_whole_directory(run: Callable[..., tuple[int, str]], demo: str) -> None:
+    clocks(run)
+    run("pr", "add", URL, "--job", "j1", "--part", CLOCKS[0], *LEAD)
+    data = state.load(demo)
+    said = served.words(data, [data["prs"][KEY]], ["o1"], [], [], [], [], [("c0de123", "Name every flag", "."), ("beef456", "One store per env", "go/sand/store")])
+    assert said.endswith(
+        "each of these answers of his rules how all the code under its directory works, so the directory is judged as it stands at the head against it, never only the lines the diff touches: beef456 on go/sand/store\n"
+        "each of these answers of his is labelled with the repository's root, so it is judged against the lines the diff changes, never the repository as it stands at the head: c0de123"
+    )
 
 
 STORED_TAPS = {

@@ -119,12 +119,12 @@ words in the order's thread and run `ccn answer search "<words>"`, because his a
 past the question it was given under and names the subject only in his words.
 
 `drive job ask` keeps a question settled with no card on his answer to that same question,
-asked in the same words, case, spacing and punctuation aside, and, on a drive tooling order, on Jev's reading,
+asked in the same words, case, spacing and punctuation aside, and, on a drive tooling order, on Opus's reading,
 under 0.3 sure, that its options differ in what he gets, such as a post, tap, cost, ruling of his or
 scope of work, so it asks him only a detail: it keeps that one decided on its recommended
 option under his ruling 43aa665 and prints so, and the job builds it and opens its PR. A card
 already drawn on the question, kept unsettled, or read as going against his words still goes to
-him, and Jev never reads a drawn one again. When the meta session or the card's job reads a drawn
+him, and Opus never reads a drawn one again. When the meta session or the card's job reads a drawn
 card of a drive tooling order as asking him only a detail, `drive job ask <j> --drop <file> --answer 43aa665`
 ends it decided on the recommended option the file keeps, as an undrawn one is kept: his card
 shows "<option>: decided without you under your ruling on tooling details" and a link to his
@@ -141,11 +141,11 @@ that answer chose, so `drive job ask` refuses it and names that option to build 
 `--unsettled` names that answer as words the card asks him to lift. A card already drawn for it ends
 on his words with `drive job ask <j> --drop <file> --answer <id>`, which closes its card in place
 showing them and the link where he gave them. A card's Already answered option
-carries only the recorded answers its summary cites that Jev answers 0.7 or more as deciding its
+carries only the recorded answers its summary cites that Opus answers 0.7 or more as deciding its
 question or making it moot, one yes-or-no question an answer, and each recorded answer the release
 gate reads as ordering a release the recommended option names in backticks, his words above the
 `Options:` line its recorder lists the choices under, so his one tap gives its job one answer's words;
-the card draws no Already answered option when the gate passes none and Jev reads none so, reads one
+the card draws no Already answered option when the gate passes none and Opus reads none so, reads one
 only between 0.3 and 0.7, or gives no reading.
 
 It reads no answer he gave another question, by his pick "Settle only on your answer to that same
@@ -153,32 +153,32 @@ question, copies only in the same words: no wrong skips; each skip below becomes
 once kept settled with no card on another answer of his draws its card when its job asks it again.
 An answer he gives later still settles the older cards it decides, through `drive answer`.
 
-Every other question Jev reads in one request of at most 10,000 characters against his words on each
+Every other question Opus reads in one request against his words on each
 order its job works and his messages about it in its thread, without the lines he quoted from an alert
-or another's message. The request holds the card whole, then, filled by whole items while it fits, the
+or another's message. The request holds the card whole, then, each item whole, the
 recorded answers the card cites, his rulings beside them, then his other words, with one yes-or-no
-question for each option and each of his words that could rule it out, and Jev answers each as a
+question for each option and each of his words that could rule it out, and Opus answers each as a
 probability of yes: code reads 0.7 or more as a finding, under 0.3 as none, and the band between as
 unsure, printed for the agent to weigh. It prints to the
 agent each option they rule out and each amount or choice they name that the card offers no tap
 for, by his words "You didn't give me a tap for 30 day bonding how many times do I have to say this",
 naming each part and the words it breaks, and keeps the card, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits".
 When a finding holds, the agent rewrites that part and asks the same question again, which redraws
-its card. When Jev answers 0.7 or more that the card's recommended option breaks a recorded answer
+its card. When Opus answers 0.7 or more that the card's recommended option breaks a recorded answer
 or ruling of his, the cited answer the card says it goes against first, or else that any other option
-it offers does, the verb keeps the card unsettled on it, as `<id>: Jev reads the recommended option as
-breaking it` or `<id>: Jev reads option "<that option>" as breaking it`, asking him to lift those words, so it holds
+it offers does, the verb keeps the card unsettled on it, as `<id>: Opus reads the recommended option as
+breaking it` or `<id>: Opus reads option "<that option>" as breaking it`, asking him to lift those words, so it holds
 its PR on an incident too until he answers. His answer, as cc-notes records it, marks each answer the mark names
-superseded by it when Jev reads it replacing that one, so no brief or judge binds the words he lifted, and his
+superseded by it when Opus reads it replacing that one, so no brief or judge binds the words he lifted, and his
 Undo takes the mark back. Another option alone never marks an answer that already
-answers the card, one its Already answered tap carries or one Jev reads below, since offering an
+answers the card, one its Already answered tap carries or one Opus reads below, since offering an
 option his answer did not choose asks him to lift nothing. His newest words stand: no answer is marked
 while a cited answer he gave after it orders the recommended option's release or decides the card. A cited answer the release gate reads as ordering a release
 the recommended option names in backticks is his order carried out, never words to lift: his card
 offers it as its Already answered tap, and the verb prints that his one tap settles the card and
 `drive job add --release "<release> --order <id>"` starts that release, by his pick 1bd8a74 "Your
 cited answer as a tap on the card: one tap settles it, nothing skipped unseen"
-([landing.md](landing.md#after-merge)). Jev also reads, one yes-or-no question each, whether a
+([landing.md](landing.md#after-merge)). Opus also reads, one yes-or-no question each, whether a
 cited answer made a step wait for something, such as a PR that waits for its own preview, that the
 card shows has now come. A card bringing what that answer waited for, read 0.7 or more, carries it
 out: no mark or finding names it. It also reads
@@ -192,7 +192,7 @@ and `drive status` lists it refused. The watch says its job waits on a
 card never posted until the job asks it again, in its words or others sharing three rare words, or
 `drive job ask <j> --drop <file>` drops it.
 
-Jev also reads, in the same request, whether an answer of his that cc-notes ranks nearest the card's
+Opus also reads, in the same request, whether an answer of his that cc-notes ranks nearest the card's
 question, summary and options, or nearest the whole block, already answers what the card asks.
 When it answers one 0.7 or more, the verb prints that answer with its id and where he gave it,
 and keeps the card, by his picks 320b7a7 and 679484. When his words choose the recommended option,
@@ -251,11 +251,11 @@ without them. The cause is the one his order asks about, such as why a step is s
 cap, retry or time budget around it goes on the `Interim fix:` line. His card draws the `Root cause:`
 line under the summary's first line, so it is at most 60 words, a named cause with the number that
 measures it, by his words "this still doesnt tell us why its so slow/how to speed it up". In the
-request that reads his words, Jev weighs each option by his words, and the card, its recommended option
+request that reads his words, Opus weighs each option by his words, and the card, its recommended option
 and its `Root cause:`, `First principles:` and `Simplest:` lines, by the part of this rule its `Root cause:`
 form names and by the words each page it links shows once Chrome opens it against what the card says
 that page shows. This rule speaks only to the recommended option, never one offered beside it such as
-the `Simplest:` one every card offers. Each option or part Jev answers 0.7 or more as breaking his
+the `Simplest:` one every card offers. Each option or part Opus answers 0.7 or more as breaking his
 words, this rule or a page's is printed to the agent, naming the part and the words it breaks, and
 one in the band between 0.3 and 0.7 is printed as unsure; each refuses no
 card, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting

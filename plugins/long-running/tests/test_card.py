@@ -913,7 +913,7 @@ def test_his_words_in_a_cards_other_box_that_only_ask_about_it_end_nothing_and_r
     reply = ask({"answer": tap})
     assert (reply["ok"], reply["asks"], "2a27048" in reply["why"]) == (False, True, True)
     heard, jev.answer = jev.answer, None
-    with pytest.raises(state.DriveError, match=r"Jev did not read whether his words pick or direct \(no jev decision within 20s\)"):
+    with pytest.raises(state.DriveError, match=r"Opus did not read whether his words pick or direct \(no jev decision within 20s\)"):
         card.question_answered(tap | {"label": picked, "action_ts": "1794200002.000100"})
     [question] = state.load(drive)["jobs"]["j3"]["questions"]
     assert (question["closed"], cci.posted, events(drive)) == (None, [], [])

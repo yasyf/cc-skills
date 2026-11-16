@@ -316,7 +316,7 @@ def superseded_by(closed: dict, question: dict) -> dict:
 
 
 def decided_by(data: dict, job_id: str, question: dict, words: str, found: dict | None) -> list[dict]:
-    """The job's other open questions, asked before this one, that his answer to it settles whole as Jev reads it at settled.YES, so his answer on a job's newer question ends the older ones it settles; none when Jev gives no reading, which leaves them asking him."""
+    """The job's other open questions, asked before this one, that his answer to it settles whole as Opus reads it at settled.YES, so his answer on a job's newer question ends the older ones it settles; none when Opus gives no reading, which leaves them asking him."""
     asked = state.parse_time(question["asked"])
     older = [other for other in view.open_questions(data["jobs"][job_id]) if other is not question and state.parse_time(other["asked"]) <= asked]
     if not older:
@@ -326,7 +326,7 @@ def decided_by(data: dict, job_id: str, question: dict, words: str, found: dict 
     try:
         keys = settled.decided(question["title"] or "", words, entries)
     except settled.Unheard as failure:
-        print(f"his answer to {question['waits'] or question['file']} ends none of {job_id}'s older questions: Jev gave no reading ({failure})", file=sys.stderr)
+        print(f"his answer to {question['waits'] or question['file']} ends none of {job_id}'s older questions: Opus gave no reading ({failure})", file=sys.stderr)
         return []
     return [older[int(key.rpartition(":q")[2])] for key in sorted(keys)]
 

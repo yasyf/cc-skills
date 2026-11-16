@@ -3,7 +3,7 @@ import json
 import os
 import re
 import sys
-from collections.abc import Generator, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -475,7 +475,7 @@ def lane_reason(keys: list[str]) -> str | None:
 
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:
-    """Why a drive session, an agent it started or a Sprite lane may not run this release verb, which a help read, plan or dry run never is: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, and a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job; and while he is not present, a start, resume or approve that brief.away_refusal() reads as dangerous waits for his next word."""
+    """Why a drive session, an agent it started or a Sprite lane may not run this release verb, which a help read, plan or dry run never is: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job, and the watchdog, whose environment names its drive, reads from the job whose release build it reruns; and while he is not present, a start, resume or approve that brief.away_refusal() reads as dangerous waits for his next word."""
     if READS_ONLY & set(words):
         return None
     try:
@@ -505,10 +505,10 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
         return RELEASE_BY_HAND.format(command=" ".join(words))
     if lane:
         return lane_release_reason(release_of(words, agents.brief(shell.caller)), verb)
-    if not (drives := [os.environ[state.DRIVE_ENV]] if codex else names):
+    if not (drives := names if names and not codex else list(filter(None, [os.environ.get(state.DRIVE_ENV)]))):
         return None
     data = state.load(drives[0])
-    release = release_of(words, Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller))
+    release = release_of(words, Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller), data["jobs"].values())
     try:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
         return hold and brief.hold_refusal(release, data, hold) or brief.away_refusal(verb, release, data, state.now())
@@ -517,7 +517,7 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
 
 
 def job_reason(words: list[str], shell: Shell) -> str | None:
-    """Why a drive session, an agent it started or a Sprite lane may not start a Job from a suspended CronJob now, by brief.cluster_job_refusal, which a Sprite lane asks the coordinator's Mac with `drive job held --cluster`, and a codex job's run reads in the drive its environment names."""
+    """Why a drive session, an agent it started or a Sprite lane may not start a Job from a suspended CronJob now, by brief.cluster_job_refusal, which a Sprite lane asks the coordinator's Mac with `drive job held --cluster`, and a codex job's run or the watchdog reads in the drive its environment names; a reading in the Job's reason counts only in the top coordinator's session."""
     try:
         job = cluster_job(words)
     except github.GithubError as error:
@@ -529,10 +529,12 @@ def job_reason(words: list[str], shell: Shell) -> str | None:
             return land.lane_held(f"--cluster={job['cluster']}", f"--cronjob={job['cronJob']}", f"--reason={job['reason']}")["cluster"]
         except state.DriveError as error:
             return JOB_UNASKED.format(cluster=job["cluster"], error=error)
-    if not (drives := [os.environ[state.DRIVE_ENV]] if os.environ.get(state.OWN_JOB_ENV) else state.session_drives(shell.session)):
+    names = [] if os.environ.get(state.OWN_JOB_ENV) else state.session_drives(shell.session)
+    if not (drives := names or list(filter(None, [os.environ.get(state.DRIVE_ENV)]))):
         return None
     try:
-        return brief.cluster_job_refusal(job, state.load(drives[0]), state.now())
+        data = state.load(drives[0])
+        return brief.cluster_job_refusal(job, data, state.now(), state.top_coordinator(data, shell.session))
     except state.DriveError as error:
         return HOLD_UNREAD.format(command=" ".join(words), error=error)
 
@@ -567,9 +569,11 @@ def created_job(words: list[str]) -> dict | None:
     return None
 
 
-def release_of(words: list[str], briefed: str) -> str:
-    """The release a release verb runs, as his exception names it: the newest Release line of the caller's brief, the release its job started on, else the verb's own words."""
-    return next(reversed(brief.RELEASE.findall(briefed)), " ".join(words))
+def release_of(words: list[str], briefed: str, jobs: Iterable[dict] = ()) -> str:
+    """The release a release verb runs, as his exception names it: the newest Release line of the caller's brief, the release its job started on, else the release of the job among jobs whose release build the verb writes to, as the watchdog's rerun of a failed one names it, else the verb's own words."""
+    build = (write := release_write(words)) and write[1]
+    built = (job["brief_flags"]["release"] for job in jobs if build and job["release_build"] and (found := github.BUILD.match(job["release_build"])) and found["number"] == build)
+    return next(reversed(brief.RELEASE.findall(briefed)), None) or next(built, " ".join(words))
 
 
 def release_verb(words: list[str]) -> str | None:

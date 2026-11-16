@@ -99,7 +99,7 @@ and waits ids, record seqs), never a technical name.
    card's shape, a tap or gate he owes, a cost he pays, a ruling of his lifted, or what the drive takes
    on, by his ruling 43aa665 "don't ask me every little thing ask my high level preferences"; decide
    every other tooling choice, build its recommended option and open its PR, and an `ASK` you keep
-   anyway `drive job ask` keeps decided with no card when Jev reads it as a detail, printing so.
+   anyway `drive job ask` keeps decided with no card when Opus reads it as a detail, printing so.
    Options differing only in which branch, pin or commit holds a fix are never his. The moment the fork
    shows, even mid-build, keep an `ASK` with options from your evidence with `drive job ask`, which
    puts his card up and leaves your job running, then build its recommended option in the same run:
@@ -124,7 +124,7 @@ and waits ids, record seqs), never a technical name.
    question stays open, another pick is a follow-up: no incident waits; costs a second PR."
    A card that asks him to lift a ruling of his is the exception: `drive job ask` reads each card
    against the recorded answers of his `ccn answer match` ranks nearest to it and those it cites,
-   prints each option Jev reads his words as ruling out, and keeps the card unsettled on the one Jev
+   prints each option Opus reads his words as ruling out, and keeps the card unsettled on the one Opus
    reads any option it offers as breaking, its recommended option first, as `--unsettled` naming them does, a
    mark that holds its PR on an incident too, so push with `ccx vcs ship --no-pr` and return `BUILT`, by his pick "Hold the PR
    until you answer; the drive finds each card against your recorded answers".
@@ -699,7 +699,7 @@ return `ASK`. Nothing in a PR body holds a `READY`: the body is fixed beside the
 Write the block to a new file under your scratch directory, one per question, and run
 `drive job ask <your job> --check <file>`, which runs every check the real ask runs, counts the card as he reads it, draws each
 Show me picture and prints every fix, such as Mermaid's parse error for a diagram that does not draw,
-or `ready`, and before any card draws prints Jev's read of his words, such as a recorded answer of
+or `ready`, and before any card draws prints Opus's read of his words, such as a recorded answer of
 his that already answers it with the two ways on. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
 and names each fix, prints the path it kept, and leaves your job running to build the recommended
 option, by Build step 3; return that path only on an `ASK` that ends your run. He may already have answered this same
@@ -754,7 +754,7 @@ Replaces: <only on a question built on other open questions of his: each one's A
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
   settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block whose lines are out of this shape,
-  and keeps every block in shape whatever Jev finds, printing to you each option or part Jev answers 0.7 or more as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, each code name or run id it answers 0.7 or more as never said in plain words on the card, each of those it answers between 0.3 and 0.7 as unsure, the card itself when Jev, reading it cold, answers 0.7 or more that it uses a name as if he knew it, such as a Forbids line the drive coined, and each raw id `cc-slack check-post` finds on it, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card; when Jev reads any option the card offers as breaking a recorded answer or ruling of his, at 0.7 or more and the recommended one first, the verb keeps the card unsettled on it, asking him to lift those words, which holds its PR on an incident too, unless that answer orders a release the recommended option names in backticks, which the verb prints `drive job add --release` starts with no card. Jev reads his ruling on root causes once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one. On an incident or a bug a reporter shared,
+  and keeps every block in shape whatever Opus and Jev find, printing to you each option or part Opus answers 0.7 or more as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, each code name or run id Jev answers 0.7 or more as never said in plain words on the card, each of those it answers between 0.3 and 0.7 as unsure, the card itself when Jev, reading it cold, answers 0.7 or more that it uses a name as if he knew it, such as a Forbids line the drive coined, and each raw id `cc-slack check-post` finds on it, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card; when Opus reads any option the card offers as breaking a recorded answer or ruling of his, at 0.7 or more and the recommended one first, the verb keeps the card unsettled on it, asking him to lift those words, which holds its PR on an incident too, unless that answer orders a release the recommended option names in backticks, which the verb prints `drive job add --release` starts with no card. Opus reads his ruling on root causes once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one. On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
 - `Holds:` names each PR on your job's orders, or waiting on a part it carries, as the PR a staging test tests, that the options alter, by its link or `#N`, and each
@@ -819,7 +819,7 @@ Replaces: <only on a question built on other open questions of his: each one's A
   what it will look like once built: its real calls, the rows or bytes it writes, its flow, or the
   reply or screen a caller gets, as a `compare` panel named with the option's words, a markdown
   table, or a diagram or picture captioned with its number, never only the files it touches and its
-  cost. `drive job ask` prints each option Jev reads as left unworked, naming it, by his words
+  cost. `drive job ask` prints each option Opus reads as left unworked, naming it, by his words
   "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3" and "flash this out wayu more and od that for everyhtrfing in the future".
   Any other card, such as one asking whether or when to release, adds a Show me only when it shows
   what the summary and options cannot; a constant, name or value the words already say needs none.

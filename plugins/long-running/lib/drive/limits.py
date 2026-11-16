@@ -1127,7 +1127,7 @@ def captions(show_me: list[str]) -> list[str]:
 
 
 def root_cause_problems(findings: str, options: list[str]) -> list[str]:
-    """Every way the findings fail to name the option that is the simplest design doing his words, and to start from the root cause, the structure that lets the defect happen, with a number measuring it, and name the option that removes it so the defect cannot occur; or to name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or to say the cause is not found yet, what measures it and the job measuring it; or to say no defect is behind the question; and to fit the line his card draws under its first line in at most a line's words with no drive id. Which option the card recommends, whether that option or PR truly removes the structure, and whether his words choose another, Jev weighs when `drive job ask` keeps it, his own pick or order beating the root-cause preference. A block rebuilt from his posted card has only the Root cause line it drew and the line saying so, and nothing to check."""
+    """Every way the findings fail to name the option that is the simplest design doing his words, and to start from the root cause, the structure that lets the defect happen, with a number measuring it, and name the option that removes it so the defect cannot occur; or to name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or to say the cause is not found yet, what measures it and the job measuring it; or to say no defect is behind the question; and to fit the line his card draws under its first line in at most a line's words with no drive id. Which option the card recommends, whether that option or PR truly removes the structure, and whether his words choose another, Opus weighs when `drive job ask` keeps it, his own pick or order beating the root-cause preference. A block rebuilt from his posted card has only the Root cause line it drew and the line saying so, and nothing to check."""
     if findings.strip().endswith(REBUILT_HOLDS):
         return []
     problems = []
@@ -1200,7 +1200,7 @@ def names_option(words: str, options: list[str]) -> bool:
 
 
 def ask_case(text: str, asked: Question, cited: frozenset[str] = frozenset()) -> str:
-    """A kept card as Jev reads it against his words: its question, summary and Show me, each option numbered with its description and the recommended one marked, the root cause its findings name with the option they say removes it and the one they name the simplest, which every card offers, each other line of its findings naming by id one of the recorded answers of his it cites, such as one saying its recommended option replaces words of that answer, and a Page line for each web page it links, holding the words that page shows once Chrome opens it, every page read at once."""
+    """A kept card as Opus reads it against his words: its question, summary and Show me, each option numbered with its description and the recommended one marked, the root cause its findings name with the option they say removes it and the one they name the simplest, which every card offers, each other line of its findings naming by id one of the recorded answers of his it cites, such as one saying its recommended option replaces words of that answer, and a Page line for each web page it links, holding the words that page shows once Chrome opens it, every page read at once."""
     findings = FINDINGS.split(text, maxsplit=1)[1]
     named = [found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES, SIMPLEST) if (found := pattern.search(findings))]
     with ThreadPoolExecutor() as pool:
@@ -1227,7 +1227,7 @@ def offered(asked: Question) -> list[str]:
 
 
 def rule_words(case: str) -> list[dict[str, str]]:
-    """His rulings Jev weighs a card's case by beside his words: his ruling on root causes, with the rule it sets by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his words that a team's data is read or written only as a service account, beside the question they answered, whatever order the card serves, his words that a job reads a value itself rather than asking him for it, with the rule they set, and, when the case reads a page the card links, his words on a link that opened another view than its card described, with the rule they set."""
+    """His rulings Opus weighs a card's case by beside his words: his ruling on root causes, with the rule it sets by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his words that a team's data is read or written only as a service account, beside the question they answered, whatever order the card serves, his words that a job reads a value itself rather than asking him for it, with the rule they set, and, when the case reads a page the card links, his words on a link that opened another view than its card described, with the rule they set."""
     cause = ROOT_CAUSE.findall(case)[-1]
     form = "none" if NONE_WHY.match(cause) else "fixed" if FIXED.match(cause) else "found"
     return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, TEAM_DATA_WORDS, FACT_WORDS, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]

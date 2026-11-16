@@ -129,6 +129,8 @@ def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
         (["tailscale", "status", "--self", "--peers=false", "--json"], True),
         (["tailscale", "whois", "--json", "100.64.0.1"], True),
         (["tailscale", "funnel", "--bg", "--yes", "--https=8443"], False),
+        (["claude", "-p", "--model", "claude-opus-5-5", "--restricted", "--strict-mcp-config", "--tools", "", "--json-schema", "{}"], True),
+        (["claude", "-p", "--model", "claude-opus-5-5", "--restricted", "--add-dir", "/tree", "--strict-mcp-config", "--tools", "Read,Grep,Glob"], False),
         (["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--headless=new", "--incognito", "--screenshot=/tmp/p.png", "file:///tmp/p.html"], True),
     ],
 )

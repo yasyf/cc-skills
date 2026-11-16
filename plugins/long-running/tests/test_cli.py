@@ -3060,7 +3060,7 @@ def test_j6887_an_ask_jev_reads_as_asking_again_what_its_jobs_open_cards_ask_dra
     assert cli.main(["job", "ask", "j3", "-"]) == 0
     out, err = capsys.readouterr()
     assert out.strip() == f"{kept}\nhis card {slack_card(1)} asks it under demo:j3-7"
-    assert sorted(line for line in err.splitlines() if line.startswith("drive job ask: Jev reads this card")) == sorted(
+    assert sorted(line for line in err.splitlines() if line.startswith("drive job ask: Opus reads this card")) == sorted(
         settled.REPEATED.format(job="j3", card=card, order="o1", prs="no PR", title=title, waits=wait) for title, card, wait in zip(titles[:2], cards, waits)
     )
     [request] = [request for request in jev.asked if "again1" in request["questions"]]
@@ -4101,8 +4101,8 @@ def test_job_ask_keeps_a_card_whose_option_his_words_rule_out_and_prints_jevs_fi
     assert cli.main(["job", "ask", "j1", str(block)]) == 0
     advice = capsys.readouterr().err
     broken = f'as breaking {key}, his message in the order\'s thread, "{words}". This finding refuses no card, by his pick 320b7a7'
-    assert f'drive job ask: Jev reads option "A map file beside each journal file: no guessing, but one request per file and twice the objects" {broken}' in advice
-    assert f"drive job ask: Jev reads the card {broken}" in advice
+    assert f'drive job ask: Opus reads option "A map file beside each journal file: no guessing, but one request per file and twice the objects" {broken}' in advice
+    assert f"drive job ask: Opus reads the card {broken}" in advice
     assert "--unsettled" not in advice
     [question] = state.load("demo")["jobs"]["j1"]["questions"]
     assert (question["refused"], question["waits"] is not None, question["unsettled"]) == (None, True, None)
@@ -4121,8 +4121,8 @@ def test_job_ask_keeps_a_card_whose_option_jev_reads_as_never_worked_out_and_pri
     block.write_text(SHORT_ASK)
     assert cli.main(["job", "ask", "j1", str(block)]) == 0
     advice = capsys.readouterr().err
-    assert f'drive job ask: Jev reads option "{unworked}" as breaking ruling:77b577b, {limits.WORKED_WORDS["asked"]}, "dontg be lazy flash this out' in advice
-    assert [line.partition(" as breaking ")[0] for line in advice.splitlines() if line.startswith("drive job ask: Jev reads")] == [f'drive job ask: Jev reads option "{unworked}"']
+    assert f'drive job ask: Opus reads option "{unworked}" as breaking ruling:77b577b, {limits.WORKED_WORDS["asked"]}, "dontg be lazy flash this out' in advice
+    assert [line.partition(" as breaking ")[0] for line in advice.splitlines() if line.startswith("drive job ask: Opus reads")] == [f'drive job ask: Opus reads option "{unworked}"']
     [request] = jev.asked
     assert ("`card.options[2]`" in request["questions"][f"worked3.{limits.WORKED_WORDS['id']}"].ask, request["state"]["card"]["options"][2]) == (True, unworked)
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["refused"] is None
@@ -4599,7 +4599,7 @@ def test_job_ask_and_its_check_print_his_recorded_answer_jev_reads_as_already_an
     assert (checked.out, "drive job ask j1 --drop <the file its question is kept in> --answer 9992100" in checked.err, "outside the sentence recommending an option" in checked.err) == ("ready\n", True, True)
     assert state.load("demo")["jobs"]["j1"]["questions"] == []
     assert cli.main(["job", "ask", "j1", str(block)]) == 0
-    assert f'Jev reads his answer 9992100 to "{WAIT_RULING["asked"]}" ({PICK}) as already answering this card: "{WAIT_RULING["said"]}"' in capsys.readouterr().err
+    assert f'Opus reads his answer 9992100 to "{WAIT_RULING["asked"]}" ({PICK}) as already answering this card: "{WAIT_RULING["said"]}"' in capsys.readouterr().err
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["card"]
     lines = next(request["state"]["lines"] for request in jev.asked if "lines" in request["state"])
     assert list(lines.values()) == [
@@ -4807,7 +4807,7 @@ LANE_DEATH_RULINGS = {
 }
 
 
-@pytest.mark.parametrize("read", [None, ("dd40f2b", 0.6), "unheard"], ids=["Jev reads none as deciding it", "Jev reads one under the bar", "Jev gives no reading"])
+@pytest.mark.parametrize("read", [None, ("dd40f2b", 0.6), "unheard"], ids=["Opus reads none as deciding it", "Opus reads one under the bar", "Opus gives no reading"])
 def test_a_card_whose_summary_cites_his_rulings_on_other_questions_draws_no_already_answered_unless_jev_reads_one_as_deciding_its_question(
     run: Run, asking: str, recorded: Answers, jev: Jev, read: tuple[str, float] | str | None
 ) -> None:
@@ -7237,8 +7237,8 @@ def test_a_pr_of_a_two_part_job_naming_one_part_is_judged_alone_against_that_par
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "one abstraction everything goes through", "--parts", "moved-table abstraction", "doors close", "partitioning")
     run("job", "add", "builder", "--order", "o1", "--part", "moved-table abstraction", "--part", "doors close", "--goal", "route every caller through Env")
-    run("pr", "add", PR, "--job", "j1", *LEAD)
-    run("pr", "add", STACKED, "--job", "j1", *LEAD)
+    run("pr", "add", PR, "--job", "j1", "--part", "moved-table abstraction", *LEAD)
+    run("pr", "add", STACKED, "--job", "j1", "--part", "doors close", *LEAD)
     recorded.shown["953a8c8"] = DOORS
     assert cli.main(["pr", "set", PR, "--part", "partitioning"]) == 2
     assert 'its job j1 delivers no part partitioning; its parts are "moved-table abstraction", "doors close"' in capsys.readouterr().err
@@ -7270,6 +7270,7 @@ def test_a_pr_whose_job_carries_one_part_of_its_order_passes_on_that_part_while_
     said, changes = judge.asked[-1]
     assert (list(changes), f"this change delivers: {sessions}\n" in said) == (["Forge-AI/monorepo#42"], True)
     assert state.load(demo)["prs"]["Forge-AI/monorepo#42"]["checker"]["outcome"].startswith(f"{served.CHECKED} against the words of o1 at ")
+
 
 
 def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order_alone_and_its_builders_pushed_is_kept(
@@ -7411,7 +7412,7 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
     staging, url = "staging test of #7 before it lands", "https://github.com/Forge-AI/monorepo/pull/7"
     run("order", "add", "--title", "Soak title", "--project", "The drive", "--workstream", "Drive tooling", "ship and soak it", "--parts", "the store", staging)
     run("job", "add", "builder", "--order", "o2", "--part", "the store", "--part", staging, "--goal", "ship and soak #7")
-    assert run("pr", "add", url, "--job", "j2", *LEAD)[0] == 0
+    assert run("pr", "add", url, "--job", "j2", "--part", "the store", *LEAD)[0] == 0
     assert run("pr", "set", url, "--waits", f"o2:{staging}")[0] == 0
     with state.edit(demo) as data:
         data["jobs"]["j2"]["waits"] = ["Forge-AI/monorepo#7"]
@@ -10411,7 +10412,7 @@ def test_pr_set_part_on_a_done_builders_merged_pr_names_a_part_of_another_order_
     run("job", "add", "builder", "--order", "o1", "--part", "ship the watch", "--goal", "the watch", "--agent", "a")
     assert run("job", "set", "j1", "--carries", "o2", "--part", "stack 2")[0] == 0
     url = "https://github.com/yasyf/cc-skills/pull/4582"
-    run("pr", "add", url, "--job", "j1", *LEAD)
+    run("pr", "add", url, "--job", "j1", "--part", "ship the watch", *LEAD)
     proof = f"{url} live: repro/j1.sh exits 0 on long-running@skills 1.0.4"
     with state.edit("demo") as data:
         data["jobs"]["j1"].update(state="done", said=f"DONE {proof}")
@@ -11140,7 +11141,7 @@ def test_his_answer_supersedes_in_cc_notes_each_older_standing_answer_on_its_fea
     jev.breaks("replaces", "9992100")
     cards_asking(monkeypatch, PR)
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
-    assert 'his answer 9992100 to "Still build the separate process now?" is superseded by a1 in cc-notes, as Jev reads his new words replacing it' in capsys.readouterr().err
+    assert 'his answer 9992100 to "Still build the separate process now?" is superseded by a1 in cc-notes, as Opus reads his new words replacing it' in capsys.readouterr().err
     assert superseding == [("9992100", "a1")]
     [read] = [asked for asked in jev.asked if "replaces.9992100" in asked["questions"]]
     assert read["state"]["answer"]["said"] == WORDS
@@ -11549,10 +11550,10 @@ def test_jev_reads_every_option_of_a_card_in_one_request_one_noul_an_option_and_
     jev.picks("none")
     jev.breaks("breaks2", NOT_SPECIAL["id"])
     settled.judged(case, asked, [NOT_SPECIAL], [], {})
-    assert capsys.readouterr().err.startswith(f'drive job ask: Jev reads option "{asked.options[1]}" as breaking {NOT_SPECIAL["id"]}, {NOT_SPECIAL["asked"]}, "{NOT_SPECIAL["said"]}". This finding refuses no card')
+    assert capsys.readouterr().err.startswith(f'drive job ask: Opus reads option "{asked.options[1]}" as breaking {NOT_SPECIAL["id"]}, {NOT_SPECIAL["asked"]}, "{NOT_SPECIAL["said"]}". This finding refuses no card')
     jev.breaks("breaks2", NOT_SPECIAL["id"], 0.5)
     settled.judged(case, asked, [NOT_SPECIAL], [], {})
-    assert capsys.readouterr().err.startswith(f'drive job ask: Jev is unsure whether option "{asked.options[1]}" goes against {NOT_SPECIAL["id"]}')
+    assert capsys.readouterr().err.startswith(f'drive job ask: Opus is unsure whether option "{asked.options[1]}" goes against {NOT_SPECIAL["id"]}')
     settled.judged(case, asked, [], [], {})
     assert not [key for key in jev.asked[-1]["questions"] if NOT_SPECIAL["id"] in key]
 
@@ -11568,7 +11569,7 @@ def test_his_ruling_on_root_causes_is_judged_once_on_the_card_beside_its_simples
     settled.judged(case, asked, [NOT_SPECIAL], [], {})
     assert [key for key in jev.asked[-1]["questions"] if "ruling:0c59046" in key] == ["card.ruling:0c59046"]
     advice = capsys.readouterr().err
-    assert advice.startswith(f'drive job ask: Jev reads the card as breaking ruling:0c59046, his ruling on root causes, "{limits.ROOT_CAUSE_QUOTE}". Its rule: {limits.ROOT_CAUSE_RULES["found"]}')
+    assert advice.startswith(f'drive job ask: Opus reads the card as breaking ruling:0c59046, his ruling on root causes, "{limits.ROOT_CAUSE_QUOTE}". Its rule: {limits.ROOT_CAUSE_RULES["found"]}')
     assert "This finding refuses no card, by his pick 320b7a7" in advice
 
 
@@ -11645,7 +11646,7 @@ def test_jev_names_the_recorded_answer_or_ruling_it_reads_at_yes_for_the_recomme
     jev.ruled = {}
     jev.picks("7a1c0de", 0.55)
     assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
-    assert capsys.readouterr().err.startswith(f'drive job ask: Jev is unsure whether option "{asked.options[0]}" goes against 7a1c0de')
+    assert capsys.readouterr().err.startswith(f'drive job ask: Opus is unsure whether option "{asked.options[0]}" goes against 7a1c0de')
     jev.picks("7a1c0de", 0.7)
     assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == (cited, "the recommended option")
     capsys.readouterr()
@@ -11666,15 +11667,15 @@ def test_jev_names_a_ruling_another_option_breaks_at_yes_beside_that_option_afte
     assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
 
 
-def test_jev_reads_every_one_of_his_words_whole_across_as_many_requests_as_they_need_each_within_the_limit(jev: Jev) -> None:
+def test_opus_reads_every_one_of_his_words_whole_in_one_request_past_the_old_jev_limit(jev: Jev) -> None:
     asked = limits.question(AGENT_START, kept=True)
     case = limits.ask_case(AGENT_START, asked)
     words = [{"id": f"p{number}", "asked": "his message in the order's thread", "said": f"{number} " + "x" * 2000} for number in range(8)]
     assert settled.judged(case, asked, words, [], {})[0] is None
-    assert len(jev.asked) > 1
-    assert [read for read in jev.asked if settled.size(read["state"], read["questions"]) > settled.REQUEST_CHARS] == []
-    assert sorted(key for read in jev.asked for key in read["questions"] if key.startswith("untapped.")) == [f"untapped.p{number}" for number in range(8)]
-    assert next(read for read in jev.asked if "untapped.p0" in read["questions"])["questions"]["card.p0"].no == settled.AGAINST_CARD.no
+    [read] = jev.asked
+    assert settled.size(read["state"], read["questions"]) > settled.REQUEST_CHARS
+    assert sorted(key for key in read["questions"] if key.startswith("untapped.")) == [f"untapped.p{number}" for number in range(8)]
+    assert read["questions"]["card.p0"].no == settled.AGAINST_CARD.no
 
 
 def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(
@@ -11685,7 +11686,7 @@ def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_t
     jev.answer = None
     assert cli.main(["job", "ask", asking, str(block)]) == 0
     unheard = capsys.readouterr().err
-    assert "drive job ask: Jev gave no reading of this question against his words, so it goes to him: no jev decision within 20s" in unheard
+    assert "drive job ask: Opus gave no reading of this question against his words, so it goes to him: no jev decision within 20s" in unheard
     assert "drive job ask: Jev did not say whether this question needs a screenshot or an architecture diagram of each option or plain words beside the code it names, so it goes up unchecked" in unheard
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["refused"] is None
 
