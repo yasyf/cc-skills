@@ -6,6 +6,7 @@ import socket
 import ssl
 import subprocess
 import threading
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,6 +17,7 @@ from lane import rows as lane_rows
 VIEW = "view.json"
 LOOPBACK = "127.0.0.1"
 TLS_HANDSHAKE = b"\x16"
+FOLLOW_SECONDS = 30
 STATE_ORDER = {store.RUNNING: 0, store.WAITING: 1, store.PARKED: 2}
 
 
@@ -174,7 +176,7 @@ class Server(ThreadingHTTPServer):
 
 
 def serve(drive: str, port: int) -> None:
-    """Serve the page on loopback and the tailnet addresses, the tailnet ones over HTTPS with this machine's Tailscale certificate when the tailnet issues one."""
+    """Serve the page on loopback and the tailnet addresses, the tailnet ones over HTTPS with this machine's Tailscale certificate when the tailnet issues one, until its code changes or a newer install lands, when it exits and launchd starts it again through the drive's launcher on the new code."""
     net = tailnet()
     context = None
     if net and net[2]:
@@ -186,10 +188,16 @@ def serve(drive: str, port: int) -> None:
         context.load_cert_chain(cert, key)
     page = handler(drive)
     servers = [Server((LOOPBACK, port), page, None), *(Server((address, port), page, context) for address in (net[1] if net else []))]
-    for server in servers[1:]:
+    for server in servers:
         threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f"lane page for {drive}: " + (f"https://{net[0]}:{port}/" if net and net[2] else f"http://{LOOPBACK}:{port}/"), flush=True)
-    servers[0].serve_forever()
+    from lane import supervisor
+
+    here, loaded = Path(__file__).resolve().parents[2], supervisor.code_stamp()
+    while supervisor.code_stamp() == loaded and supervisor.newest_install() == here:
+        time.sleep(FOLLOW_SECONDS)
+    for server in servers:
+        server.shutdown()
 
 
 def install(drive: str, port: int) -> str:
