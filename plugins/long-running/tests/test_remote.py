@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
+import urllib.parse
 import uuid
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -2657,6 +2659,44 @@ def test_a_sprite_whose_transcripts_the_sprites_file_api_cannot_list_or_read_lea
     assert REAL_KEEP_TRANSCRIPTS(remote, "j1", {"workspace": "pool-asleep"}, DISPATCH, tmp_path) == kept / "-home-sprite-monorepo" / "0b1c9e.jsonl"
     assert (kept / orca.UNKEPT).read_text() == f"/home/sprite/.claude/projects/-home-sprite-monorepo/subagents/agent-1.jsonl: the Sprites API ran past {orca.CALL_SECONDS} s\n"
     assert not (kept / "-home-sprite-monorepo" / "subagents" / "agent-1.jsonl").exists()
+
+
+def test_a_copy_after_each_turn_reads_only_the_transcripts_that_changed_and_keeps_the_earlier_copy_of_a_short_read(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sprite_homes: dict[str, Path]
+) -> None:
+    sprite_homes["pool-one"] = tmp_path / "pool-one"
+    projects = sprite_homes["pool-one"] / ".claude" / "projects" / "-home-sprite-monorepo"
+    projects.mkdir(parents=True)
+    (projects / "0b1c9e.jsonl").write_text("{}\n")
+    (projects / "old.jsonl").write_text("{}\n")
+    listed, reads = orca.sprite_api, []
+
+    def counted(root: Path, workspace: str, call: str, *curl: str) -> str:
+        if call.startswith("fs/read"):
+            reads.append(Path(urllib.parse.parse_qs(call.partition("?")[2])["path"][0]).name)
+        return listed(root, workspace, call, *curl)
+
+    monkeypatch.setattr(orca, "sprite_api", counted)
+    kept = orca.transcripts(remote, "j1", DISPATCH) / "-home-sprite-monorepo"
+    assert REAL_KEEP_TRANSCRIPTS(remote, "j1", {"workspace": "pool-one"}, DISPATCH, tmp_path) == kept / "0b1c9e.jsonl"
+    assert sorted(reads) == ["0b1c9e.jsonl", "old.jsonl"]
+    reads.clear()
+    (projects / "0b1c9e.jsonl").write_text("{}\n{}\n")
+    os.utime(projects / "0b1c9e.jsonl", (time.time() + 5, time.time() + 5))
+    REAL_KEEP_TRANSCRIPTS(remote, "j1", {"workspace": "pool-one"}, DISPATCH, tmp_path)
+    assert (reads, (kept / "0b1c9e.jsonl").read_text()) == (["0b1c9e.jsonl"], "{}\n{}\n")
+
+    def short(root: Path, workspace: str, call: str, *curl: str) -> str:
+        if call.startswith("fs/read"):
+            Path(curl[curl.index("-o") + 1]).write_text("{")
+            return ""
+        return listed(root, workspace, call, *curl)
+
+    monkeypatch.setattr(orca, "sprite_api", short)
+    (projects / "0b1c9e.jsonl").write_text("{}\n{}\n{}\n")
+    REAL_KEEP_TRANSCRIPTS(remote, "j1", {"workspace": "pool-one"}, DISPATCH, tmp_path)
+    assert (kept / "0b1c9e.jsonl").read_text() == "{}\n{}\n"
+    assert (kept.parent / orca.UNKEPT).read_text() == "/home/sprite/.claude/projects/-home-sprite-monorepo/0b1c9e.jsonl: fs/read gave 1 bytes of the 9 fs/list named\n"
 
 
 @pytest.mark.parametrize("seen", [False, True])

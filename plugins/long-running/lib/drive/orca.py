@@ -1375,7 +1375,7 @@ def transcripts(drive: str, job_id: str, dispatch: str) -> Path:
 
 
 def keep_transcripts(drive: str, job_id: str, job: dict, dispatch: str, root: Path) -> Path | None:
-    """Copy whole to transcripts, before an end or a relaunch can destroy it, the ~/.claude/projects folder of the Sprite of the job's lane on this dispatch, every Claude Code transcript it holds, the worker's and any earlier lane's on that Sprite, through the Sprites file API under the org root's cc-remote config names, as cc-remote's sprites provider reads a file, so a Sprite whose ssh and exec give no answer while that API reads it running still gives them up: each file sprite_listing lists there, read whole by fs/read as it stands then, a file the live worker is still writing included, and given the write time that listing names. The worker's own transcript, the newest, or None when none was copied; UNKEPT there says why the listing, or each file's read, gave no answer."""
+    """Copy whole to transcripts, before an end or a relaunch can destroy it, the ~/.claude/projects folder of the Sprite of the job's lane on this dispatch, every Claude Code transcript it holds, the worker's and any earlier lane's on that Sprite, through the Sprites file API under the org root's cc-remote config names, as cc-remote's sprites provider reads a file, so a Sprite whose ssh and exec give no answer while that API reads it running still gives them up: each file sprite_listing lists there, read whole by fs/read as it stands then, a file the live worker is still writing included, and given the write time that listing names; a file kept here at the size and write time the listing names is read no more, so a copy after each turn reads only what changed, and a read shorter than the size the listing names is unread, its earlier copy kept. The worker's own transcript, the newest, or None when none was copied; UNKEPT there says why the listing, or each file's read, gave no answer."""
     kept = transcripts(drive, job_id, dispatch)
     kept.mkdir(parents=True, exist_ok=True)
     state.said(job_id, f"it copies the Claude Code transcripts of Sprite {job['workspace']} through the Sprites file API, for at most {CALL_SECONDS} s a call")
@@ -1387,15 +1387,23 @@ def keep_transcripts(drive: str, job_id: str, job: dict, dispatch: str, root: Pa
     unread = []
     for name, entry in files.items():
         into = kept / name
+        written = state.parse_time(entry["modTime"]).timestamp()
+        if into.exists() and int(into.stat().st_mtime) == int(written) and into.stat().st_size == entry["size"]:
+            continue
         into.parent.mkdir(parents=True, exist_ok=True)
+        reading = into.with_name(f"{into.name}.reading")
         try:
-            sprite_api(root, job["workspace"], f"fs/read?{urllib.parse.urlencode({'path': entry['path']})}", "-o", str(into))
+            sprite_api(root, job["workspace"], f"fs/read?{urllib.parse.urlencode({'path': entry['path']})}", "-o", str(reading))
         except OrcaError as error:
-            into.unlink(missing_ok=True)
+            reading.unlink(missing_ok=True)
             unread.append(f"{entry['path']}: {error}")
             continue
-        written = state.parse_time(entry["modTime"]).timestamp()
-        os.utime(into, (written, written))
+        if (got := reading.stat().st_size) < entry["size"]:
+            reading.unlink()
+            unread.append(f"{entry['path']}: fs/read gave {got} bytes of the {entry['size']} fs/list named")
+            continue
+        os.utime(reading, (written, written))
+        reading.replace(into)
     if unread:
         (kept / UNKEPT).write_text("".join(f"{line}\n" for line in unread))
     else:

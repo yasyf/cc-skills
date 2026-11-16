@@ -1532,15 +1532,18 @@ def unrecorded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.fixture(autouse=True)
-def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run the handler start `drive handler` detaches and the order record `say` detaches in the test's own process, the record with no session as state.detach runs it, so a test reads the `claude --bg` it ran and say's line carries its record, and start no `drive job start` the watch's start_jobs detaches, which a test runs itself where it reads one; every other detached verb is detached as before."""
-    detached = state.detach
+def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Run the handler start `drive handler` detaches and the order record `say` detaches in the test's own process, the record with no session as state.detach runs it, so a test reads the `claude --bg` it ran and say's line carries its record, and start no `drive job start` the watch's start_jobs detaches, which a test runs itself where it reads one, and records in transcripts_kept the job of each transcript copy the watch detaches at a Sprite lane's turn end; every other detached verb is detached as before."""
+    detached, transcripts_kept = state.detach, []
 
     def detach(name: str, args: list[str], log: str) -> int:
         if args[:2] == ["job", "start"]:
             return 0
         if args[:1] == ["handler-start"]:
             agents.start_kept(name, args[1])
+            return 0
+        if args[:1] == ["transcripts-keep"]:
+            transcripts_kept.append(args[1])
             return 0
         if args[:1] == ["card-record"]:
             card.record_kept(name, Path(args[1]))
@@ -1553,6 +1556,7 @@ def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
         return detached(name, args, log)
 
     monkeypatch.setattr(state, "detach", detach)
+    return transcripts_kept
 
 
 @pytest.fixture(autouse=True)

@@ -6076,6 +6076,15 @@ def card_command(args: argparse.Namespace) -> int:
     return card.main(sys.stdin, sys.stdout)
 
 
+def transcripts_keep(args: argparse.Namespace) -> int:
+    """Copy to the drive's folder, by orca.keep_transcripts, the Claude Code transcripts the Sprite of the job's lane holds now, so a relaunch after that Sprite is lost resumes its session from a copy no older than its last turn; the watch runs it detached at each turn end of a Sprite lane."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    job = find(data["jobs"], args.id, "job")
+    kept = orca.keep_transcripts(name, args.id, job, job["dispatch"], orca.checkout(name, data["roles"]["coordinator"]["cwd"]))
+    return emit(args, f"{args.id}: kept {kept}" if kept else f"{args.id}: no transcript kept from Sprite {job['workspace']}", {"id": args.id, "transcript": str(kept) if kept else None})
+
+
 def card_record(args: argparse.Namespace) -> int:
     from drive import card
 
@@ -7697,6 +7706,9 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("card-record", parents=both, help="apply what a drive card request changed on its PRs from the receipt it kept; drive card runs it detached")
     verb.add_argument("receipt", help="the receipt file drive card kept under the drive's card-records folder")
     verb.set_defaults(run=card_record)
+    verb = verbs.add_parser("transcripts-keep", parents=both, help="copy the Claude Code transcripts the Sprite of a job's lane holds now to the drive's folder; the watch runs it detached at each turn end of a Sprite lane")
+    verb.add_argument("id", help="the job")
+    verb.set_defaults(run=transcripts_keep)
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
     verb.add_argument("--list", action="store_true", help="print the tools as JSON and serve nothing")
     verb.add_argument("--warm", action="store_true", help="fork one process per call the MCP server sends on stdin, from this one with the drive already imported")
