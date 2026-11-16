@@ -1,6 +1,7 @@
 import functools
 import html
 import json
+import time
 import re
 import subprocess
 from datetime import datetime
@@ -31,11 +32,19 @@ def launcher() -> str:
     return str(Path(newest["installPath"]) / "bin" / "cc-slack")
 
 
+SLACK_LIMITED = re.compile(r"\(ratelimited\).*?for (\d+)s")
+
+
 def cc_slack(*args: str, timeout: int = 90, stdin: str | None = None) -> dict:
-    try:
-        result = subprocess.run([launcher(), *args], input=stdin, check=False, capture_output=True, text=True, timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise SlackError(str(error)) from None
+    """What cc-slack prints for args as JSON; a read Slack rate-limits waits out the seconds Slack names and runs again, by his answer 7f753e0 "Fail the read until Slack answers: no reply misses his newest line, and a reply waits out the limit"."""
+    while True:
+        try:
+            result = subprocess.run([launcher(), *args], input=stdin, check=False, capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise SlackError(str(error)) from None
+        if not result.returncode or not (limited := SLACK_LIMITED.search(result.stderr)):
+            break
+        time.sleep(int(limited[1]) + 1)
     if result.returncode:
         raise SlackError(" ".join(result.stderr.split()) or f"cc-slack {args[0]} exited {result.returncode}")
     try:

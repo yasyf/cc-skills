@@ -64,3 +64,24 @@ def test_a_card_read_cc_slack_cannot_answer_keeps_the_cards_last_stored_and_mark
     found, source = view.stored_cards(demo)
     assert (found, source) == (listed, "unavailable: cc-slack daemon not running")
     assert view.live_cards(demo) is None
+
+
+def test_a_read_slack_rate_limits_waits_the_seconds_slack_names_and_reads_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    tries: list[list[str]] = []
+    waited: list[float] = []
+    limited = "cc-slack: can't read thread 1794687682.137749 now (ratelimited): Slack limits the read for 10s more"
+
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        tries.append(argv)
+        if len(tries) < 3:
+            return subprocess.CompletedProcess(argv, 1, "", limited)
+        return subprocess.CompletedProcess(argv, 0, json.dumps(READS["thread"]), "")
+
+    monkeypatch.setattr(slack, "launcher", lambda: "cc-slack")
+    monkeypatch.setattr(slack.subprocess, "run", run)
+    monkeypatch.setattr(slack.time, "sleep", waited.append)
+    assert slack.cc_slack("thread", "--url", POSTED["permalink"], "--json") == READS["thread"]
+    assert (len(tries), waited) == (3, [11, 11])
+    monkeypatch.setattr(slack.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, "", "cc-slack: channel_not_found"))
+    with pytest.raises(slack.SlackError, match="channel_not_found"):
+        slack.cc_slack("thread", "--url", POSTED["permalink"], "--json")

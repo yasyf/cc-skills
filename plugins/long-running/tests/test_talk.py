@@ -696,19 +696,20 @@ def test_say_drops_the_exact_words_it_already_sent_to_the_same_place(communicato
     assert len(posts) == count + 1
 
 
-def test_a_report_about_an_order_another_session_holds_goes_to_that_holder_so_its_thread_hears_one_voice(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("writer", ["root", "priority-o2296", "watch"])
+def test_a_report_about_an_order_from_any_session_but_its_communicator_goes_to_the_communicator_so_its_thread_hears_one_voice(demo: str, writer: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with edit(demo) as data:
-        data["orders"]["o1"] = state.new_order("why did the run fail?", "terminal", None, {}, ASKED) | {"owner": "communicator"}
+        data["orders"]["o1"] = state.new_order("why did the run fail?", "terminal", None, {}, ASKED) | {"owner": "coordinator"}
         data["carried"]["736200"] = agents.DRIVE_CLAIM
         data["posts"]["claimed"] = {"736200": state.stamp()}
-    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {"order": "o1"}, "report": {"kind": "report", "lane": "root", "text": "POST the run failed on a stale lock", "seq": seq}, "thread": None})
-    monkeypatch.setattr(talk, "report_line", lambda name, seq: pytest.fail("posted a report its order's holder should carry"))
-    sent: list[list[dict]] = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["1"])
-    assert talk.report_post(demo, "736200") == "report 736200 handed to communicator, o1's holder: only it posts in that order's thread"
-    assert [(record["to"], record["re"]) for records in sent for record in records] == [([f"communicator@{demo}"], ["736200"])]
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {"order": "o1", "thread": "1794201440.150389"}, "report": {"kind": "report", "lane": writer, "text": "POST the run failed on a stale lock", "seq": seq}, "thread": None})
+    monkeypatch.setattr(talk, "report_line", lambda name, seq: pytest.fail("posted a report its thread's voice should carry"))
+    handed: list[tuple[str, str]] = []
+    monkeypatch.setattr(agents, "handle", lambda name, brief, lane="communicator": handed.append((lane, brief)) or (lane, True))
+    assert talk.report_post(demo, "736200") == "report 736200 handed to communicator, the one voice of o1's thread"
+    assert handed[0][0] == "communicator" and "say naming record 736200" in handed[0][1]
     data = state.load(demo)
-    assert data["carried"]["736200"] == "handed to communicator, o1's holder" and data["posts"]["claimed"] == {}
+    assert data["posts"]["handed"]["736200"]["order"] == "o1" and "736200" in data["posts"]["claimed"]
 
 
 def test_a_correction_of_a_posted_report_rewords_that_post_itself_rather_than_bouncing_to_a_writer_that_cannot_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -849,18 +850,20 @@ def test_a_repositorys_posting_rule_reaches_the_communicators_rules_and_its_tran
     assert posts[-1][-1] == f"Release 9 is out: <{post}|18219>"
 
 
-def test_the_communicators_answer_in_a_thread_the_coordinator_holds_goes_to_the_coordinator_so_it_hears_one_voice(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_communicator_speaks_in_its_order_threads_and_a_seat_communicators_say_there_goes_to_it(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     thread = "1794201440.150389"
     with edit(communicator) as data:
         data["orders"]["o1"] = state.new_order("fix the run page", "terminal", None, {}, ASKED) | {"owner": "coordinator", "thread": [slack.dm(), thread]}
-    sent: list[tuple[str, list[dict]]] = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["1"])
+    handed: list[tuple[str, str]] = []
+    monkeypatch.setattr(agents, "handle", lambda name, brief, lane="communicator": handed.append((lane, brief)) or (lane, True))
     count = len(posts)
-    said = talk.say(communicator, {"text": "The run page fix is in review.", "thread_ts": thread})
-    assert said == f"HANDED {slack.dm()}/{thread} to root, o1's holder, which answers there"
-    assert len(posts) == count
-    assert [(lane, record["to"]) for lane, records in sent for record in records] == [("communicator", [f"root@{communicator}"])]
-    assert "The run page fix is in review." in sent[0][1][0]["text"]
+    assert talk.say(communicator, {"text": "The run page fix is in review.", "thread_ts": thread}).startswith("POSTED")
+    assert len(posts) == count + 1 and not handed
+    monkeypatch.setattr(talk, "own_lane", lambda data: "priority-o9-communicator")
+    said = talk.say(communicator, {"text": "The run page fix merged.", "thread_ts": thread})
+    assert said == f"HANDED {slack.dm()}/{thread} to communicator, the one voice of o1's thread"
+    assert len(posts) == count + 1
+    assert handed[0][0] == "communicator" and "The run page fix merged." in handed[0][1]
 
 
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
@@ -1529,7 +1532,7 @@ def test_a_post_citing_its_record_as_cci_prints_it_reads_its_corrections_by_the_
     )
 
 
-def test_a_correction_of_a_report_already_posted_names_the_post_it_went_out_in_to_reword(
+def test_a_correction_of_a_report_already_posted_edits_the_post_it_went_out_in(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:
     records = {"669950": {"kind": "report", "attrs": {"orders": "o1"}}, "669980": {"kind": "correction", "re": 669950}}
@@ -1540,13 +1543,10 @@ def test_a_correction_of_a_report_already_posted_names_the_post_it_went_out_in_t
 
     monkeypatch.setattr(cli.reads, "run", shown)
     talk.say(demo, {"text": "Each request reads 64 MiB.", "record": "669950"})
-    with pytest.raises(DriveError, match=f"nothing posted: record 669980 corrects report 669950, which went out in {re.escape(POSTED)}: reword that post with say\\(edit={re.escape(POSTED)}"):
-        talk.say(demo, {"text": "Each request reads 16 MiB.", "record": "669980"})
-    assert len(posts) == 1
     with edit(demo) as data:
         data["carried"]["669980"] = agents.DRIVE_CLAIM
         data["posts"]["claimed"] = {"669980": state.stamp(state.now() - agents.UNPOSTED_AFTER - timedelta(minutes=1))}
-    assert talk.say(demo, {"edit": POSTED, "text": "Each request reads 16 MiB.", "record": "669980"}).startswith(f"EDITED {POSTED}")
+    assert talk.say(demo, {"text": "Each request reads 16 MiB.", "record": "669980"}).startswith(f"EDITED {POSTED}")
     assert state.load(demo, ("carried",))["carried"]["669980"] == POSTED
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: pytest.fail(f"flagged a posted correction: {records}"))
     agents.unposted(demo, state.now())

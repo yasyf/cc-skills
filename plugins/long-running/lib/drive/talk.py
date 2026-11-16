@@ -28,33 +28,41 @@ WATCH_LOG = "watch.log"
 def say(name: str, post: dict) -> str:
     """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and a post in a thread is the last line of each open order whose lines go in that thread, whatever order it is recorded on or none, so the watch's clock and each session's overdue line read every line there, and posts nothing from a caller but the communicator, the drive's own posts of reports going through report_line, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line; a claim at another channel's root goes out only on a report naming an end still to come, which its words name, and a report naming none or a past one goes back to its writer. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, and a correction of one a post carried posts nothing, naming where that report's copy is. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses , such as one over its length, a post saying a release may start while a freeze or his release hold it does not name stands, and a dry run."""
     known = caller(name)
-    if order_id := held_elsewhere(known, post):
-        return handed_answer(name, known, order_id, post)
+    if (voice := thread_voice(known, post)) and voice[1] != own_lane(known):
+        return handed_to_voice(name, known, voice, post)
     line = spoken(name, mended(post), known)
     if post.get("done") and not post.get("dry_run"):
         line += finished(post.get("asked"))
     return line
 
 
-def held_elsewhere(known: dict, post: dict) -> str | None:
-    """The order whose thread the communicator's own answer goes in when another session holds every open order there, the coordinator or the meta session, which posts there itself, so its thread hears one voice, by his pick of the design's Q5 default; None for a card, a PR card, an edit, a report it relays, a dry run or a post in no order's thread."""
-    if any(post.get(key) for key in ("edit", "card", "tap_prs", "record", "dry_run")) or not post.get("thread_ts"):
+def voice_lane(data: dict, order: dict) -> str:
+    """The lane of the one session that posts in an order's thread, his communicator: the communicator of the seat whose channel the order goes in while that seat has one bound, else the drive's, by his ruling that the communicator is each order thread's one voice."""
+    seat = state.channel_seat_of(data, order)
+    return state.communicator_lane(seat) if seat in data["communicators"] else "communicator"
+
+
+def own_lane(data: dict) -> str:
+    """The lane of the communicator session calling say."""
+    seat = state.communicator_project(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    return state.communicator_lane(seat) if seat else "communicator"
+
+
+def thread_voice(data: dict, post: dict) -> tuple[str, str] | None:
+    """The open order whose thread a say post goes in and its voice's lane; None for a card, a PR card, an edit, a correction's relay, a dry run or a post in no order's thread."""
+    if any(post.get(key) for key in ("edit", "card", "tap_prs", "dry_run")) or not post.get("thread_ts"):
         return None
     place = [post.get("channel_id") or slack.dm(), post["thread_ts"]]
-    there = [(order_id, order) for order_id, order in known["orders"].items() if order["state"] not in state.CLOSED_ORDER_STATES and order.get("thread") == place]
-    return there[0][0] if there and all(order["owner"] in ("coordinator", "meta") for _, order in there) else None
+    order_id = next((order_id for order_id, order in data["orders"].items() if order["state"] not in state.CLOSED_ORDER_STATES and order.get("thread") == place), None)
+    return (order_id, voice_lane(data, data["orders"][order_id])) if order_id else None
 
 
-def handed_answer(name: str, known: dict, order_id: str, post: dict) -> str:
-    """Hand the communicator's answer in an order's thread to the order's holder, as one note carrying its words and his message, which the holder posts there through a POST report."""
-    from drive import tools
-
-    holder = known["orders"][order_id]["owner"]
-    lane = next(lane for lane, role in state.LANE_ROLES.items() if role == holder)
+def handed_to_voice(name: str, data: dict, voice: tuple[str, str], post: dict) -> str:
+    """Hand a post another communicator would make in an order's thread to that thread's voice, as one note carrying its words, for it to post from state."""
+    order_id, lane = voice
     channel, thread = post.get("channel_id") or slack.dm(), post["thread_ts"]
-    asked = f" his message {post['asked']}," if post.get("asked") else ""
-    tools.sent(name, "communicator", [{"kind": "note", "to": [f"{lane}@{name}"], "text": f"answer him in {order_id}'s thread,{asked} as your POST report with attrs {{order: {order_id}, thread: {thread}}}, since only you post there: {post.get('text') or ''}"}])
-    return f"HANDED {channel}/{thread} to {lane}, {order_id}'s holder, which answers there"
+    agents.handle(name, f"Order: {order_id} Where: {channel}/{thread}, the thread you alone post in. Another session would have posted there: post what holds of it from state, after the action: {post.get('text') or ''}", lane)
+    return f"HANDED {channel}/{thread} to {lane}, the one voice of {order_id}'s thread"
 
 
 ASKED_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=(\d+\.\d+))?")
@@ -287,29 +295,22 @@ def timed_out_again(name: str, seq: str) -> str:
     raise AssertionError(REPORT_POST_TRIES)
 
 
-def other_voice(data: dict, read: dict) -> str | None:
-    """The holder of the order a report is about, when a session other than that holder wrote it, so its thread hears one voice, by the design's rule that only an order's holder posts in its thread and everyone else changes state; None for the holder's own report, the watch's, one about no order, or a writer whose role the drive does not know."""
-    order = data["orders"].get(read["attrs"].get("order") or "")
-    writer = state.LANE_ROLES.get(read["report"].get("lane") or "")
-    if not order or not writer or read["report"].get("lane") == agents.LANE_WATCH or read["report"]["kind"] == "correction":
+def report_voice(data: dict, read: dict) -> tuple[str, str] | None:
+    """The order a POST report is about and the lane of its thread's voice, when a session other than that voice wrote it, holders, seats and the watch included, so the thread hears one voice, his communicator, by his ruling; None for the voice's own report, a correction, which edits the post it corrects, or a report about no order."""
+    order_id = read["attrs"].get("order") or next((order_id for order_id, order in data["orders"].items() if order["state"] not in state.CLOSED_ORDER_STATES and order.get("thread") and order["thread"][1] == (read["attrs"].get("thread") or read["thread"])), None)
+    if not (order := data["orders"].get(order_id or "")) or read["report"]["kind"] == "correction":
         return None
-    return order["owner"] if order["owner"] != writer and order["owner"] in state.LANE_ROLES.values() else None
+    lane = voice_lane(data, order)
+    return None if read["report"].get("lane") == lane else (order_id, lane)
 
 
-def handed_to_holder(name: str, seq: str, read: dict, holder: str) -> str:
-    """Hand a report about an order to the order's holder as a note, for its next post to carry, and count it handled."""
-    from drive import tools
-
-    order = read["attrs"]["order"]
-    lane = next(lane for lane, role in state.LANE_ROLES.items() if role == holder)
-    tools.sent(name, "watch", [{"kind": "note", "to": [f"{lane}@{name}"], "re": [seq], "text": f"report {seq} on {order} goes to you, its holder, since only you post in its thread: carry what it says in your next post there: {render.cut(report_words(read['report']), 600)}"}])
-
-    def handed_write(data: dict) -> None:
-        data["carried"][seq] = f"handed to {holder}, {order}'s holder"
-        data["posts"].get("claimed", {}).pop(seq, None)
-
-    state.write(name, handed_write, patient=True)
-    return f"report {seq} handed to {holder}, {order}'s holder: only it posts in that order's thread"
+def handed_to_report_voice(name: str, seq: str, read: dict, voice: tuple[str, str]) -> str:
+    """Hand a report about an order to its thread's voice, which posts it with say naming the record, so the report counts posted once it does and stays claimed until then."""
+    order_id, lane = voice
+    thread = read["attrs"].get("thread") or read["thread"]
+    state.write(name, lambda data: data["posts"].setdefault("handed", {}).__setitem__(seq, {"channel": read["attrs"].get("channel") or slack.dm(), "thread": thread, "order": order_id}), patient=True)
+    agents.handle(name, f"Record: {seq} Order: {order_id} Drive: {name} Where: {order_id}'s thread, which you alone post in. Post what it says from state, after the action, with say naming record {seq}: {render.cut(report_words(read['report']), 600)}", lane)
+    return f"report {seq} handed to {lane}, the one voice of {order_id}'s thread"
 
 
 def report_post(name: str, seq: str) -> str:
@@ -325,8 +326,8 @@ def report_post(name: str, seq: str) -> str:
         state.write(name, lambda data: data["posts"].setdefault("handed", {}).__setitem__(seq, {"channel": target, "thread": handed_thread, "order": read["attrs"].get("order")}), patient=True)
         agents.handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'} Where: {target}, a channel outside the drive's, whose members read it and where cc-slack posts only on the ticket a session's permission hook names, so post it there yourself with say naming record {seq}, which marks it posted so the drive posts it never again")
         return f"report {seq} handed to the communicator: it posts in {target}, outside the drive's channels"
-    if holder := other_voice(state.load(name), read):
-        return handed_to_holder(name, seq, read, holder)
+    if voice := report_voice(state.load(name), read):
+        return handed_to_report_voice(name, seq, read, voice)
     try:
         return f"report {seq} posted by the drive: {timed_out_again(name, seq)}"
     except (DriveError, slack.SlackError) as error:
@@ -390,7 +391,9 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         report = report | {"close": ", ".join(named for named in state.closed_orders(report) if named != order)}
         close = False
         closed_again = None if order in known["posts"].get("closed_again", []) else (order, again.removeprefix("refused, ").replace(", so this second close of it posts nothing: send no close of", "; the post went out without its close of"))
-    if refused := carried_refusal(known, seq, report, post.get("edit")) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)):
+    if wrong := corrected_post(known, report, post.get("edit")):
+        post = {key: value for key, value in post.items() if key in EDIT_TAKES} | {"edit": wrong}
+    if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)):
         raise DriveError(f"nothing posted: {refused}")
     if refused := unclaimed(known, post, report):
         raise DriveError(f"nothing posted: {refused}; {returned(name, post, report, refused)}")
@@ -576,10 +579,10 @@ def closed(name: str, order_id: str, seq: str) -> str:
     return f"; {order_id} closed on report {seq}"
 
 
-def carried_refusal(data: dict, seq: str | None, report: dict, edit: str | None = None) -> str | None:
-    """Why a correction's post goes nowhere: the report it corrects went out in a post, which the correction rewords; none for the edit of that very post, which say marks the correction posted at."""
+def corrected_post(data: dict, report: dict, edit: str | None = None) -> str | None:
+    """The post a correction's report went out in, which the correction edits in place rather than posting a line beside it, by the design's rule that a correction edits the wrong post; None for any other post, or the edit of that very post."""
     if (post := data["carried"].get(report.get("corrects"))) and state.CARD_LINK.search(post) and not same_message(post, edit):
-        return f"record {seq} corrects report {report['corrects']}, which went out in {post}: reword that post with say(edit={post}, text=…)"
+        return post
     return None
 
 
