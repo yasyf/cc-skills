@@ -4371,6 +4371,9 @@ def pass_reads(name: str, data: dict, prs: list[str]) -> tuple[list[str] | None,
     return paths, sorted({component for key in prs if key in reach for component in reach[key]["components"]}) if all(key in reach for key in prs) else None
 
 
+WAITERS_QUEUED = False
+
+
 def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Hand on each staging slot, by state.slot_turns: end a lease whose job finished, extend once a lease that ran past its end and end it at its second, and give a free slot to the first job in its queue with a GO, packed with each later pass whose PRs change none of its files, up to six, each of those resumed with its RIDE line, every resume by `drive job resume`, so no session sequences or packs staging by hand; it reads the files of each queued pass whose files it has not read while the slot is held, so a pass is packed the moment the slot frees. Its lines go as evidence and wake nobody; a GO's resume that is refused reaches the session holding the job as its relaunch_refused event."""
     if watcher.project or not (slots := state.load(watcher.name)["slots"]):
@@ -4384,7 +4387,7 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     paths, stacks = unread[each["job"]]
                     each["paths"] = each["paths"] if paths is None else paths
                     each["stacks"] = each["stacks"] if stacks is None else stacks
-        waiters = state.queue_waiters(data)
+        waiters = state.queue_waiters(data) if WAITERS_QUEUED else []
         return waiters, state.slot_turns(data, moment, state.repo_config(data).get("release"))
 
     waiters, moved = state.update(watcher.name, None, slot_lines_write)

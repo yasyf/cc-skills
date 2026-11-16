@@ -6813,16 +6813,19 @@ def staged_waiter(job: dict, env: str) -> bool:
 
 
 def queue_waiters(data: dict) -> list[str]:
-    """Give a place in its env's slot queue, dated when it began waiting, to each staging tester whose WAITING names staging serving its cut while it holds, rides and waits in no slot, as a tester that rode a packed cut or a packer's ask did, so packing sees it; the place goes once the job waits on no staging cut there; the line of each queued."""
+    """Give a place in its env's slot queue, dated when it began waiting, to each staging tester whose WAITING names staging serving its cut while it holds, rides and waits in no slot, as a tester that rode a packed cut or a packer's ask did, so packing sees it, but for one a cut of the top coordinator's holding or queued for a slot names in its goal, which rides that cut, or one whose tested PRs are all merged or closed; the place goes once the job waits on no staging cut there; the line of each queued."""
     lines = []
+    carried = {named for slot in data["slots"].values() for member in [*slot_members(slot), *(each["job"] for each in slot["queue"] if each["starts"])] for named in JOB_ID.findall(data["jobs"][member]["goal"])}
     for job_id, job in data["jobs"].items():
-        if job["state"] != "waiting" or starts_cut(job) or not staging_parts(data, job):
+        if job["state"] != "waiting" or job_id in carried or starts_cut(job) or not staging_parts(data, job):
+            continue
+        if not (prs := [key for key in tested_prs(data, job) if key in data["prs"] and data["prs"][key]["state"] == "open"]):
             continue
         for env in dict.fromkeys(found["env"] for wait in job["waits"] if (found := STAGING_WAIT.fullmatch(wait))):
             slot = data["slots"].setdefault(env, {"holder": None, "queue": [], "hold": None})
             if job_id in slot_members(slot) or any(each["job"] == job_id for each in slot["queue"]):
                 continue
-            slot["queue"].append({"job": job_id, "prs": tested_prs(data, job), "minutes": WAITER_MINUTES, "cases": None, "at": job["updated"], "paths": None, "stacks": None, "starts": False, "auto": True})
+            slot["queue"].append({"job": job_id, "prs": prs, "minutes": WAITER_MINUTES, "cases": None, "at": job["updated"], "paths": None, "stacks": None, "starts": False, "auto": True})
             lines.append(f"SLOT {env} queued {job_id}, whose WAITING on a staging cut held no place in its queue, at its place from {job['updated']}")
     return lines
 
