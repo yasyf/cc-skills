@@ -1000,7 +1000,7 @@ def test_an_order_asking_where_work_stands_gets_a_page_its_codex_job_starts_on_a
     assert (order["kind"], {part: held["answer"] for part, held in order["parts"].items()}, order["jobs"]) == ("build", {"SandSQL cutover": True, "page": False}, ["j1"])
     assert (data["jobs"]["j1"]["kind"], data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["waits"]) == ("codex", ["page"], [])
     text = written.read_text()
-    assert "\nPlan: 1. Write strict user stories and acceptance criteria before implementation.\n" in text
+    assert "\nPlan: 1. Run `drive page make --order <order> --goal \"<his goal in plain words>\"`, open its link on the installed dashboard once it composes" in text
     assert "\nInteractions: open Pages on the dashboard and see the page listed live under its order" in text
     assert "Pages lists now: none." in text
     assert brief.job_refusal(data, "o1", "codex", ["page"]) is None
