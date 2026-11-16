@@ -10877,7 +10877,7 @@ def flags(parser: argparse.ArgumentParser) -> set[str]:
     return {flag for action in parser._actions for flag in action.option_strings} - UNLISTED
 
 
-def test_the_verbs_page_names_every_verb_and_flag_exactly_as_the_parser_takes_them(home_repo: None, run: Run) -> None:
+def test_the_verbs_page_names_every_verb_and_flag_exactly_as_the_parser_takes_them(run: Run) -> None:
     leaves, rows = dict(leaf_parsers(cli.parser())), {}
     for line in (cli.PAGES / "verbs.md").read_text().splitlines():
         if line.startswith("| `drive "):

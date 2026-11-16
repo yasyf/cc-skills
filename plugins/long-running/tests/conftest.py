@@ -648,8 +648,9 @@ HOME: dict[str, type[providers.Provider]] = {"repo": GuardedRepo, "staging": Hom
 
 @pytest.fixture
 def home_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The drive's repository the HomeRepo fake, whose PRs are its own and land through its merge queue, over the HOME fakes."""
+    """The drive's repository the HomeRepo fake, whose PRs are its own and land through its merge queue, over the HOME fakes, with no PR reaching any release unless the test reads its reach itself."""
     provide(monkeypatch, tmp_path, repo=HomeRepo)
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
 
 
 class SelectRelease(providers.ReleaseProvider):

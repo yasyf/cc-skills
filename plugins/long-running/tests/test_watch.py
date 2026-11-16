@@ -8519,6 +8519,7 @@ def test_a_pr_trunk_ejects_from_the_merge_queue_is_said_once_and_reads_unlanded_
 
 
 def test_trunk_failing_a_stack_at_its_top_pr_reads_every_pr_its_lander_queued_ejected_until_one_is_queued_again_alone(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     stacked(demo)
@@ -8689,6 +8690,7 @@ def test_a_pr_he_approved_before_he_went_quiet_whose_builder_staged_it_waits_for
 
 
 def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_queued_again_at_the_same_commit_once_that_tests_fix_merges_and_only_once(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], landers: list[tuple[str, ...]]
 ) -> None:
     ejected_on_a_flake(demo, monkeypatch)
@@ -8732,6 +8734,7 @@ def test_a_pr_trunk_ejected_on_a_flaky_test_reads_unlanded_again_once_that_tests
 
 
 def test_replayed_56971_a_pr_trunk_ejected_on_a_test_that_fails_only_as_the_date_changes_is_queued_again_at_the_same_commit_at_once_by_its_cause_and_only_once(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], landers: list[tuple[str, ...]]
 ) -> None:
     ejected_on_a_flake(demo, monkeypatch)

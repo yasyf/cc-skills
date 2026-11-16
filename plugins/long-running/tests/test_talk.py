@@ -480,7 +480,7 @@ def test_say_posts_words_that_a_freeze_or_hold_ended_while_others_and_his_hold_s
     assert [argv[-1] for argv in posts] == [ended, ended]
 
 
-def test_say_words_a_bare_link_itself_since_another_hooks_updated_input_can_drop_the_say_hooks_fix(home_repo: None, demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
+def test_say_words_a_bare_link_itself_since_another_hooks_updated_input_can_drop_the_say_hooks_fix(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     freeze = "https://acme.slack.com/archives/C0B75AL4XEW/p1794828199124889"
     talk.say(demo, {"text": f"The new freeze holds until 9:00 AM tomorrow ({freeze}). See the freeze (<{freeze}>)."})
     assert ([argv[-1] for argv in posts], checked.texts) == ([f"The new freeze holds until 9:00 AM tomorrow (<{freeze}|the message>). <{freeze}|See the freeze>."], [])

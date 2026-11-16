@@ -5583,9 +5583,9 @@ def unreached(name: str, data: dict, waits: list[str]) -> None:
 
 
 def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
-    """The repository's own map of what each PR among keys reaches, by the components of its release provider, given the PR's number, the paths it changes, and its head when they change rust/Cargo.lock, so the repository reads a lockfile line as reaching only the crates that link it, run in the drive's checkout moved to the head of its default branch; none for a repository whose providers name no repository or no release provider, or for a PR of another repository. Its reads run eight at a time."""
+    """The repository's own map of what each PR among keys reaches, by the components of its release provider, given the PR's number, the paths it changes, and its head when they change rust/Cargo.lock, so the repository reads a lockfile line as reaching only the crates that link it, run in the drive's checkout moved to the head of its default branch; none for a repository whose providers name no repository, or for a PR of another repository. Its reads run eight at a time."""
     found = providers.of(data)
-    if not keys or found.repo.name is None or type(found.release) is providers.ReleaseProvider or not (ours := list(dict.fromkeys(key for key in keys if github.repo_of(key).casefold() == found.repo.name.casefold()))):
+    if not keys or found.repo.name is None or not (ours := list(dict.fromkeys(key for key in keys if github.repo_of(key).casefold() == found.repo.name.casefold()))):
         return {}
     orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     with ThreadPoolExecutor(max_workers=8) as pool:
