@@ -554,9 +554,11 @@ def asked_already(name: str, data: dict, stack: list[str]) -> str | None:
 
 
 def homed(name: str, data: dict, post: dict, stack: list[str], order: str | None, where: tuple[str, str | None]) -> tuple[str, str | None]:
-    """Where a new post bound for his DM goes while the drive keeps channels, by his words "everything should be out of DMs now for drive stuff": at the root of its seat's channel, by project, an order whose own thread is in his DM and an incident's line included, so that line starts the order's thread there, as rooted puts a drive channel's update; an in_thread follow-up or a card in the thread of a channel the drive keeps its bare ts names, else in the thread its order's lines go in there, by promise_thread. A post answering his message in its own thread, by answered_ts, stays there, so cc-slack hears it answered; an edit stays on its post, and a drive keeping no channel posts where it did."""
-    if where[0] != slack.dm() or post.get("edit") or not data["slack"]["channels"] or (where[1] and answered_ts(data, post)):
+    """An answer to a message of his, one asked names, goes where he wrote it, in the thread of his DM message even with no thread_ts, while anything the drive starts on its own goes to the channel: Where a new post bound for his DM goes while the drive keeps channels, by his words "everything should be out of DMs now for drive stuff": at the root of its seat's channel, by project, an order whose own thread is in his DM and an incident's line included, so that line starts the order's thread there, as rooted puts a drive channel's update; an in_thread follow-up or a card in the thread of a channel the drive keeps its bare ts names, else in the thread its order's lines go in there, by promise_thread. A post answering his message in its own thread, by answered_ts, stays there, so cc-slack hears it answered; an edit stays on its post, and a drive keeping no channel posts where it did."""
+    if where[0] != slack.dm() or post.get("edit") or not data["slack"]["channels"]:
         return where
+    if answered_ts(data, post):
+        return where if where[1] else (where[0], his_thread(post))
     threaded = bool(post.get("in_thread") or post.get("card") or post.get("about") or stack)
     if where[1] and (kept := kept_in(data, where[1])):
         return kept, where[1] if threaded else None
@@ -564,6 +566,16 @@ def homed(name: str, data: dict, post: dict, stack: list[str], order: str | None
     channel = channel_for(name, data, project(data, post, stack, on))
     thread = state.promise_thread(data, data["orders"][on]) if on and threaded else None
     return channel, thread[1] if thread and thread[0] == channel else None
+
+
+def his_thread(post: dict) -> str:
+    """The thread of the first message of his a post's asked names by ts or permalink: a bare ts is its own thread, and a permalink names its message's thread, or the message itself at a root."""
+    for entry in slack.messages(post["asked"]):
+        if BARE_TS.fullmatch(entry):
+            return entry
+        if message := state.slack_message(entry):
+            return message[2] or message[1]
+    raise DriveError("asked names no message of his by ts or permalink")
 
 
 def answered_ts(data: dict, post: dict) -> list[str]:
