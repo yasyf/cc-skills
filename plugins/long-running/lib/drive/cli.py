@@ -5961,6 +5961,8 @@ def pr_set(args: argparse.Namespace) -> int:
     lane = state.heard_lane(data, order)
     withdrawn: list[str] = []
     told = state.after(lambda: set_outside(name, key, pr["url"], args, dropped, lane, withdrawn))
+    if (before["tap"] or {}).get("label") == "Hold" and args.tapped and args.tapped != "Hold":
+        told.append(lifted_hold(name, key))
     view.refresh_cards(name)
     found, source = view.stored_cards(name)
     found = found if source == "live" else None
@@ -5968,6 +5970,17 @@ def pr_set(args: argparse.Namespace) -> int:
     stage.shown(now, found, [key] if now["prs"][key]["state"] == "open" else [])
     line = render.pr_line(now, key, view.pr_card_words(found, source, now["prs"][key])) + serving + untapped + "".join(f"\n{said}" for said in told)
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
+
+
+def lifted_hold(name: str, key: str) -> str:
+    """Redraw the card his Hold on the PR left it out of, now his tap lifts it, by talk.redraw_left_out; what came of it."""
+    from drive import talk
+
+    try:
+        redrawn = talk.redraw_left_out(name, key)
+    except slack.SlackError as error:
+        return f"his card that left {key} out under his Hold still shows it left out, since its redraw failed: {error}"
+    return f"redrew his card on {redrawn[0]}, which left {key} out under his Hold" if redrawn else f"no card of his left {key} out"
 
 
 def set_outside(name: str, key: str, url: str, args: argparse.Namespace, dropped: dict | None, lane: str, withdrawn: list[str]) -> list[str]:

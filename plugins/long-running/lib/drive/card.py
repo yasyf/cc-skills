@@ -942,7 +942,7 @@ def refused(asks: list[dict]) -> dict:
 
 def answered(ask: dict) -> dict:
     """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again, or on his Hold stop each landing of them by land.halt; a card's tap covers the PRs its waits id asks, by ask_waits, or for a stack too long for its id to name them, each PR the tapped card lists, by its heads, that still asks his tap, and an answer whose waits id names no ask the PR it names; on a card of several PRs a member he already approved keeps that Approve through a later tap on the card, while one he held takes the tap, so one Approve on a stack card lifts each member's Hold and lands the card whole, by his pick eb69825, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event."""
-    from drive import land, view
+    from drive import cli, land, view
 
     if "repo" not in ask:
         return question_answered(ask)
@@ -961,6 +961,8 @@ def answered(ask: dict) -> dict:
     members = members or [key]
     found = view.live_cards(name)
 
+    lifted: list[str] = []
+
     def kept_taps(data: dict) -> None:
         events = []
         for member in members:
@@ -970,6 +972,8 @@ def answered(ask: dict) -> dict:
             picked = {wait: pick | {"seq": None} for wait, pick in picks(data, entry, found).items()} if ask["label"] == "Approve" else {}
             if ask["label"] == "Hold":
                 state.end_approvals(data, member, entry["tap"])
+            elif (entry["tap"] or {}).get("label") == "Hold":
+                lifted.append(member)
             entry["tap"] = state.new_tap(ask["label"], ask["heads"].get(member, entry["head"]), ask["source"], ask["action_ts"], picks=picked, card=stacked and entry.get("stack") or [member])
             entry["fundamental"] = None
             entry["updated"] = entry["tap"]["at"]
@@ -981,6 +985,8 @@ def answered(ask: dict) -> dict:
     state.write(name, kept_taps)
     if ask["label"] == "Approve":
         land.start(name, members, view.live_cards(name))
+        for member in lifted:
+            cli.lifted_hold(name, member)
     else:
         land.halt(name, members, view.live_cards(name))
     return {"ok": True}

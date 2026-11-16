@@ -1251,6 +1251,16 @@ def withdraw(name: str, key: str) -> list[str]:
     return withdrawn
 
 
+def redraw_left_out(name: str, key: str) -> list[str]:
+    """Redraw in place his card on the PR's stack mates once his word stops holding the PR, so the card that left it out, its title ending "left out, held by your word", draws it again in the same event that lifts his Hold, since the watch redraws only a PR that is a row on a card; each card's PR it redrew by."""
+    data, found = state.load(name), view.live_cards(name)
+    mate = next((mate for mate in state.pr_graph(data).stack(key) if mate != key and mate in data["prs"] and view.standing_card(data["prs"][mate], found)), None)
+    if mate is None:
+        return []
+    slack.redraw_pr_cards(data["prs"][mate]["url"])
+    return [mate]
+
+
 def unscheduled_reason(data: dict, steps: list[str], asks: str) -> str:
     titles = ", ".join(f'"{view.order_title(data["orders"][step])}"' for step in steps)
     return f"Waits on your order {titles}, which you have not scheduled. {asks} once you do"
