@@ -4812,6 +4812,19 @@ def test_a_testers_staging_waiting_report_keeps_its_slot_claim_and_a_queued_stag
     assert kind.blocking(data, "j1") == [waiting.split()[1]]
 
 
+def test_slot_queue_lists_the_work_queues_stage_test_items_marked_in_the_queue_so_an_absorbed_tester_never_reads_as_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
+    kind = work.KIND[work.STAGE_TEST]
+    data = {"work": {"kinds": [work.STAGE_TEST]}, "jobs": {"j1": {"created": "2026-11-16T01:00:00-08:00"}, "j2": {"created": "2026-11-16T00:00:00-08:00"}, "j3": {"created": "2026-11-16T00:30:00-08:00"}}}
+    monkeypatch.setattr(type(kind), "queued", lambda self, data, job: job is not data["jobs"]["j3"])
+    monkeypatch.setattr(type(kind), "ready", lambda self, data, job_id: job_id == "j2")
+    monkeypatch.setattr(type(kind), "blocking", lambda self, data, job_id: ["j9"])
+    monkeypatch.setattr(state, "jumps_queue", lambda data, job_id: False)
+    assert cli.queue_items(data, work.ENV) == ["  q1. j2 in the queue, ready to pull", "  q2. j1 in the queue, waiting on j9"]
+    assert cli.queue_items(data, "plat-usw2-sandbox") == []
+    data["work"]["kinds"] = []
+    assert cli.queue_items(data, work.ENV) == []
+
+
 def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     run: Run, demo: str, state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

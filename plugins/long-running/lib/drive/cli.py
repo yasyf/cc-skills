@@ -4953,10 +4953,17 @@ def slot_queue(args: argparse.Namespace) -> int:
         hold = f"; held for {slot['hold']['for']} until {slot['hold']['until']}: {slot['hold']['reason']}" if slot.get("hold") else ""
         lines.append(f"{env}: {said}{hold}")
         lines += [f"  {place}. {each['job']} for {each['minutes']} minutes, queued {each['at']}" for place, each in enumerate(slot["queue"], 1)]
-        if env == work.ENV and work.enabled(data, work.STAGE_TEST):
-            ready, waiting = work.STAGE.line(data), [job_id for job_id, job in data["jobs"].items() if work.STAGE.queued(data, job) and not work.STAGE.ready(data, job_id)]
-            lines.append(f"  work queue, which packs these into its own cuts: {len(ready)} ready in order ({', '.join(ready) or 'none'}); {len(waiting)} waiting ({', '.join(waiting) or 'none'}); drive work show says why no cut of it starts")
+        lines += queue_items(data, env)
     return emit(args, "\n".join(lines) or "no staging slot is held or queued", {"slots": shown})
+
+
+def queue_items(data: dict, env: str) -> list[str]:
+    """The stage-test items the work queue holds for an env, in its own order, by work.rank, each marked in the queue with whether it is ready to pull, so a tester the queue took off the slot's old line never reads as dropped."""
+    kind = work.KIND[work.STAGE_TEST]
+    if env != work.ENV or not work.enabled(data, work.STAGE_TEST):
+        return []
+    items = sorted((job_id for job_id, job in data["jobs"].items() if kind.queued(data, job)), key=lambda job_id: work.rank(data, job_id))
+    return [f"  q{place}. {job_id} in the queue, {'ready to pull' if kind.ready(data, job_id) else 'waiting on ' + (', '.join(kind.blocking(data, job_id)) or data['jobs'][job_id]['state'])}" for place, job_id in enumerate(items, 1)]
 
 
 def job_held(args: argparse.Namespace) -> int:
