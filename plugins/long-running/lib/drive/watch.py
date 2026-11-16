@@ -1691,8 +1691,8 @@ def spawn(watcher: Watcher, flag: str, lines: int) -> subprocess.Popen:
 
 
 def relayed(watcher: Watcher, line: str) -> str:
-    """A line a process beside the watch writes down its pipe: a project's led by its lane and a tab, which routed hands to that project's watcher, the drive's own as it is."""
-    return f"{watcher.lane}\t{line}" if watcher.project else line
+    """A line a process beside the watch writes down its pipe: a project's led by its lane and a tab while it runs every project's passes, by every_project, which routed hands to that project's watcher, the drive's own as it is."""
+    return f"{watcher.lane}\t{line}" if watcher.project and every_project() else line
 
 
 def routed(watcher: Watcher, line: str, took: Callable[["Watcher", str], None]) -> None:
