@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -11513,6 +11514,142 @@ def test_the_watchs_close_report_is_its_orders_one_close_so_the_cci_post_hook_re
     assert record_lines.decision(meta)["permissionDecisionReason"].startswith("refused, report 688113 already closes o1, so this second close of it posts nothing")
     watchs = {"close": "o1", "seq": "688113"}
     assert (state.second_close(data, "o1", watchs), cli.claim_close(demo, watchs)) == (None, [])
+
+
+LIVE_LINE = "https://acme.slack.com/archives/D123/p1794200000000400"
+PROVED_TEXT = "Fix: the watch is live in long-running 1.0.3 ({record:9|proof})."
+
+
+@dataclass
+class Proved:
+    sent: list[list[dict]] = field(default_factory=list)
+    said: list[tuple[dict, set[str]]] = field(default_factory=list)
+    closes: list[tuple[str, str, str, str]] = field(default_factory=list)
+
+
+def proved(monkeypatch: pytest.MonkeyPatch, refusal: str | None = None) -> Proved:
+    """The watch's own post of a proved order's live line with cci, the say hook's checks and Slack stubbed: each batch it sends, each post say makes beside the reports the watch posts itself as it makes it, and each close."""
+    from drive import tools
+
+    kept = Proved()
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: kept.sent.append(records) or ["9"])
+    monkeypatch.setattr(cli, "report_attrs", lambda seq: {"close": "o1", "seq": seq, "kind": "report", "writer": "watch", "written": state.stamp(T0)})
+    monkeypatch.setattr(talk, "hook_refusal", lambda name, data, post: refusal)
+
+    def spoken(name: str, post: dict, known: dict) -> str:
+        kept.said.append((post, state.watch_posting(state.load(name))))
+        with state.edit(name) as data:
+            data["carried"][post["record"]] = LIVE_LINE
+        return f"POSTED {LIVE_LINE}"
+
+    def closed(name: str, order_id: str, seq: str, link: str, text: str) -> str:
+        kept.closes.append((order_id, seq, link, text))
+        with state.edit(name) as data:
+            data["orders"][order_id]["state"] = "done"
+        return f"; {order_id} closed on report {seq}"
+
+    monkeypatch.setattr(talk, "spoken", lambda name, post, known, recorded_first=False: spoken(name, post, known))
+    monkeypatch.setattr(talk, "closed", closed)
+    return kept
+
+
+def test_the_watch_posts_a_proved_orders_live_line_itself_through_say_citing_its_report_and_closes_the_order_with_no_handler(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["close_report"] = CLOSE_REPORT
+    kept = proved(monkeypatch)
+    assert staged(watch.close_report_lines, watcher(demo), T0) == []
+    assert (kept.sent, kept.said, kept.closes) == ([[CLOSE_REPORT]], [({"text": PROVED_TEXT, "record": "9"}, {"9"})], [("o1", "9", LIVE_LINE, PROVED_TEXT)])
+    data = state.load(demo)
+    assert (data["orders"]["o1"]["close_report"], data["orders"]["o1"]["closed_on"], state.watch_posting(data)) == (None, "9", set())
+    assert (state.drive_dir(demo) / watch.POSTS_LOG).read_text().endswith(f"o1 live line posted by the watch: POSTED {LIVE_LINE}; o1 closed on report 9\n")
+
+
+def test_a_refusal_of_the_watchs_own_live_line_leaves_its_report_owed_to_a_handler_as_today(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["close_report"] = CLOSE_REPORT
+    kept = proved(monkeypatch, "refused: this ack is 2 sentences, and an ack is one")
+    assert staged(watch.close_report_lines, watcher(demo), T0) == []
+    data = state.load(demo)
+    assert (kept.said, kept.closes, data["orders"]["o1"]["close_report"], agents.owing(data, "9"), state.watch_posting(data)) == ([], [], None, True, set())
+    assert (state.drive_dir(demo) / watch.POSTS_LOG).read_text().endswith("o1 live line left to its handler: nothing posted: refused: this ack is 2 sentences, and an ack is one\n")
+
+
+def test_a_live_line_whose_order_did_not_close_keeps_its_report_so_the_next_pass_closes_it_posting_nothing_more(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["close_report"] = CLOSE_REPORT
+    kept = proved(monkeypatch)
+    monkeypatch.setattr(talk, "closed", lambda name, order_id, seq, link, text: f"; {order_id} not closed on report {seq}: drive is locked")
+    watching = watcher(demo)
+    assert [line for minute in range(3) for line in staged(watch.close_report_lines, watching, T0 + timedelta(minutes=minute))] == [
+        f"WATCH close of o1 on its live line failed 3 times in a row: o1 live line posted by the watch: CARRIED {LIVE_LINE}; o1 not closed on report 9: drive is locked"
+    ]
+    assert (kept.sent, len(kept.said), state.load(demo)["orders"]["o1"]["close_report"]) == ([[CLOSE_REPORT]], 1, CLOSE_REPORT | {"seq": "9"})
+
+
+def test_a_watch_that_ended_after_its_live_line_posted_closes_the_order_on_its_next_pass_posting_nothing_more(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["close_report"] = CLOSE_REPORT | {"seq": "9"}
+        data["carried"]["9"] = LIVE_LINE
+    kept = proved(monkeypatch)
+    assert staged(watch.close_report_lines, watcher(demo), T0) == []
+    assert (kept.sent, kept.said, kept.closes, state.load(demo)["orders"]["o1"]["close_report"]) == ([], [], [("o1", "9", LIVE_LINE, PROVED_TEXT)], None)
+
+
+@pytest.mark.parametrize("held", ["reporters", "incident"])
+def test_a_proved_order_with_a_reporter_or_an_incident_keeps_its_handler_posting_its_line(demo: str, monkeypatch: pytest.MonkeyPatch, held: str) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"] |= {"close_report": CLOSE_REPORT, held: [state.reporter(REPORTED)] if held == "reporters" else True}
+    kept = proved(monkeypatch)
+    assert staged(watch.close_report_lines, watcher(demo), T0) == []
+    assert (kept.sent, kept.said, state.load(demo)["orders"]["o1"]["close_report"]) == ([[CLOSE_REPORT]], [], None)
+
+
+def test_the_relay_starts_no_handler_on_a_report_the_watch_posts_itself_until_a_refusal_leaves_it_owed(demo: str, monkeypatch: pytest.MonkeyPatch, posts_to_communicator: list[str]) -> None:
+    started: list[str] = []
+    monkeypatch.setattr(agents, "handle", lambda name, brief, **_: started.append(brief.split()[1]) or ("h1", False))
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["close_report"] = CLOSE_REPORT | {"seq": "9"}
+    posts_to_communicator.append("9")
+    assert watch.post_lines(watcher(demo), T0) == []
+    assert (started, state.load(demo)["posts"]["mark"]) == ([], 8)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["close_report"] = None
+    assert watch.post_lines(watcher(demo), T0 + timedelta(seconds=2)) == []
+    assert started == ["9"]
+
+
+def test_the_watchs_own_post_runs_the_say_hooks_checks_as_the_communicators_own_post_and_goes_out_only_on_jevs_pass_of_its_words_against_its_report(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import message_limits
+
+    with state.edit(demo) as data:
+        data["roles"]["communicator"] = {"session": "communicator-session", "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
+    post = {"text": PROVED_TEXT, "record": "9", "thread_ts": "1794200000.000100"}
+    shown = "cci show 9\n9 report watch>communicator POST Fix: the watch is live in long-running 1.0.3\nProof: proven live by drive job prove"
+    outputs = [{"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": "refused: X"}}, {"hookSpecificOutput": {"additionalContext": "goes out as written"}}, {}, {}, {}, {"his_words": [{"id": "slack:1"}], "reads": [], "post": post}]
+    payloads: list[dict] = []
+    monkeypatch.setattr(message_limits, "hook_output", lambda payload: payloads.append(payload) or outputs[len(payloads) - 1])
+    monkeypatch.setattr(message_limits, "his_words", lambda payload: [])
+    monkeypatch.setattr(message_limits, "record_alone", lambda name, seq: shown)
+    verdicts = iter([{"verdict": "hold", "note": "Jev held back this post"}, {"verdict": "warn", "note": ""}, {"verdict": "pass", "note": ""}, {"verdict": "pass", "note": ""}])
+    asked: list[dict] = []
+    monkeypatch.setattr(settled, "weighed", lambda request: asked.append(request["post"]) or next(verdicts))
+    data = state.load(demo)
+    assert [talk.hook_refusal(demo, data, post) for _ in outputs] == ["refused: X", "goes out as written", "Jev held back this post", "Jev's verdict on it is warn", None, None]
+    assert payloads[0] == {"hook_event_name": "PreToolUse", "session_id": "communicator-session", "cwd": str(Path.cwd()), "tool_name": message_limits.SAY, "tool_use_id": "watch-9", "tool_input": post}
+    record = {"id": "record:9", "read": "9", "source": message_limits.CARRIED_SOURCE, "quote": shown}
+    claimed = post | {"claims": [{"claim": PROVED_TEXT, "read": "record:9"}]}
+    assert asked[0] == {"his_words": [], "reads": [record], "post": claimed}
+    assert asked[-1] == {"his_words": [{"id": "slack:1"}], "reads": [record], "post": claimed}
+    assert talk.hook_refusal(demo, data | {"roles": {}}, post) == f"{demo} has no communicator, so no say check reads its posts"
+    with pytest.raises(state.DriveError, match="no close report the watch posts itself, and only the communicator's handlers post to him"):
+        talk.proved_line(demo, post)
 
 
 @pytest.mark.parametrize("count", [1, 100])

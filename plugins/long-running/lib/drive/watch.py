@@ -76,6 +76,7 @@ PASS_DONE = (
 RELAUNCH_REFUSED = "relaunch_refused"
 READ_UNANSWERED = "read_unanswered"
 PROOFS_LOG = "proofs.log"
+POSTS_LOG = "posts.log"
 UNTHREADED = "no thread holds the order's lines to him, so its time was the drive's own and is said this once"
 CUT_OFF = (
     f"its read stopped before it finished, so what it did and printed are unknown, its output in the drive's {READS_LOG}, and no read"
@@ -981,7 +982,7 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the communicator's handler to post in the order's thread, or at his DM root for an order of his with none, and close it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well. One an older install kept on a drive tooling order a session opened, which posts him no line, goes nowhere: that order closes done on the proof it holds, as install.finish now closes one."""
+    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the communicator's handler to post in the order's thread, or at his DM root for an order of his with none, and close it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well. One an older install kept on a drive tooling order a session opened, which posts him no line, goes nowhere: that order closes done on the proof it holds, as install.finish now closes one. A report the watch posts itself, by state.watch_posts_itself, stays on its order with its seq once cci takes it, by reported, for proved_lines to post."""
     data = state.load(watcher.name)
     closing = {order_id: order for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
     if unasked := [order_id for order_id, order in closing.items() if state.unasked_tooling(order)]:
@@ -989,29 +990,56 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
             for order_id in unasked:
                 data["orders"][order_id].update(close_report=None, state="done", updated=state.stamp(moment))
                 state.close_order_jobs(data, order_id, f"stopped: the watch closed its order {order_id} on its close report")
-    owed = {order_id: order["close_report"] for order_id, order in closing.items() if order_id not in unasked}
+    owed = {order_id: order["close_report"] for order_id, order in closing.items() if order_id not in unasked and "seq" not in order["close_report"]}
     if not owed:
-        return []
+        return proved_lines(watcher, moment)
     try:
         reported(watcher, list(owed.values()))
     except state.DriveError as error:
         return failed(watcher, "close reports", "close report post to the communicator", error, moment)
     watcher.failures.pop("close reports", None)
-    with state.edit(watcher.name) as data:
-        for order_id in owed:
-            data["orders"][order_id]["close_report"] = None
-    return []
+    return proved_lines(watcher, moment)
+
+
+def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Post the live line of each close report the watch sent that it posts itself, through say, by talk.proved_line, which the say hook's checks and Jev read first and which closes its order, so no handler session starts to post the words the report holds: the report's own words, its POST taken off, citing the report, whose Proof: fact is the read drive job prove made, as a line of a session posting on its own carries the record behind its fixed or live, in the thread its thread attr names; then the order keeps the report no longer. Any refusal, a check's or Jev's, his absence holding the line among them, or a post that fails, leaves the report to the relay's handler, the path every other report takes; a post whose order did not close, a step after the post failing included, keeps the report, so the next pass closes it posting nothing, said from its third failure in a row. Each outcome goes to the drive's posts log."""
+    from drive import talk
+
+    data = state.load(watcher.name)
+    lines = []
+    for order_id, order in heard_orders(watcher, data).items():
+        if not (report := order["close_report"]) or "seq" not in report:
+            continue
+        words = report["text"].removeprefix("POST ")
+        post = {"text": f"{words} ({{record:{report['seq']}|proof}}).", "record": report["seq"]} | ({"thread_ts": thread} if (thread := report["attr"].get("thread")) else {})
+        try:
+            outcome = f"{order_id} live line posted by the watch: {talk.proved_line(watcher.name, post)}"
+            closes = state.load(watcher.name)["orders"][order_id]["state"] in state.CLOSED_ORDER_STATES
+        except (state.DriveError, slack.SlackError) as error:
+            outcome, closes = f"{order_id} live line left to its handler: {error}", report["seq"] not in state.load(watcher.name)["carried"]
+        with open(state.drive_dir(watcher.name) / POSTS_LOG, "a") as log:
+            log.write(f"{when(state.stamp(moment))} {outcome}\n")
+        if not closes:
+            lines += failed(watcher, f"proved close {order_id}", f"close of {order_id} on its live line", state.DriveError(outcome), moment)
+            continue
+        watcher.failures.pop(f"proved close {order_id}", None)
+        with state.edit(watcher.name) as edited:
+            edited["orders"][order_id]["close_report"] = None
+    return lines
 
 
 def reported(watcher: Watcher, records: list[dict]) -> list[str]:
-    """Post the watch's reports in one cci batch, each addressed to the communicator, whose handlers post them, so no coordinator's or the meta session's channel carries one, and mark each order a report closes closed on its seq unless another report closes it already, so second_close refuses every later close of it; their seqs."""
+    """Post the watch's reports in one cci batch, each addressed to the communicator, whose handlers post them, so no coordinator's or the meta session's channel carries one, and mark each order a report closes closed on its seq unless another report closes it already, so second_close refuses every later close of it, in the same save taking the close report an order kept off it once cci took it, but keeping one the watch posts itself, by state.watch_posts_itself, with its seq, so the relay starts no handler on it; their seqs."""
     from drive import tools
 
     seqs = tools.sent(watcher.name, LANE, [record | {"to": [f"communicator@{watcher.name}"]} for record in records])
-    if closes := [(order_id, seq) for record, seq in zip(records, seqs, strict=True) for order_id in state.closed_orders(record.get("attr") or {})]:
+    if closes := [(record, order_id, seq) for record, seq in zip(records, seqs, strict=True) for order_id in state.closed_orders(record.get("attr") or {})]:
         with state.edit(watcher.name) as data:
-            for order_id, seq in closes:
-                data["orders"][order_id]["closed_on"] = data["orders"][order_id]["closed_on"] or seq
+            for record, order_id, seq in closes:
+                order = data["orders"][order_id]
+                order["closed_on"] = order["closed_on"] or seq
+                if order["close_report"] and order["close_report"]["id"] == record.get("id"):
+                    order["close_report"] = order["close_report"] | {"seq": seq} if state.watch_posts_itself(order) else None
     return seqs
 
 
@@ -5103,7 +5131,7 @@ def landing_stages(watcher: Watcher, moment: datetime) -> list[functools.partial
 
 
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the handler on each `POST` report to communicator@<drive> the drive owes a post, whichever session wrote it, so the communicator starts none, one less than a minute old once a live handler holds its thread or it ages past the minute, by agents.start_posts: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator. The relay runs it every RELAY_SECONDS, so a report waits on no pass, however long one reads GitHub or the lanes, nor on a pass an install ends before its last stage. Each report stays owed from its write until a post carries it, by agents.start_posts, so a handler that did not start, never started, died or ended posting nothing leaves it for the next relay pass to start again, until a second handler on it ends with no post and gives it up to its writer, and a stage of the watch starting its own report's handler or the handler tool starting one on a POST report is the handler this read finds holding it; a start that fails is said as a failed read is."""
+    """Start the handler on each `POST` report to communicator@<drive> the drive owes a post, whichever session wrote it, but a close report the watch posts itself, by state.watch_posting, so the communicator starts none, one less than a minute old once a live handler holds its thread or it ages past the minute, by agents.start_posts: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator. The relay runs it every RELAY_SECONDS, so a report waits on no pass, however long one reads GitHub or the lanes, nor on a pass an install ends before its last stage. Each report stays owed from its write until a post carries it, by agents.start_posts, so a handler that did not start, never started, died or ended posting nothing leaves it for the next relay pass to start again, until a second handler on it ends with no post and gives it up to its writer, and a stage of the watch starting its own report's handler or the handler tool starting one on a POST report is the handler this read finds holding it; a start that fails is said as a failed read is."""
     if watcher.project:
         return []
     try:

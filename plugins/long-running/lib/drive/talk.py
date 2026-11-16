@@ -1,9 +1,11 @@
 import contextlib
 import hashlib
+import importlib
 import io
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -24,11 +26,65 @@ EDIT_TAKES = {"edit", "text", "asked", "claims", "dry_run", *TICKET_FLAGS}
 RECORD_WAIT_SECONDS = 1.0
 RECORD_POLL_SECONDS = 0.05
 BARE_TS = re.compile(r"\d{10}\.\d{6}")
+SAY_TOOL = "mcp__plugin_long-running_drive__say"
+HOOKS = Path(__file__).resolve().parents[2] / "hooks"
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and a post in a thread is the last line of each open order whose lines go in that thread, whatever order it is recorded on or none, so the watch's clock and each session's overdue line read every line there, and posts nothing from a caller but the communicator and its handlers, a handler known from its first step by the LONG_RUNNING_HANDLER its launch set, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line; a claim at another channel's root goes out only on a report naming an end still to come, which its words name, and a report naming none or a past one goes back to its writer. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, a post of a report carrying reports held for his return, the line the watch owes their thread or his catch-up, lets each go, and a correction of a held report, or of one a post carried, posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, a post saying a release may start while a freeze or his release hold it does not name stands, and a dry run. A report's line to him that `away` reads as waiting for his return posts nothing, from every caller, by `held_away`."""
-    known = caller(name)
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and a post in a thread is the last line of each open order whose lines go in that thread, whatever order it is recorded on or none, so the watch's clock and each session's overdue line read every line there, and posts nothing from a caller but the communicator and its handlers, the watch's own live line of a proved order going through proved_line, a handler known from its first step by the LONG_RUNNING_HANDLER its launch set, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line; a claim at another channel's root goes out only on a report naming an end still to come, which its words name, and a report naming none or a past one goes back to its writer. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, a post of a report carrying reports held for his return, the line the watch owes their thread or his catch-up, lets each go, and a correction of a held report, or of one a post carried, posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, a post saying a release may start while a freeze or his release hold it does not name stands, and a dry run. A report's line to him that `away` reads as waiting for his return posts nothing, from every caller, by `held_away`."""
+    return spoken(name, post, caller(name))
+
+
+def proved_line(name: str, post: dict) -> str:
+    """Post the live line of the close report drive job prove kept on an order, which the drive's watch sent as post's record, the one post to him the watch makes through say itself, so no handler session starts to post words that report already holds: only while that order keeps the report as one the watch posts, by state.watch_posting, in his DM, since cc-slack's Slack permission hook judges a post in another channel's thread as the handler's say call, and once the say hook's own checks and Jev pass it as they pass a post of the communicator's own, by hook_refusal, then its order closed on that report once its record lands, as a handler's close is; a post that already carries it only closes its order, so a watch that ended between the post and the close posts no second line. A refusal posts nothing, and the report's POST record goes to a handler as every other does."""
+    known = state.load(name)
+    seq = post["record"]
+    if seq not in state.watch_posting(known) or seq in known["held"]:
+        raise DriveError(f"nothing posted: report {seq} is no close report the watch posts itself, and only the communicator's handlers post to him")
+    if channel := post.get("thread_ts") and outside(known, post["thread_ts"]):
+        raise DriveError(f"nothing posted: report {seq}'s line goes in a thread of {channel}, which cc-slack's Slack permission hook judges for a handler's say call")
+    if seq in known["carried"]:
+        line = f"CARRIED {known['carried'][seq]}"
+    elif refused := hook_refusal(name, known, post):
+        raise DriveError(f"nothing posted: {refused}")
+    else:
+        line = spoken(name, post, state.load(name), recorded_first=True)
+    order_id = state.report_order(known, cli.report_attrs(seq))
+    return line + closed(name, order_id, seq, state.load(name)["carried"][seq], post["text"])
+
+
+def hook_refusal(name: str, data: dict, post: dict) -> str | None:
+    """What the say hook refuses of a say post the drive's watch makes, run as message_limits.py runs on a say call of the communicator's own session, each check and Jev's verdict alike, so the watch's post meets every rule a line of a session posting on its own meets, Jev weighing every one, its words a claim the report it cites must back, as Jev weighs a handler's claims against their reads; a finding that only warns, Jev's warning or hold, a check or Jev call that fails, and a drive with no communicator, whose posts no check reads, refuse it too, since the report's handler posts it then."""
+    from drive import settled
+
+    if not (communicator := data["roles"].get("communicator")):
+        return f"{name} has no communicator, so no say check reads its posts"
+    if str(HOOKS) not in sys.path:
+        sys.path.append(str(HOOKS))
+    payload = {"hook_event_name": "PreToolUse", "session_id": communicator["session"], "cwd": str(Path.cwd()), "tool_name": SAY_TOOL, "tool_use_id": f"watch-{post['record']}", "tool_input": post}
+    seq = post["record"]
+    try:
+        checks = importlib.import_module("message_limits")
+        output = checks.hook_output(payload)
+        found = output.get("hookSpecificOutput") or {}
+        if reason := found.get("permissionDecisionReason") or found.get("additionalContext"):
+            return reason
+        shown = output.get("post") or post
+        judged = output | {
+            "his_words": output["his_words"] if "his_words" in output else checks.his_words(payload),
+            "reads": [*output.get("reads", []), {"id": f"record:{seq}", "read": seq, "source": checks.CARRIED_SOURCE, "quote": checks.record_alone(name, seq)}],
+            "post": shown | {"claims": [*shown.get("claims", []), {"claim": post["text"], "read": f"record:{seq}"}]},
+        }
+        verdict = settled.weighed({"post": judged})
+    except Exception as error:
+        return f"the say hook's checks failed on it with {type(error).__name__}: {error}"
+    if verdict["verdict"] != "pass":
+        return verdict["note"] or f"Jev's verdict on it is {verdict['verdict']}"
+    return None
+
+
+def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> str:
+    """Post one message as say does, once its caller may: known is the drive as say's caller read it; recorded_first waits for the post's record on its order, as a close does, for a caller that closes the order next."""
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
@@ -109,7 +165,7 @@ def say(name: str, post: dict) -> str:
     if carrying or report.get("catch_up"):
         line += released(name, link, seq, amended, bool(report.get("catch_up")))
     if order:
-        line += "; " + record_line(order, *reply["recorder"], close)
+        line += "; " + record_line(order, *reply["recorder"], close or recorded_first)
     if close:
         line += closed(name, order, report["seq"], link, post.get("text") or "")
     if promise:

@@ -1139,8 +1139,8 @@ def unroomed(post: int, parts: list[tuple[str, int]]) -> agents.Unjudged:
     )
 
 
-def main() -> None:
-    payload = agents.seen(json.load(sys.stdin))
+def hook_output(payload: dict) -> dict:
+    """What the say hook prints for a call, empty when it lets the call through unjudged: a deny with the rule it stands for, a warning, and what Jev weighs a post by beside his words, the post the drive's watch makes of a proved order's live line read by the same checks, by talk.hook_refusal; a check that fails refuses the post."""
     try:
         reason, sent = checked(payload)
         reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload, sent.get("claims") or [])
@@ -1163,7 +1163,11 @@ def main() -> None:
             " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
         ), {}, {}
     refused = denial(reason) | agents.ruled(reason) if reason else {}
-    if output := heard | refused | judged:
+    return heard | refused | judged
+
+
+def main() -> None:
+    if output := hook_output(agents.seen(json.load(sys.stdin))):
         print(json.dumps(output))
 
 

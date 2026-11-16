@@ -229,6 +229,25 @@ def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_
     assert not [argv for argv in started if argv[:2] == ["drive", "status"] or argv[0] in ("orca", "cc-slack")]
 
 
+def test_the_watchs_own_live_line_of_a_proved_order_posts_through_say_from_no_session_and_closes_its_order_on_its_report(
+    communicator: str, run: Run, started: list[list[str]], slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}")
+    kept = {"id": "install-proved-j1", "kind": "report", "to": ["communicator@demo"], "topic": "install-proved-o1", "attr": {"close": "o1", "thread": THREAD}, "text": "POST Copy fix is live in long-running 1.0.3", "body": "Fixed: Copy fix\n"}
+    with state.edit("demo") as data:
+        data["orders"]["o1"] |= {"close_report": kept | {"seq": "700002"}, "closed_on": "700002"}
+    report = {"seq": 700002, "kind": "report", "lane": "watch", "at": state.stamp(), "fields": {"attrs": {"close": "o1", "thread": THREAD}}}
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps(report) if argv[1] == "show" else ""))
+    live = slack_thread.post(state.now(), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": live, "thread_ts": THREAD})
+    monkeypatch.setattr(talk, "hook_refusal", lambda name, data, post: None)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    line = talk.proved_line("demo", {"text": "Copy fix is live in long-running 1.0.3.", "record": "700002", "thread_ts": THREAD})
+    assert (line.startswith(f"POSTED {live}; o1 "), line.endswith("; o1 closed on report 700002")) == (True, True)
+    data = state.load("demo")
+    assert (data["orders"]["o1"]["state"], data["orders"]["o1"]["closed_on"], data["carried"]["700002"]) == ("done", "700002", live)
+
+
 def test_a_handler_on_his_message_in_a_works_thread_starts_on_the_open_orders_of_that_thread_alone(communicator: str, run: Run, tmp_path: Path, started: list[list[str]]) -> None:
     run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}")
     run("job", "add", "reader", "--order", "o1", "--goal", "trace the copy")

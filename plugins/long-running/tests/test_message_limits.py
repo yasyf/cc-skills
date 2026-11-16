@@ -1691,6 +1691,27 @@ def test_a_state_of_work_told_by_a_session_posting_on_its_own_carries_the_read_t
     assert say(transcript, text=covered) is None
 
 
+@pytest.mark.parametrize(
+    "words",
+    [
+        "Fix: put back each pre-rule DONE its first proof flipped is live in long-running@skills 1.0.1294",
+        "sand-next: 🐛 back off rate-limited model calls by their headers and name the limit on give-up is live in its merge commits",
+    ],
+)
+def test_the_watchs_own_live_line_of_a_proved_order_passes_the_say_hooks_checks_as_the_communicators_own_post_and_is_held_while_he_is_away(
+    talker: str, monkeypatch: pytest.MonkeyPatch, words: str
+) -> None:
+    shown = {"seq": 724499, "kind": "report", "lane": "watch", "at": state.stamp(), "text": f"POST {words}", "refs": {}, "fields": {"attrs": {"close": "o1"}}}
+    monkeypatch.setattr(message_limits.cli.reads, "run", lambda argv, checkout, env=None: json.dumps(shown))
+    post = {"text": f"{words} ({{record:724499|proof}}).", "record": "724499"}
+    payload = {"hook_event_name": "PreToolUse", "session_id": talker, "cwd": str(Path.cwd()), "tool_name": message_limits.SAY, "tool_use_id": "watch-724499", "tool_input": post}
+    assert message_limits.hook_output(payload) == {}
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
+    held = message_limits.hook_output(payload)["hookSpecificOutput"]["permissionDecisionReason"]
+    assert (held.startswith("Refused on purpose: he is "), "724499" in state.load("demo")["held"]) == (True, True)
+
+
 def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_refuses_unjudged(talker: str, transcript: Path, checked: Checked) -> None:
     cause = "The runs failed because the pool was full"
     assert say(transcript, text=cause).rule == message_limits.CAUSE_RULE
