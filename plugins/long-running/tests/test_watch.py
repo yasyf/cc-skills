@@ -1867,7 +1867,7 @@ def grep_of(drive: str, since: int, *topics: str) -> list[str]:
     return ["cci", "grep", ".", "--drive", drive, *(flag for topic in topics for flag in ("--topic", topic)), "--since", str(since), "--budget", str(agents.AMENDMENT_BYTES), "--json"]
 
 
-def test_another_drives_first_record_after_the_one_a_job_waits_after_on_its_topic_frees_it_with_its_words_and_posts_nothing_to_him_as_j276s_free_staging_line_needed(
+def test_another_drives_first_record_to_the_waiting_job_after_the_one_it_waits_after_on_its_topic_frees_it_with_its_words_and_posts_nothing_to_him_as_j276s_free_staging_line_needed(
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     calls = catching_up(monkeypatch, demo)
@@ -1878,8 +1878,9 @@ def test_another_drives_first_record_after_the_one_a_job_waits_after_on_its_topi
         cci_record(722599, kind="answer", text="Start no staging run before my FREE line on this topic"),
         cci_record(722640, topic="o2046-claims", text="before j2's record"),
         cci_record(722650, topic="o2046-claims", text="staging is claimed"),
-        cci_record(722660, text="FREE staging is yours: build 17137…", refs={"path": str(body)}),
-        cci_record(722670, text="a later line"),
+        cci_record(722655, lane="j4486", to=["j6720"], text="HEAD line for another lane"),
+        cci_record(722660, to=[f"j1@{demo}"], text="FREE staging is yours: build 17137…", refs={"path": str(body)}),
+        cci_record(722670, to=[f"j1@{demo}"], text="a later line"),
     ]
     reads_made = cci_store(monkeypatch, records)
     with edit(demo) as data:
@@ -1896,7 +1897,7 @@ def test_another_drives_first_record_after_the_one_a_job_waits_after_on_its_topi
     )
     assert (data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["undelivered"]) == (["reply:cci:722650"], [])
     assert reads_made == [["cci", "show", "--json", "722599", "722650"], grep_of("durable-agents", 722599, STAGING_TOPIC, "o2046-claims")]
-    records.append(cci_record(722680, topic="o2046-claims", text="staging is free"))
+    records.append(cci_record(722680, topic="o2046-claims", to=[f"j2@{demo}"], text="staging is free"))
     assert watch.waits_lines(watching, T0 + timedelta(minutes=2)) == []
     assert reads_made[2:] == [["cci", "show", "--json", "722650"], grep_of("durable-agents", 722650, "o2046-claims")]
     assert watch.waits_lines(watching, T0 + timedelta(minutes=3)) == []
@@ -1915,17 +1916,43 @@ def test_725715_a_record_on_the_other_drive_whose_lane_names_the_waiting_drive_i
     watching = watcher(demo)
     assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == ["reply:cci:725268"]
-    records.append(cci_record(725720, text="FREE staging is yours"))
+    records.append(cci_record(725720, to=[f"j1@{demo}"], text="FREE staging is yours"))
     assert watch.waits_lines(watching, T0 + timedelta(minutes=2)) == []
     data = state.load(demo)
     assert (data["jobs"]["j1"]["waits"], [held["seq"] for held in data["jobs"]["j1"]["undelivered"]], work.item_of(data, data["jobs"]["j1"])) == ([], ["725720"], work.KIND[work.BUILD])
+
+
+def test_j182_a_busy_topics_records_to_other_lanes_wake_no_job_while_one_to_its_lane_or_answering_its_record_does(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    catching_up(monkeypatch, demo)
+    records = [
+        cci_record(736559, lane="platform", kind="ask", to=["root"], text="Start o2316's SandDB cut now?"),
+        cci_record(736583, lane="j4486", kind="head", to=["j6720"], text="HEAD 3 PRs"),
+        cci_record(736590, lane=f"j2@{demo}", kind="ask", to=["platform"], text="my place in the queue?"),
+        cci_record(736604, lane="platform", to=["root"], text="queue moved"),
+    ]
+    cci_store(monkeypatch, records)
+    with edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=["reply:cci:736583"])
+        data["jobs"]["j2"] = job(state="waiting", waits=["reply:cci:736559"])
+    watching = watcher(demo)
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == []
+    data = state.load(demo)
+    assert [(data["jobs"][job_id]["waits"], data["jobs"][job_id]["undelivered"]) for job_id in ("j1", "j2")] == [(["reply:cci:736583"], []), (["reply:cci:736559"], [])]
+    records.append(cci_record(736607, lane="platform", re=736590, to=["root"], text="you are third"))
+    watch.waits_lines(watching, T0 + timedelta(minutes=2))
+    data = state.load(demo)
+    assert [(data["jobs"][job_id]["waits"], [held["seq"] for held in data["jobs"][job_id]["undelivered"]]) for job_id in ("j1", "j2")] == [(["reply:cci:736583"], []), ([], ["736607"])]
+    records.append(cci_record(736625, lane="platform", kind="answer", to=[f"j1@{demo}"], text="GO: your place is now"))
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=3)) == []
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["waits"], [held["seq"] for held in data["jobs"]["j1"]["undelivered"]]) == ([], ["736625"])
 
 
 @pytest.mark.parametrize("waiting", [1, 100])
 def test_the_watch_reads_every_job_waiting_on_another_drives_record_in_one_cci_show_and_one_cci_grep_a_drive_whatever_their_number(demo: str, monkeypatch: pytest.MonkeyPatch, waiting: int) -> None:
     catching_up(monkeypatch, demo)
     anchors = [cci_record(723000 + 2 * n, topic=f"topic-{n}") for n in range(waiting)]
-    reads_made = cci_store(monkeypatch, [*anchors, *(cci_record(anchor["seq"] + 1, topic=anchor["topic"]) for anchor in anchors[::2])])
+    reads_made = cci_store(monkeypatch, [*anchors, *(cci_record(anchor["seq"] + 1, topic=anchor["topic"], to=[f"j{100 + 2 * n}@{demo}"]) for n, anchor in enumerate(anchors[::2]))])
     with edit(demo) as data:
         for n, anchor in enumerate(anchors):
             data["jobs"][f"j{100 + n}"] = job(state="waiting", waits=[f"reply:cci:{anchor['seq']}"])
@@ -4435,6 +4462,30 @@ def test_a_running_local_job_whose_agent_ended_on_its_kept_return_is_never_set_b
     watch.agent_lines(watcher(demo), state.now())
     assert (state.load(demo)["jobs"]["j1"]["state"], len(state.replies(demo, "j1"))) == ("running", 1)
 
+
+
+@pytest.mark.parametrize("read_it", [True, False])
+def test_j182_a_running_local_job_whose_agent_read_its_text_and_ended_on_its_same_kept_waiting_goes_back_to_waiting_with_no_line_and_one_that_has_not_read_it_is_woken(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, read_it: bool
+) -> None:
+    waiting = "WAITING reply:cci:736559: the packer's GO for my place"
+    ended_return(demo, tmp_path, monkeypatch, waiting)
+    path = tmp_path / "config" / "projects" / "-work" / "session-under-test" / "subagents" / "agent-a1.jsonl"
+    ended = state.now() - timedelta(minutes=4)
+    entries = [json.loads(line) for line in path.read_text().splitlines()]
+    entries[-1]["timestamp"] = state.stamp(ended)
+    path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
+    os.utime(path, (ended.timestamp(), ended.timestamp()))
+    state.keep_report(demo, "j1", waiting, waiting)
+    given = ended - timedelta(minutes=1) if read_it else ended + timedelta(minutes=1)
+    with edit(demo) as data:
+        data["jobs"]["j1"].update(said=waiting, given=[{"words": "a record on staging-slots", "at": state.stamp(given)}])
+    monkeypatch.setattr(cli, "take_report", lambda *args: pytest.fail("a kept return is taken no second time"))
+    watching = watcher(demo)
+    watch.agent_lines(watching, state.now())
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], len(state.replies(demo, "j1"))) == ("waiting" if read_it else "running", 1)
+    assert (watching.agent_gaps["j1"] is None) is read_it
 
 def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, owed: bool = False) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))

@@ -4593,17 +4593,12 @@ def fresh_start(bg: dict, kept: list[dict]) -> str | None:
 
 
 FINISHED_SAID = re.compile(r"(DONE|BUILT|BLOCKED|WAITING)\b")
-RETURN_SAID = re.compile(rf"({'|'.join([*state.RESULT_STATES, 'BUILT'])})\b")
 
 
 def finished(job: dict, kept: list[dict], bg: dict) -> str | None:
-    """Why a job's gone `claude --bg` session ended normally rather than died: a session that finished is never started fresh, and own_post resumes it only on a text held after its end, so a text held for it is never stranded. It finished when the job's newest kept report came after its session's last tool call, or its last turn ended on a text opening with a result word, as a return the drive already kept is, or the job reads DONE, BUILT, BLOCKED or WAITING with nothing held for it."""
-    path = watch.session_transcript(bg)
-    called = watch.last_tool_call(path) if path.exists() else None
-    if kept and called and state.parse_time(kept[0]["created_at"]) > called:
-        return f"kept its report at {kept[0]['created_at']} after its last tool call at {state.stamp(called.astimezone())}, so it ended its turn on that report"
-    if path.exists() and (last := watch.last_turn(path, ("assistant",))) and (said := RETURN_SAID.match(watch.said_last(last))):
-        return f"ended its turn at {state.stamp(state.parse_time(last['timestamp']).astimezone())} on its return {said[0]}, after its last tool call"
+    """Why a job's gone `claude --bg` session ended normally rather than died: a session that finished is never started fresh, and own_post resumes it only on a text held after its end, so a text held for it is never stranded. It finished when its transcript shows it ended its turn on a return, by watch.ended_on_return, the rule the watch's bg_death reads too, or the job reads DONE, BUILT, BLOCKED or WAITING with nothing held for it."""
+    if why := watch.ended_on_return(kept, bg):
+        return why
     if (said := FINISHED_SAID.match(job["said"] or "")) and not job["undelivered"]:
         return f"reads {said[1]} with nothing held for it"
     return None
@@ -6064,7 +6059,7 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
                 " of the job that opened the PR once it closes unmerged, a CI build by its link,"
                 " as the repository's build provider names one, held until it finishes or stops at an approve step, or"
                 " reply:<the permalink of a question the drive asked a teammate>, held until their reply, or reply:cci:<the seq of another drive's record>,"
-                " held until that drive's next record on its topic"
+                " held until that drive's next record on its topic addressed to the job's lane or answering a record it posted there"
             )
     unreached(name, data, waits)
     return found
@@ -7859,7 +7854,7 @@ def parser() -> argparse.ArgumentParser:
             " a process on this Mac that still runs as pid:<n>, stored pinned to the second it started,"
             " a CI build by its link, as the repository's build provider names one,"
             " reply:<the permalink of a question the drive asked a teammate>, say's job field setting it,"
-            " reply:cci:<the seq of another drive's cci record>, held until the watch's minute read finds that drive's next record on its topic, whose words it holds on the job,"
+            " reply:cci:<the seq of another drive's cci record>, held until the watch's minute read finds that drive's next record on its topic addressed to the job's lane or answering a record it posted there, whose words it holds on the job,"
             " on drive pr set alone review:<a teammate's GitHub login>, their review of the PR's head, which holds his card from drawing and the PR from landing"
             " until the watch's GitHub read finds their newest review is of its head, said on the PR's line,"
             " or a job of this drive still at work, of any kind, it waits on;"
@@ -8468,7 +8463,7 @@ def parser() -> argparse.ArgumentParser:
         metavar="CARD|PR|RELEASE|BUILD|JOB|PART",
         help=(
             "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, a Buildkite build by its link, a part of an open order as <order>:<part>,"
-            " a teammate's reply as reply:<the question's permalink>, another drive's next record as reply:cci:<the seq of the record it follows>, or a job"
+            " a teammate's reply as reply:<the question's permalink>, another drive's next record to the job as reply:cci:<the seq of the record it follows>, or a job"
             " of this drive still at work, of any kind, a reader that just started included, as job set takes them, that this job waits on: it is recorded"
             " waiting with no agent, so its part is never in no job, and the watch says FREE once the last wait ends, when its agent starts"
         ),

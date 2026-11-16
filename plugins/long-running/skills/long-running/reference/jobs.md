@@ -234,7 +234,7 @@ Waits a first line sets, and what ends them:
 - A `WAITING` first line does the same for each that still holds, and also takes `pid:<n>` for a
   process on this Mac that still runs (not on a Sprite), `reply:<the question's permalink>` for a
   teammate's reply, `reply:cci:<the seq of its record the job waits after>` for another drive's next
-  record, and `j<n>` for another job, stored as `drive job set --waits <j>` stores it. Lines below
+  record on its topic addressed to the job's lane or answering a record it posted there, and `j<n>` for another job, stored as `drive job set --waits <j>` stores it. Lines below
   the first set no wait.
 - A `WAITING` is taken only while something can wake the job: its due time or an order's, a stored
   wait that still holds, an open question card of its own, a first-line wait that still holds, a
@@ -415,8 +415,9 @@ with a blocking question.
 - The watch relaunches a running job's dead lane in the same pass, with `drive job resume <j>` as a
   process of its own, and the `LANE … died` line says so. It does the same for an agent here whose
   last response ended on an API error, once the session holding it has had a response since, or at
-  once when Claude's usage limit stopped it, since a holder stopped on the same limit never answers
-  (`LANE … died as agent`). A lane here whose transcript ends that way gets the StopFailure resume
+  once when Claude's usage limit stopped it, since a holder stopped on the same limit never answers,
+  and for an agent's own `claude --bg` session gone mid-turn, never one whose turn ended on a
+  return, a `WAITING` included, which a text held after that end resumes (`LANE … died as agent`). A lane here whose transcript ends that way gets the StopFailure resume
   prompt typed into its terminal, after Escape on the usage-limit dialog for a limit stop, once per
   stop, four times at most
   (`LANE … stopped on this Mac`).
