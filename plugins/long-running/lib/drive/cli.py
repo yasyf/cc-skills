@@ -29,6 +29,8 @@ FREEZE_FOR = timedelta(hours=12)
 JUDGED_LATER = "The drive kept the report you sent with drive job report {job} -, then its check refused it: {refused}. Fix what it names and send drive job report {job} - again; your newest report is the one that stands."
 KEPT_SPRITE_CAP = 60
 OWED = "owed, send it now:"
+SLACK_PERMALINK = re.compile(r"https://[^\s/]+\.slack\.com/archives/[^\s)>|]+")
+KEPT_AS = re.compile(r"\bkept as (o\d+)\b")
 NBD_READS = "nbd-reads.json"
 CHECK_UNBOUND = frozenset({state.DRIVE_ENV, "CLAUDE_CODE_SESSION_ID", "CCI_AGENT_ID"})
 RELEASE_WORD = re.compile(r"\breleas", re.IGNORECASE)
@@ -4085,12 +4087,21 @@ def held_to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -
     return emit(args, line, {"id": args.id, "how": f"handoff to {lane}", "seqs": [seq]})
 
 
-def resent(kept: dict) -> str:
-    """A held text as it goes out again: his words marked re-sent with their own time and the record they came in, so no reader takes them for words he wrote now."""
+def resent(data: dict, kept: dict) -> str:
+    """A held text as it goes out again: his words marked re-sent with their own time and the permalink of the message they came from, by held_link, so no reader takes them for words he wrote now."""
     if kept["sender"] != state.HIM:
         return kept["words"]
-    came = f", record {kept['seq']}" if kept["seq"] else ""
-    return f"His words of {render.when(kept['at'])}{came}, re-sent: {kept['words']}"
+    link = held_link(data, kept)
+    return f"His words of {render.when(kept['at'])}{f' ({link})' if link else ''}, re-sent: {kept['words']}"
+
+
+def held_link(data: dict, kept: dict) -> str | None:
+    """The permalink of the message of his a held text carries: a Slack link its words already hold, else the message the order its words name was added from, else none."""
+    if found := SLACK_PERMALINK.search(kept["words"]):
+        return found[0]
+    if (named := KEPT_AS.search(kept["words"])) and (order := data["orders"].get(named[1])) and (where := state.slack_message(order["from"])):
+        return f"https://{slack.workspace()}/archives/{where[0]}/p{where[1].replace('.', '')}" + (f"?thread_ts={where[2]}&cid={where[0]}" if where[2] else "")
+    return None
 
 
 def deliver_held(name: str, job_id: str, job: dict, lane: str, held: list[dict]) -> tuple[str, str] | None:
@@ -4101,7 +4112,7 @@ def deliver_held(name: str, job_id: str, job: dict, lane: str, held: list[dict])
     held = sorted((kept for kept in held if kept["request"] in left), key=lambda kept: kept["sender"] != state.HIM)
     if not held:
         return None
-    seq, line = starter_post(name, job_id, job, lane, "\n\n".join(map(resent, held)), held[0]["at"], held[0]["request"])
+    seq, line = starter_post(name, job_id, job, lane, "\n\n".join((resent(state.load(name), kept) for kept in held)), held[0]["at"], held[0]["request"])
     taken = {kept["request"] for kept in held}
 
     def deliver_held_write(data: dict):
@@ -4141,7 +4152,7 @@ def deliver_to_order(name: str, job_id: str, job: dict, held: list[dict]) -> str
         f"{job_id} {why}, so its agent is not woken for his words held on it: read them, act through order {job['order']} only on work they order"
         f" that no job carries, then mark them heard with `drive job set {job_id} --heard`"
     )
-    [seq] = tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id}, "text": "\n\n".join([lead, *map(resent, held)])}])
+    [seq] = tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id}, "text": "\n\n".join([lead, *(resent(state.load(name), kept) for kept in held)])}])
 
     def told_write(data: dict):
         for kept in data["jobs"][job_id]["undelivered"]:
