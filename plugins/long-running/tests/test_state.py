@@ -3123,7 +3123,7 @@ def test_a_reporters_fix_live_note_is_owed_only_once_the_part_carrying_the_repor
     data["jobs"]["j1"].update(state="done", said="DONE j1 live: /repro/j1.py exits 0")
     data["orders"]["o1"]["parts"][reported].update(posted="j1 live: /repro/j1.py exits 0", posted_by="j1")
     assert (other, state.reported_parts(data["orders"]["o1"], data["orders"]["o1"]["reporters"][0]), state.may_tell(data, data["orders"]["o1"])) == (False, [reported], True)
-||||||| parent of 4b2651abd3 (long-running: a job not running keeps its Mac box only under a live slot hold for it, and the pool hands no box to a job already holding one)
+
 
 def test_a_job_not_running_keeps_its_mac_box_only_under_a_live_slot_hold_for_it(state_root: Path) -> None:
     make("demo")
