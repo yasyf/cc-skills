@@ -145,7 +145,7 @@ def route(name: str, brief: str, answer: str | None = None, away: bool = False) 
     words = agents.his_words(brief)
     began = time.monotonic()
     with state.edit(name) as data:
-        if earlier := data["routed"].get(ts):
+        if (earlier := data["routed"].get(ts)) and not lost_handler(data, earlier):
             return earlier | {"again": True}
         data["routed"][ts] = {"link": link, "at": state.stamp(), "route": None}
     from drive import answer as rows_answer
@@ -168,6 +168,11 @@ def route(name: str, brief: str, answer: str | None = None, away: bool = False) 
         out.write(json.dumps({"ts": ts} | found) + "\n")
     return found
 
+
+
+def lost_handler(data: dict, earlier: dict) -> bool:
+    """Whether the handler an earlier route of his message went to is gone, forgotten or its launch never started, so a rerun of that message routes it again rather than handing it to a handler that will never take it."""
+    return bool(handler := earlier.get("handler")) and (handler not in data["handlers"] or agents.gone(data["handlers"][handler]))
 
 def take(name: str, chosen: str, brief: str, link: str, words: str, thread: str, answer: str | None) -> dict:
     """Hand his message to the route picked: the communicator's answer from the rows, an owner record to the coordinator or to the seat working the order, as the communicator's record tool sends it, or a handler, the one picked or any; a route that cannot take it, the answer escalating or the record refused, goes to a handler with why."""
