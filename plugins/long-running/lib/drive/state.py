@@ -3181,17 +3181,17 @@ def staged_open(data: dict, part: str) -> list[str]:
 
 def order_class(order: dict) -> str:
     """The class of an order, by which code sorts every grant, by the repository's class rules that the model applies with drive order set --class: incident, asked or process. An order no session classed reads as an incident while it is one, else as asked, since his words outrank the drive's own work until a session reads it as process."""
-    return order["class"] or (CLASSES[0] if order["incident"] else CLASSES[1])
+    return order.get("class") or (CLASSES[0] if order["incident"] else CLASSES[1])
 
 
 def class_rank(data: dict, job: dict) -> int:
     """Where a job's class sorts, lower first: the best class among its own order and each it carries, by order_class."""
-    return min(CLASSES.index(order_class(data["orders"][order_id])) for order_id in [job["order"], *job["carries"]])
+    return min((CLASSES.index(order_class(data["orders"][order_id])) for order_id in [job.get("order"), *job.get("carries", ())] if order_id in data["orders"]), default=CLASSES.index("asked"))
 
 
 def go_clears(pr: dict) -> bool:
     """Whether his go on an order the PR serves, by drive order go, clears its person and process gates: no staging test before it merges, no Approve card and no merge queue. A dangerous change still lands only while he is present, and the release provider's scope still holds."""
-    return bool(pr["go"])
+    return bool(pr.get("go"))
 
 
 def give_go(data: dict, key: str, order_id: str) -> list[str]:

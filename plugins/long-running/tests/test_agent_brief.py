@@ -215,6 +215,7 @@ def test_a_priority_orders_builder_starts_here_at_once_past_a_full_cap_the_line_
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix alone first", "--parts", "the hotfix", "the cut")
     run("job", "add", "builder", "--order", "o2", "--part", "the hotfix", "--goal", "build the hotfix")
     with edit(demo) as data:
+        data["orders"]["o1"]["updated"] = data["orders"]["o2"]["updated"]
         for job_id in ("j9", "j10"):
             place.queue(data["jobs"][job_id], state.now())
     data = state.load(demo)

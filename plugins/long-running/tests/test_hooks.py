@@ -2977,7 +2977,7 @@ def test_guard_judges_a_shared_pr_by_the_sessions_own_drive_first(
         "gh api --method=put /repos/Forge-AI/monorepo/pulls/42/merge -f merge_method=squash",
     ],
 )
-def test_guard_holds_a_merge_through_the_api_to_his_tap_and_the_incident_exemption(
+def test_guard_holds_a_merge_through_the_api_to_his_tap_and_his_go(
     home_repo: None,
     drive_pr: str, no_calls: list[list[str]], command: str
 ) -> None:
@@ -2987,7 +2987,7 @@ def test_guard_holds_a_merge_through_the_api_to_his_tap_and_the_incident_exempti
     driving = bash(command) | {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}
     assert landing_guard.deny_reason(driving) == QUEUE_REASON.format(key=drive_pr)
     with edit("demo") as data:
-        data["prs"][drive_pr]["exempt"] = "incident fix"
+        data["prs"][drive_pr]["go"] = "o1"
     assert landing_guard.deny_reason(driving) is None
 
 
