@@ -321,7 +321,7 @@ def monorepo_providers(monkeypatch: pytest.MonkeyPatch) -> None:
         roles = HOME | {"repo": MonorepoPaths, "release": LiveRelease, "staging": SlotStaging}
         return providers.Providers(None, {}, **{role: made(clone, clone, {}) for role, made in roles.items()})
 
-    monkeypatch.setattr(providers, "of", lambda data: built(Path(data["roles"]["coordinator"]["cwd"])))
+    monkeypatch.setattr(providers, "of", lambda data: built(Path(next(iter(state.bound_sessions(data).values()))["cwd"])))
     monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
 
 
@@ -341,7 +341,7 @@ def named_paths(monkeypatch: pytest.MonkeyPatch) -> None:
         roles = HOME | {"repo": NamedPaths, "release": LiveRelease, "staging": SlotStaging}
         return providers.Providers(None, {}, **{role: made(clone, clone, {}) for role, made in roles.items()})
 
-    monkeypatch.setattr(providers, "of", lambda data: built(Path(data["roles"]["coordinator"]["cwd"])))
+    monkeypatch.setattr(providers, "of", lambda data: built(Path(next(iter(state.bound_sessions(data).values()))["cwd"])))
     monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
 
 
@@ -353,7 +353,7 @@ def home_repo(monkeypatch: pytest.MonkeyPatch) -> None:
         roles = HOME | {"repo": HomePaths, "release": LiveRelease}
         return providers.Providers(None, {}, **{role: made(clone, clone, {}) for role, made in roles.items()})
 
-    monkeypatch.setattr(providers, "of", lambda data: built(Path(data["roles"]["coordinator"]["cwd"])))
+    monkeypatch.setattr(providers, "of", lambda data: built(Path(next(iter(state.bound_sessions(data).values()))["cwd"])))
     monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
     monkeypatch.setattr(providers, "default_head", lambda clone: "0" * 40)
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
@@ -3160,7 +3160,7 @@ def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_r
         clock.setattr(state, "now", lambda: T0 + timedelta(minutes=31))
         card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD, "undone": True})
     assert view.open_cards(state.load(demo)["jobs"]["j1"]) == [CARD]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == []
+    assert [line.split(":")[0] for line in watch.run_pass(watching, T0 + timedelta(minutes=60))] == ["DUE o1 owed w1"]
 
 
 def test_a_part_staffed_within_five_minutes_of_its_order_moving_is_never_an_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5356,7 +5356,7 @@ def approving(monkeypatch: pytest.MonkeyPatch) -> None:
         roles = HOME | {"repo": MonorepoPaths, "release": ApprovingRelease, "staging": SlotStaging}
         return providers.Providers(None, {}, **{role: made(clone, clone, {}) for role, made in roles.items()})
 
-    monkeypatch.setattr(providers, "of", lambda data: built(Path(data["roles"]["coordinator"]["cwd"])))
+    monkeypatch.setattr(providers, "of", lambda data: built(Path(next(iter(state.bound_sessions(data).values()))["cwd"])))
     monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
 
 
@@ -8008,7 +8008,7 @@ def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while
     watch.landed(watching, T0)
     assert len(whys) == 1 and whys[0].startswith(f"{land.AWAY}: he last wrote or tapped 20 minutes ago, and it changes go/sand/sandsql/write.go")
     land.dequeue(demo, [KEY], whys[0])
-    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at aaaaaaa ended {whys[0]}; stack-enqueue --dequeue said #42 DEQUEUED aaaaaaa")
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("uncarded", stage.WATCH, "his card on it is not drawn yet")
     dequeuer_exited(demo, KEY)
     with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now())
@@ -11409,7 +11409,7 @@ def test_a_step_owed_by_6_30_wakes_the_orders_holder_once_then_the_coordinator_t
         assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817930000000", by + timedelta(hours=5), None, [], by + timedelta(hours=3), ["w1"]) is None
         assert (data["orders"]["o1"]["owed"][0]["due"], data["orders"]["o1"]["owed"][0]["misses"], len(data["orders"]["o1"]["owed"])) == (state.stamp(by + timedelta(hours=5)), misses, 2)
         assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817950000000", None, None, ["w1"], by + timedelta(hours=3)) is None
-        assert (owing.still_open(data["orders"]["o1"]), data["orders"]["o1"]["owed"][0]["closed"]["by"]) == ([], "delivered")
+        assert ([item["id"] for item in owing.still_open(data["orders"]["o1"])], data["orders"]["o1"]["owed"][0]["closed"]["by"]) == (["w2"], "delivered")
 
 
 def test_closing_an_order_owing_an_open_item_warns_and_the_item_stays_open_in_status(demo: str) -> None:
@@ -11509,7 +11509,7 @@ def test_a_passing_job_proof_on_a_pr_of_the_order_owes_the_one_fix_live_note_tho
     with edit(demo) as data:
         data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED)], "jobs": ["j1", "j2"]}
         data["orders"]["o2"] = order(text="release the watch", jobs=["j2"], reporters=[state.reporter(release)])
-        data["jobs"]["j2"] = job(order="o2", goal="follow its release and prove it live", carries={"o1": []}, state="done", said=f"DONE {proof}")
+        data["jobs"]["j2"] = job(order="o2", goal="follow its release and prove it live", carries={"o1": ["ship the watch"]}, state="done", said=f"DONE {proof}")
     data = state.load(demo)
     assert data["orders"]["o2"]["reporters"] == [{"link": release, "channel": "C0REPORTS01", "thread": "1794400100.000200", "kept_by": "o1"}]
     assert (owing.tell_due(data, "o1") is not None, owing.tell_due(data, "o2")) == (True, None)

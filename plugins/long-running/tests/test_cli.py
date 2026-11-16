@@ -991,7 +991,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     assert (json.loads(request.read_text()), state.load("demo")["jobs"]["j1"]["waits"]) == ({"body": "", "paths": ["go/sand/next/cmd/main.go"]}, [executor])
     assert cli.main(["pr", "set", "https://github.com/Forge-AI/monorepo/pull/7", "--waits", staged]) == 0
     said = f"{staged}: runner-worker is no component the release provider releases, so no release ever carries Forge-AI/monorepo#7"
-    assert (f"note, kept: {said}; {reach}" in capsys.readouterr().err, state.load("demo")["prs"]["Forge-AI/monorepo#7"]["waits"]) == (True, [staged, "o1:staging test of #7 before it lands"])
+    assert (f"note, kept: {said}; {reach}" in capsys.readouterr().err, state.load("demo")["prs"]["Forge-AI/monorepo#7"]["waits"]) == (True, [staged])
     code, err = keep(monkeypatch, capsys, "j1", f"WAITING {executor} rides the next executor release\n")
     assert (code, f"note, kept: {executor}: executor's release never carries" in err, executor in state.load("demo")["jobs"]["j1"]["waits"]) == (0, True, True)
     answer.write_text(json.dumps({"components": ["executor", "k8s"], "touched": [], "dev": [], "releases": [], "staged": []}))

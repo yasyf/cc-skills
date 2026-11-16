@@ -132,6 +132,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "permission": "ADMIN",
         "checked": {"head": HEAD, "read": HEAD, "orders": ["o1"], "lines": {}, "beside": {}},
         "checker": None,
+        "lander": None,
         "design": None,
         "waits": [],
         "reviewed": [],
