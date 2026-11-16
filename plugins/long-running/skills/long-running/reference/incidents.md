@@ -339,8 +339,9 @@ it, ai-oncall style". In the pass that pages, the drive:
 ### Over-communicate a paged incident
 
 "Make everything less chatty" holds everywhere but here. A paged incident's thread hears each step
-as it happens, so he never has to ask whether anyone is on it. Write it the way ai-oncall writes an
-incident (`.agents/skills/incident/references/outage-comms.md` in the monorepo):
+as it happens, so he never has to ask whether anyone is on it. Write it the way an on-call bot writes an
+incident, by the repository's own incident comms rules that `drive manual incidents` prints under
+In this repository:
 
 - The top post is the headline: status and what broke in at most eight words, then who is affected
   and the next step. Evidence, PR lists and links go in the thread right after it.
