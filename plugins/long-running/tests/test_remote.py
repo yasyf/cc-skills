@@ -4859,7 +4859,7 @@ def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive_and_ne
         held.close()
 
 
-def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach_at_its_first_failed_read_and_again_each_30_minutes_whatever_watch_reads_it(
+def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach_at_its_first_failed_read_saying_nothing_and_again_each_30_minutes_saying_so_whatever_watch_reads_it(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch)
@@ -4880,12 +4880,12 @@ def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach
         return [line for line in watch.run_pass(watching, T0 + at) if line.startswith("LANE j1 ") or "lane of j1" in line]
 
     first = watch.Watcher(remote, offset=state.events_end(remote))
-    assert [lane_lines(first, timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[said], [], [], []]
+    assert [lane_lines(first, timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[], [], [], []]
     restarted = watch.Watcher(remote, offset=state.events_end(remote))
     assert (lane_lines(restarted, timedelta(minutes=20)), lane_lines(restarted, timedelta(minutes=30))) == ([], [said])
     with state.edit(remote) as data:
         data["jobs"]["j1"]["dispatch"] = "ctx_relaunched1"
-    assert lane_lines(restarted, timedelta(minutes=31)) == [said]
+    assert lane_lines(restarted, timedelta(minutes=31)) == []
     assert resumes == [["job", "resume", "j1", state.UNREACHED]] * 3
     assert state.load(remote)["jobs"]["j1"]["woken"] == {"dispatch": "ctx_relaunched1", "at": state.stamp(T0 + timedelta(minutes=31))}
 
@@ -4909,7 +4909,7 @@ def test_a_watch_restarted_while_the_wake_its_last_process_started_holds_the_job
 
     monkeypatch.setattr(state, "detach", detach)
     first = watch.Watcher(remote, offset=state.events_end(remote))
-    assert [line.split(" ")[0] for s in (0, 5, 10) for line in watch.run_pass(first, T0 + timedelta(seconds=s))] == ["LANE"]
+    assert [line.split(" ")[0] for s in (0, 5, 10) for line in watch.run_pass(first, T0 + timedelta(seconds=s))] == []
     restarted = watch.Watcher(remote, offset=state.events_end(remote))
     said = [line for s in (200, 205, 210, 215) for line in watch.run_pass(restarted, T0 + timedelta(seconds=s))]
     assert (resumes, said, restarted.failures.get("lane of j1")) == ([["job", "resume", "j1", state.UNREACHED]], [], None)

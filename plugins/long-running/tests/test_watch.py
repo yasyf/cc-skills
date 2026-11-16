@@ -13032,3 +13032,31 @@ def test_the_watch_counts_as_stalled_past_two_minutes_on_a_rest_and_past_the_pas
     assert watch.stalled(rest, 1001.0 + watch.STALL_FOR.total_seconds())
     assert not watch.stalled(stage, 1000.0 + (watch.PASS_FOR + watch.SLOW_STAGE).total_seconds())
     assert watch.stalled(stage, 1001.0 + (watch.PASS_FOR + watch.SLOW_STAGE).total_seconds())
+
+
+def test_a_stall_whose_cause_the_drives_rows_name_reads_its_why_who_and_next_from_them_and_starts_no_watchdog_agent_but_a_staging_env_or_release_starts_one(demo: str) -> None:
+    data = state.load(demo)
+    data["jobs"]["j1"] = state.new_job("o1", "builder", "build it", [], state.stamp()) | {"where": "remote", "dispatch": "ctx_1", "deaths": [{"dispatch": "ctx_1"}]}
+    assert stall.cause(data, "staging:plat-usw2", {"members": ["staging:svc/plat-usw2@abcdef1"]}) is None
+    assert stall.cause(data, "release:Forge-AI/monorepo#9@prod", {"members": []}) is None
+    assert stall.cause(data, "builder-slot", {"members": ["builder-slot"]})["NEXT"] == "nothing to run: its FREE line starts it"
+    assert stall.cause(data, "j1", {"members": ["j1"]})["NEXT"] == "drive job resume j1 restarts it on a fresh Sprite"
+    data["jobs"]["j1"]["deaths"] = []
+    assert stall.cause(data, "j1", {"members": ["j1"]}) is None
+    data["jobs"]["j1"]["waits"] = ["durable-agents:j1-1794673711565"]
+    assert stall.cause(data, "j1", {"members": ["j1"]})["WHY"] == "waits on his card durable-agents:j1-1794673711565"
+    data["jobs"]["j1"]["waits"] = ["release:api:Forge-AI/monorepo#9"]
+    assert stall.cause(data, "j1", {"members": ["j1"]}) is None
+    held = {"agent": {"pid": None, "out": "/x.md", "at": state.stamp()}, "said": None, "told": None}
+    assert (stall.searching(held, state.now()), stall.starts({"t": held}, state.now())) == (False, (0, 0))
+
+
+def test_a_waiting_or_pushed_return_reaches_the_coordinator_as_evidence_waking_nobody_unless_the_drive_added_a_clause(demo: str) -> None:
+    data = state.load(demo)
+    data["jobs"]["j1"] = state.new_job("o1", "builder", "build it", [], state.stamp()) | {"said": "WAITING release:api:Forge-AI/monorepo#9"}
+    data["jobs"]["j2"] = state.new_job("o1", "builder", "build it", [], state.stamp()) | {"said": "PUSHED https://github.com/Forge-AI/monorepo/pull/9"}
+    data["jobs"]["j3"] = state.new_job("o1", "builder", "build it", [], state.stamp()) | {"said": "READY https://github.com/Forge-AI/monorepo/pull/9"}
+    assert watch.wakes("JOB j1 o1 WAITING release:api:Forge-AI/monorepo#9", data, None) is False
+    assert watch.wakes("JOB j2 o1 PUSHED https://github.com/Forge-AI/monorepo/pull/9", data, None) is False
+    assert watch.wakes("JOB j2 o1 PUSHED https://github.com/Forge-AI/monorepo/pull/9; its ASK was not kept", data, None) is True
+    assert watch.wakes("JOB j3 o1 READY https://github.com/Forge-AI/monorepo/pull/9", data, None) is True
