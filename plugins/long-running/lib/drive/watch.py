@@ -28,7 +28,7 @@ from time import monotonic
 from typing import NamedTuple, Self
 
 from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, owing, page, place, procs, providers, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view, work
-from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_cut, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
+from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_cut, outrun, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -2475,7 +2475,7 @@ def responder(name: str, project: str | None, lines: int) -> int:
 
 
 def beside_passes(name: str, project: str | None, lines: int, flag: str, passing: Callable[[Watcher, datetime], list[str]], seconds: float) -> int:
-    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, once watch_upgraded reads that install running other code than this one, so the code installed now runs it however long a pass holds the watch on the install it started on, and an install that changes none of its code moves nothing. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block. The relay passes a project only when due_again says the drive moved or its idle time ran out, so seven projects cost one process and no load while nothing changed. Its guard ends it once a pass runs past PASS_FOR and a minute or a rest past STALL_FOR, its stacks in the watch's log, and the watch starts it again, by relayed_lines."""
+    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, once watch_upgraded reads that install running other code than this one, or install.outrun reads that a newer release saved the drive, so the code installed now runs it however long a pass holds the watch on the install it started on, and an install that changes none of its code moves nothing. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block. The relay passes a project only when due_again says the drive moved or its idle time ran out, so seven projects cost one process and no load while nothing changed. Its guard ends it once a pass runs past PASS_FOR and a minute or a rest past STALL_FOR, its stacks in the watch's log, and the watch starts it again, by relayed_lines."""
     ended = term_flag()
     if unwatched(project):
         return 0
@@ -2486,7 +2486,7 @@ def beside_passes(name: str, project: str | None, lines: int, flag: str, passing
         with os.fdopen(lines, "w", buffering=1) as written:
             while not over(ended):
                 beat("pass", True)
-                if upgraded():
+                if upgraded() or outrun(name):
                     with term_held():
                         install.reopen(["watch", flag, str(lines), "--drive", name, *(["--project", project] if project else [])])
                 if every_project():
@@ -2553,7 +2553,7 @@ def held_beside(name: str) -> Callable[[str], bool]:
 
 
 def landing_loop(name: str, project: str | None, lines: int) -> int:
-    """Run the watch's landing loop, the process the watch starts beside its passes: a landing pass the moment anything appends to the drive's events file or the receiver's deliveries log, as the receiver does for each delivery, or POLL_SECONDS after the last, by rests, each first moving this process onto the newest install, by install.reopen, once it held what it owes for the landing loop it starts there, so a GitHub read, a stage's wake and a landing wait on no lane read, Sprite launch or install a pass of the watch runs, and a fix to any of them runs within a pass of its install. It hands its own lines on as the watch does, those the process before it held with the first stage of its first pass, so lines kept back for a later post never cost a landing pass, and writes the watch down the pipe end it inherited each new map of the PRs the drive does not track it read, first the one the landing loop before it held. It takes the reads the landing loop before it held, with the events and deliveries offsets it had read to, else owes a read of every PR from each file's end; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, and a watch gone, as a kickstart leaves it, ends it at the next stage boundary, so no orphan runs a landing pass beside the next watch's landing loop, kept as a flag, and however it ends it holds its unposted lines and owed reads for the landing loop after it."""
+    """Run the watch's landing loop, the process the watch starts beside its passes: a landing pass the moment anything appends to the drive's events file or the receiver's deliveries log, as the receiver does for each delivery, or POLL_SECONDS after the last, by rests, each first moving this process onto the newest install, by install.reopen, once watch_upgraded or install.outrun reads one to move onto and it held what it owes for the landing loop it starts there, so a GitHub read, a stage's wake and a landing wait on no lane read, Sprite launch or install a pass of the watch runs, and a fix to any of them runs within a pass of its install. It hands its own lines on as the watch does, those the process before it held with the first stage of its first pass, so lines kept back for a later post never cost a landing pass, and writes the watch down the pipe end it inherited each new map of the PRs the drive does not track it read, first the one the landing loop before it held. It takes the reads the landing loop before it held, with the events and deliveries offsets it had read to, else owes a read of every PR from each file's end; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, and a watch gone, as a kickstart leaves it, ends it at the next stage boundary, so no orphan runs a landing pass beside the next watch's landing loop, kept as a flag, and however it ends it holds its unposted lines and owed reads for the landing loop after it."""
     ended = term_flag()
     if unwatched(project):
         return 0
@@ -2567,7 +2567,7 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
             for _ in rests(state.events_path(name), receiver.deliveries_path()):
                 if over(ended):
                     break
-                if upgraded():
+                if upgraded() or outrun(name):
                     with term_held():
                         for one in [landing, *landing.others.values()]:
                             hold(one)
@@ -7079,7 +7079,7 @@ def handing_off(watcher: Watcher, ran: float) -> bool:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, each open priority order's seat first, by seated_first, then the drive's pass, then each other project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, only at a pass boundary, never between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS, and a watch reads no install until it has run one whole pass, so installs landing minutes apart never cut a pass short. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, each open priority order's seat first, by seated_first, then the drive's pass, then each other project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, only at a pass boundary, never between two of a pass's stages, saying so in its log, or before its next stage, kept as its resume, once a newer release saved the drive, by install.outrun, so no stage of older code reads rows that release wrote, so its launch agent starts the watch on that install within RESTART_SECONDS, and a watch reads no install until it has run one whole pass, so installs landing minutes apart never cut a pass short. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     signal.signal(signal.SIGTERM, functools.partial(terminated, watcher))
     one = watcher
@@ -7089,14 +7089,14 @@ def watching(watcher: Watcher) -> None:
         with relaying(watcher):
             for _ in rests(state.events_path(watcher.name)):
                 beat("pass")
-                if passes and handing_off(watcher, monotonic() - began) and (newer := upgraded()):
+                if (newer := outrun(watcher.name)) or passes and handing_off(watcher, monotonic() - began) and (newer := upgraded()):
                     print(f"ended on long-running {state.VERSION} for {newer}, before {watcher.resume or 'its next pass'}", flush=True)
                     break
                 handing = bool(watcher.made)
                 joined(watcher, state.now(), functools.partial(claim, watcher.name), functools.partial(watched, watcher.name))
                 for one in seated_first(watcher):
                     read_from, moment = one.offset, state.now()
-                    for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: state.now() - moment > PASS_FOR):
+                    for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: state.now() - moment > PASS_FOR or outrun(watcher.name)):
                         for line in sent(one, one.lane, said, moment):
                             print(line, flush=True)
                     outboxed(one)

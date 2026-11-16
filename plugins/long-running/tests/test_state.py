@@ -195,6 +195,19 @@ def test_the_previous_release_reads_and_saves_a_drive_this_release_saved(run: Ca
     assert state.load(demo) == saved | {"slack": saved["slack"] | {"page_stale": "the previous release's save"}}
 
 
+def test_a_save_keeps_the_newest_release_that_saved_the_drive_which_each_older_install_reads_as_newer(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("demo")
+    assert state.newer_saver("demo") is None
+    for version, terminal in (("999.0.2", "the newer release's"), ("999.0.1", "the older release's")):
+        monkeypatch.setattr(state, "VERSION", version)
+        with edit("demo") as data:
+            data["terminal"] = terminal
+    assert state.load("demo")["terminal"] == "the older release's"
+    assert state.newer_saver("demo") == "999.0.2"
+    monkeypatch.setattr(state, "VERSION", "999.0.10")
+    assert state.newer_saver("demo") is None
+
+
 OTHER_PROCESS_SAVE = """
 import sys
 sys.path.insert(0, sys.argv[1])
