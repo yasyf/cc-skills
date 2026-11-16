@@ -3150,3 +3150,27 @@ const after = target().getBoundingClientRect();
 done({ sameScale: Math.abs(nowCamera.at.k - scale) < 0.001, samePlace: Math.abs(before.left - after.left) < 1 && Math.abs(before.top - after.top) < 1, visible: after.left < innerWidth && after.right > 0, hash: location.hash });
 """, board(queue=[QUESTION | {"project": "Platform"}], status=[{"state": "running", "features": [FEATURE, iris]}]), "1440,900", "--force-prefers-reduced-motion")
     assert seen == {"sameScale": True, "samePlace": True, "visible": True, "hash": "#/now/Platform/SandSQL"}
+
+
+def test_the_queue_sidebar_lists_priorities_apart_from_projects_and_a_priority_filters_to_its_work_across_projects(tmp_path: Path) -> None:
+    lens = {"id": "o9", "name": "Releases", "title": "Whole-platform release", "home": "Platform", "seat": "Priority o9", "members": ["o1", "o9"], "open": 2, "projects": ["Platform", "SandSQL"]}
+    first = QUESTION | {"tasks": ["o1"], "project": "SandSQL", "workstream": None}
+    second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}, "tasks": ["o2"], "project": "Platform", "workstream": None, "told": {"story": TOLD | {"headline": "Shard it?"}}}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all?project=Priority%20o9';
+await wait(150);
+const redirected = location.hash;
+location.hash = '#/queue/all';
+await wait(150);
+const lenses = [...document.querySelectorAll('#main .scope-priorities a')].map((row) => row.textContent);
+const projects = [...document.querySelectorAll('#main .scope-projects a')].map((row) => row.textContent);
+location.hash = '#/queue/all?priority=o9';
+await wait(150);
+done({ redirected, lenses, projects, filtered: [document.querySelector('#main .scope-label').textContent, document.querySelector('#item-title').textContent] });
+""", board(queue=[first, second], priorities=[lens]))
+    assert seen == {
+        "redirected": "#/priority/o9",
+        "lenses": ["★ Releases1"],
+        "projects": ["All projects2", "Platform1", "SandSQL1"],
+        "filtered": ["★ Releases", "Raise the limit?"],
+    }
