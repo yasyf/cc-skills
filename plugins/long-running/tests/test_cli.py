@@ -7506,7 +7506,7 @@ def test_a_pr_whose_job_carries_one_part_of_its_order_passes_on_that_part_while_
     run("pr", "add", PR, "--job", "j1", *LEAD)
     run("pr", "add", STACKED, "--job", "j2", *LEAD)
     refused = {"order": "o1", "words": purpose, "file": "", "change": "Agent.purpose still reads the agents table"}
-    monkeypatch.setattr(served, "judged", lambda name, said, changes, ruled: judge.asked.append((said, changes)) or {"against": [] if f"other changes deliver: {purpose}" in said else [refused]})
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or {"against": [] if f"other changes deliver: {purpose}" in said else [refused]})
     assert cli.main(["pr", "check", PR, "--drive", demo]) == 0
     said, changes = judge.asked[-1]
     assert (list(changes), f"this change delivers: {sessions}\n" in said) == (["Forge-AI/monorepo#42"], True)
@@ -7522,7 +7522,7 @@ def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order
         state.carry(data, "j1", "o2", [grant])
     recorded.shown["3185177"] = DOORS | {"id": "3185177", "title": "How does a grant reach the guards?", "body": f"{grant}; the guards admit it then, never otherwise. One PR"}
     judge.against = [{"order": "o1", "words": "land it", "file": "", "change": "no moved table"}]
-    monkeypatch.setattr(served, "judged", lambda name, said, changes, ruled: judge.asked.append((said, changes)) or {"against": list(judge.against) if '"land it"' in said else []})
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or {"against": list(judge.against) if '"land it"' in said else []})
     assert run("pr", "set", PR, "--serves", "o2", "--design", "asked:3185177")[0] == 0
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
     assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0

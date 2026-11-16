@@ -677,7 +677,16 @@ class Judge:
 @pytest.fixture(autouse=True)
 def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
     judging = Judge()
-    monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "body": "", "head": card.drive_prs().get(key, ("", {"head": None}))[1]["head"], "diff": b""})
+    monkeypatch.setattr(
+        served,
+        "change",
+        lambda key: {
+            "title": f"Fix: {key}",
+            "body": "",
+            "head": card.drive_prs().get(key, ("", {"head": None}))[1]["head"],
+            "diff": b"".join(b"diff --git a/%s b/%s\n+changed\n" % (item["file"].encode(), item["file"].encode()) for item in judging.against if item["file"]),
+        },
+    )
     monkeypatch.setattr(
         served,
         "judged",

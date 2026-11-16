@@ -5543,7 +5543,7 @@ def test_a_check_names_every_pr_its_job_and_the_job_it_was_handed_from_carry_wit
     delivered = f'its job\'s merged PRs already deliver their share of these orders: {merged} "Fix: a Sprite lane gets the wasm toolchain"'
     told: list[str] = []
     wasm = {"order": "o1", "words": "ship the watch", "file": "", "change": "no PR gives Sprites the wasm toolchain"}
-    monkeypatch.setattr(served, "judged", lambda name, said, changes, ruled: told.append(said) or {"against": [] if delivered in said else [wasm]})
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: told.append(said) or {"against": [] if delivered in said else [wasm]})
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     [said] = told
     assert f'{delivered}\nits job\'s other open PRs, each judged on its own, deliver their share of these orders: {OTHER} "Fix: the stack\'s top"' in said
@@ -5560,7 +5560,7 @@ def test_a_check_whose_judge_failed_is_said_nowhere_and_tried_again_ten_minutes_
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
         data["prs"][KEY] |= {"wants_tap": True, "checked": None}
 
-    def failing(name: str, said: str, changes: dict, ruled: list[str]) -> dict:
+    def failing(name: str, said: str, changes: dict) -> dict:
         raise state.DriveError("the judge timed out")
 
     monkeypatch.setattr(served, "judged", failing)
