@@ -42,6 +42,7 @@ from conftest import (
     Answers,
     Checked,
     Chrome,
+    DashboardBoxes,
     Drawing,
     Draws,
     EnvsRelease,
@@ -56,6 +57,7 @@ from conftest import (
     Redraws,
     SelectRelease,
     SessionLaunches,
+    SlotStaging,
     Thread,
     WatchProcess,
     Withdrawals,
@@ -6904,6 +6906,25 @@ def test_a_tester_a_builders_staging_line_adds_is_briefed_on_its_builders_mac_st
     written = Path(tester["brief"]).read_text()
     assert (f"\nMac: {mac}\n" in written, "`drive slot claim plat-usw2-staging --job" in written, tester["brief_flags"]["mac"]) == (True, True, mac)
     assert f"; he tapped Approve on {with_pr} at {at}, head 3fd9f47986fa{cli.STAGING_APPROVED}\n" in written
+
+
+def test_a_staging_tester_whose_provider_reaches_staging_only_from_this_mac_is_briefed_with_that_mac_step_so_its_launch_starts_it_here_never_on_a_sprite(
+    home_repo: None,
+    run: Run, with_pr: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    door = "sign in with the plat-staging AWS profile and start the soak's release build, which only this Mac's machine profile reaches and a Sprite's door refuses"
+
+    class MacOnlyStaging(SlotStaging):
+        def mac_only(self) -> str | None:
+            return door
+
+    provide(monkeypatch, tmp_path, repo=MonorepoRepo, release=EnvsRelease, staging=MacOnlyStaging, mac_box=DashboardBoxes)
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 run the migration twice\n") == (0, "")
+    data = state.load("demo")
+    (tester,) = [job for job in data["jobs"].values() if state.builds_nothing(job)]
+    assert (f"\nMac: {door}\n" in Path(tester["brief"]).read_text(), cli.declared_step("demo", tester | {"route": None})) == (True, door)
+    provide(monkeypatch, tmp_path, repo=MonorepoRepo, release=EnvsRelease, staging=SlotStaging, mac_box=DashboardBoxes)
+    assert cli.declared_step("demo", tester | {"route": None}) is None
 
 
 def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_live_sand_next_commit_and_at_its_own_head_when_it_changes_iris_desktop_or_sand_next_too(

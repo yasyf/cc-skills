@@ -220,6 +220,10 @@ class StagingProvider(Provider):
         """The steps a staging test takes for components staging has no copy of."""
         return ""
 
+    def mac_only(self) -> str | None:
+        """The step every staging test takes that only this Mac runs, such as signing in with a staging profile only its machine holds or starting a release build a Sprite's door refuses, which each staging tester's brief carries as its Mac: line, so its launch starts it on this Mac rather than a Sprite; None when a Sprite reaches staging."""
+        return None
+
     def required_cases(self, paths: list[str]) -> list[str]:
         """The staging cases a PR changing these paths must pass, each named as its tester's CASE line names it, such as a Mac agent's LLM gateway call for a change to that gateway's auth: its tester's Staging line lists them, and drive job report keeps its DONE only when each reads pass, never not exercised."""
         return []
