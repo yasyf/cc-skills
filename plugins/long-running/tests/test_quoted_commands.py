@@ -164,11 +164,15 @@ def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_
         script = shlex.split(line)
         session = shlex.split(script[script.index("--command") + 1])
         claude = next(at for at, word in enumerate(session) if at and "=" not in word)
+        seat = agents.SEAT.search(line)[1]
+        expected = agents.session_settings({agents.COMPACT_ENV: agents.COMMUNICATOR_WINDOW if seat == "communicator" else agents.ROOT_WINDOW})
+        expected = expected if seat in agents.TOP_SEATS else agents.leaf(expected)
         assert session[0] == "env"
-        assert dict(word.split("=", 1) for word in session[1:claude]) == lane["env"] | agents.SESSION_SETTINGS["env"]
+        assert dict(word.split("=", 1) for word in session[1:claude]) == expected["env"]
         assert session.count("--settings") == 1
         settings = json.loads(session[session.index("--settings") + 1])
-        assert settings == agents.session_settings({})
+        assert settings == expected
+        assert ("--add-dir" in session) == (seat not in agents.TOP_SEATS)
         assert (settings["env"]["DISABLE_AUTOUPDATER"], settings["spinnerTipsEnabled"], settings["bashOutputMaxChars"]) == ("1", False, 6000)
         assert settings["permissions"]["deny"] == lane["deniedTools"]
         assert "-p" not in session and "--print" not in session

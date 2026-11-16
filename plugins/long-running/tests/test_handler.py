@@ -110,7 +110,7 @@ def test_a_handler_session_starts_with_every_orca_lanes_env_settings_and_denied_
     settings = json.loads(argv[argv.index("--settings") + 1])
     lane = json.loads(LANE_SPEC.read_text())
     assert {key: settings["env"][key] for key in lane["env"]} == lane["env"]
-    assert (settings["enabledPlugins"], settings["verbose"], settings["statusLine"], settings["bashOutputMaxChars"]) == (plugins | {agents.DATADOG_PLUGIN: True}, True, lane["settings"]["statusLine"], 6000)
+    assert (settings["enabledPlugins"], settings["verbose"], settings["statusLine"], settings["bashOutputMaxChars"]) == (plugins | {agents.DATADOG_PLUGIN: True} | dict.fromkeys(agents.LEAF_PLUGINS_OFF, False), True, lane["settings"]["statusLine"], 6000)
     assert settings["permissions"]["deny"] == lane["deniedTools"]
 
 
@@ -621,7 +621,7 @@ def test_the_post_reports_of_one_thread_inside_a_minute_go_to_one_handler_and_a_
     fresh = [argv for argv in started if argv[:2] == ["claude", "--bg"]][-1]
     assert (fresh[-1].split()[1], "--resume" in fresh) == ("706846", False)
     settings = json.loads(fresh[fresh.index("--settings") + 1])
-    assert (settings["autoMemoryEnabled"], [Path(path).name for path in settings["claudeMdExcludes"]]) == (False, ["CLAUDE.md", "AGENTS.md"])
+    assert (settings["autoMemoryEnabled"], [Path(path).name for path in settings["claudeMdExcludes"]]) == (False, ["CLAUDE.md", "CLAUDE.md", "AGENTS.md"])
 
 
 def test_a_post_reports_handler_that_ends_posting_nothing_leaves_it_owed_for_a_fresh_handler_naming_its_line_and_a_second_such_end_gives_it_up_to_its_writer(

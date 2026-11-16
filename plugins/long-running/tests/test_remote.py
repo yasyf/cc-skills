@@ -8091,7 +8091,7 @@ def test_a_local_launch_runs_the_launcher_in_the_checkouts_orca_repo_with_the_da
         "WORKER_LOCAL": "1",
         "WORKER_REPO": "repo-local",
         "WORKER_RUN": RUN,
-        "WORKER_ENV": f"{orca.LANE_ENV} CCI_PARENT_SESSION=demo",
+        "WORKER_ENV": f"{orca.LANE_ENV} CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 CCI_PARENT_SESSION=demo",
         "WORKER_MCP_CONFIG": str(tmp_path / "j1.mcp.json"),
     }
     assert json.loads((tmp_path / "j1.mcp.json").read_text()) == {"mcpServers": {"plugin:datadog:mcp": server}}

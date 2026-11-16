@@ -310,6 +310,9 @@ Start only the Model Context Protocol servers named in the task's allowlist.
 On Sprite, `WORKER_MCP_CONFIG` passes an inline JSON object for Claude or an
 inline TOML table for Codex to prepare's `--mcp-config`; it is not a local file
 path. On the local route, the value follows Claude's `--mcp-config` syntax.
+`WORKER_ADD_DIR`, on the local route only, passes one directory to Claude's
+`--add-dir`, such as the long-running plugin's lane rules, whose `CLAUDE.md`
+loads once `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` is in `WORKER_ENV`.
 
 `WORKER_ENV` takes space-separated `NAME=VALUE` words with no spaces in a value. On Sprite
 each becomes one of prepare's `--env` flags; on the local route they join the lane's `env`

@@ -485,6 +485,7 @@ if [ -z "$terminal" ]; then
   printf '%s\n' "$terminal" >"$attempt/terminal"
   printf -v claude 'env %s claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools %s --strict-mcp-config --no-chrome --model %q --effort %q' "$lane_env" "$lane_denied_tools" "$model_id" "$effort"
   [ -z "${WORKER_MCP_CONFIG:-}" ] || printf -v claude '%s --mcp-config %q' "$claude" "$WORKER_MCP_CONFIG"
+  [ -z "${WORKER_ADD_DIR:-}" ] || printf -v claude '%s --add-dir %q' "$claude" "$WORKER_ADD_DIR"
   [ -z "${CLAUDE_LANE_SETTINGS:-}" ] || lane_settings=$(jq -c --argjson local "$CLAUDE_LANE_SETTINGS" '. + $local' <<<"$lane_settings")
   printf -v claude "%s --settings '%s'" "$claude" "$lane_settings"
   orca_json terminal send --terminal "$terminal" --enter --text "$claude" >/dev/null

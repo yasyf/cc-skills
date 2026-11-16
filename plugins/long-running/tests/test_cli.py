@@ -10853,8 +10853,8 @@ def test_start_outside_an_orca_terminal_is_refused_naming_the_command_that_start
     assert register[register.index("--cwd") + 1] == str(tmp_path)
     assert register[register.index("--resume-prompt") + 1] == "/long-running demo as the coordinator: run Start or resume for that role"
     session = shlex.split(register[register.index("--command") + 1])
-    assert session[: session.index("claude")] == ["env", *(f"{key}={value}" for key, value in agents.session_settings({})["env"].items())]
-    assert json.loads(session[session.index("--settings") + 1]) == agents.session_settings({})
+    assert session[: session.index("claude")] == ["env", *(f"{key}={value}" for key, value in agents.session_settings({agents.COMPACT_ENV: agents.ROOT_WINDOW})["env"].items())]
+    assert json.loads(session[session.index("--settings") + 1]) == agents.session_settings({agents.COMPACT_ENV: agents.ROOT_WINDOW})
     assert show == ["orca", "terminal", "create", "--worktree", f"path:{tmp_path}", "--title", "demo-coordinator", "--command", "cci session attach demo-coordinator", "--json"]
     assert not state.exists("demo")
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_outer")
