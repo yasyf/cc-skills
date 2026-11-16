@@ -23,7 +23,7 @@ A PR is `#53430` plus at most four words, such as `#53430 reads old journals`. N
 
 Anything else is progress. Progress goes in the lane file. It reaches neither him nor a channel root.
 
-## Five posts from Nov 16, before and after
+## Posts from Nov 16, before and after
 
 **He asked for status.**
 Before: a heading, then four bullets each linking a full PR title ("the run page and its step fill read a run journal's kept rows only, pricing its token sums: the run page reads a run's kept journal rows only"), then three more headed sections of the same.
@@ -44,6 +44,10 @@ After: Gone, here and in the Iris channel. Your Approve on the three v3 PRs stan
 **He said "make this a prio lane".**
 Before: The v3 run page on the new tree is going to the coordinator now as a priority … *What's left* • Rework <full title> and <full title> … *Needs you at the end* • The production release, since your hold on releases (his Nov 13 11:10 AM ruling "we dont have a literal freeze on but no releases…") still stands.
 After: Run page v3 is a priority lane now. Left: rework #53430 and #53305 to read old journals (first ready about 3 PM), a short staging test of each, then merge #53810, #53833 and #54225. #54428 stays held. The production release needs your go.
+
+**A card asked what he had already decided.**
+Before: *Needs your pick: hotfix production's executor now, or prove the resume on staging first.* … *The choice* • *Hotfix now:* … • *Prove on staging first:* adds about 30 minutes … (the card was closed, so it had no buttons, and "resume" was never explained)
+After: nothing. He had already picked "prove on staging first, no hotfix", so there was no question to ask. A question he has not answered goes out with its buttons, and it explains every term his answer turns on, such as "resume: a run that stops partway picks up later from what it saved".
 
 ## The gold standard, for a long post
 
