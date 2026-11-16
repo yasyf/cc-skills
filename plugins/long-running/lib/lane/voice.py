@@ -9,7 +9,7 @@ import re
 import urllib.request
 from pathlib import Path
 
-from lane import say, store, verbs
+from lane import page, say, store, verbs
 
 LANE_ENV = "LONG_RUNNING_LANE"
 TOKEN_ENV = "LANE_TOKEN"
@@ -17,6 +17,9 @@ VOICE_URL = "http://127.0.0.1:7378/voice"
 ENQUEUE_SECONDS = 2
 ROLE_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "voice.md"
 PR_REF = re.compile(r"\{pr:(?:([\w.-]+/[\w.-]+)#)?#?(\d+)(?:\|([^{}]*))?\}")
+KIND = re.compile(r"^(?:[\w-]+(?:\([^)]*\))?!?:\s*)+")
+CLAUSE = re.compile(r"[,;:](?=\s)| - | — ")
+TITLE_WORDS = 8
 THREAD_OF = re.compile(r"[?&]thread_ts=(\d+\.\d+)")
 SEGMENTS = re.compile(r"(<[^<>]*>)")
 BARE_PR_LINK = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|#\2>")
@@ -49,7 +52,7 @@ def send(drive: str, lane: dict, text: str) -> str:
         "drive": drive,
         "channel_id": lane["channel"],
         "thread_ts": lane.get("thread") or asked_thread(lane),
-        "text": linked(text, lane.get("prs") or []),
+        "text": linked(text, titled(lane.get("prs") or [], page.view(drive)["prs"])),
         "rules": str(ROLE_PAGE),
         "asked": "",
     }
@@ -64,6 +67,17 @@ def asked_thread(lane: dict) -> str:
         return ""
     newest = max(asks, key=lambda ask: float(ask["ts"]))
     return (found[1] if (found := THREAD_OF.search(newest.get("link") or "")) else None) or newest["ts"]
+
+
+def titled(prs: list[dict], seen: dict[str, dict]) -> list[dict]:
+    """The lane's PR rows, each with no words of its own given a few from its GitHub title as the supervisor's last pass read it into view.json, so no lane PR goes out as a bare number."""
+    return [row if row.get("words") or not (pull := seen.get(f"{row['repo']}#{row['number']}")) else row | {"words": short(pull["title"])} for row in prs]
+
+
+def short(title: str) -> str:
+    """A PR title as a link's few words: its kind prefix, such as `Fix:` or `feat(cc-slack):`, dropped, cut at its first clause, at most TITLE_WORDS words."""
+    words = CLAUSE.split(KIND.sub("", title).strip(), maxsplit=1)[0].split()
+    return " ".join(words[:TITLE_WORDS]) + ("…" if len(words) > TITLE_WORDS else "")
 
 
 def linked(text: str, prs: list[dict]) -> str:

@@ -99,3 +99,24 @@ def test_his_message_reaches_its_lane_by_thread_and_every_lane_in_the_channel_wh
 )
 def test_a_lane_with_no_thread_answers_in_the_thread_of_his_newest_ask(asks: list[dict], thread: str) -> None:
     assert voice.asked_thread({"channel": "C1", "asks": asks}) == thread
+
+
+@pytest.mark.parametrize(
+    ("title", "words"),
+    [
+        ("Fix: litestream-next takes no snapshot of a forked child at its base TXID, now on ssql-litestream", "litestream-next takes no snapshot of a forked child…"),
+        ("feat(cc-slack): SandDB reads its own bucket", "SandDB reads its own bucket"),
+        ("New: a sync ends each LTX file", "a sync ends each LTX file"),
+    ],
+)
+def test_a_title_reads_as_a_few_words(title: str, words: str) -> None:
+    assert voice.short(title) == words
+
+
+def test_a_lane_pr_with_no_words_takes_them_from_its_title() -> None:
+    rows = [{"repo": "Forge-AI/monorepo", "number": 57630}, {"repo": "Forge-AI/monorepo", "number": 1, "words": "own words"}]
+    seen = {"Forge-AI/monorepo#57630": {"title": "Fix: sandbox cluster access for the admin and break-glass roles"}, "Forge-AI/monorepo#1": {"title": "ignored"}}
+    assert voice.linked("Merged #57630 and {pr:1}.", voice.titled(rows, seen)) == (
+        "Merged <https://github.com/Forge-AI/monorepo/pull/57630|#57630 sandbox cluster access for the admin and break-glass…>"
+        " and <https://github.com/Forge-AI/monorepo/pull/1|#1 own words>."
+    )
