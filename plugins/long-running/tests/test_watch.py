@@ -2168,7 +2168,7 @@ def test_spawn_lines_starts_each_worker_the_queue_records_on_the_drives_own_watc
     kinds: list[list[str]] = []
     monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append(args) or 1)
     monkeypatch.setattr(work.Kind, "wanted", lambda self, data, where, moment: self.name == work.RESEARCH and where == "remote")
-    monkeypatch.setattr(work, "spawned", lambda data, moment, given: kinds.append([kind.name for kind in given]) or (["WORK j9 records a research worker on a Sprite, its first group claimed"], ["j9"]))
+    monkeypatch.setattr(work, "spawned", lambda data, moment, given: kinds.append([kind.name for kind in given]) or (["WORK j9 records a research worker on a Sprite, its first group claimed"], [["work", "start", "j9"]]))
     assert watch.spawn_lines(watch.Watcher(demo, offset=state.events_end(demo), project="Iris"), state.now()) == []
     assert watch.spawn_lines(watcher(demo), state.now()) == ["WORK j9 records a research worker on a Sprite, its first group claimed"]
     assert (started, work.STAGE_TEST in kinds[0]) == ([["work", "start", "j9"]], False)
@@ -2647,18 +2647,18 @@ def test_a_standing_part_its_running_pass_holds_starts_none_and_once_that_pass_e
         data["jobs"]["j2"].update(state="stopped", said=said)
     assert staged(watch.standing_lines, watching, T0 + timedelta(hours=1)) == [
         f'STANDING j3 o2 "codex test box": j2 ended stopped: "{said}"; the watch added j3, a codex job on this Mac on its standing goal,'
-        f" and ran drive job launch j3, its output in the drive's {watch.RELAUNCHES_LOG}"
+        " and the work queue starts its codex-ask run"
     ]
     data = state.load(demo)
     pass_job = data["jobs"]["j3"]
     brief_text = Path(pass_job["brief"]).read_text()
-    assert (detached, data["orders"]["o2"]["jobs"], pass_job["kind"], pass_job["goal"], pass_job["parts"]) == ([["job", "launch", "j3"]], ["j2", "j3"], "codex", BOX_GOAL, ["codex test box"])
+    assert (detached, data["orders"]["o2"]["jobs"], pass_job["kind"], pass_job["goal"], pass_job["parts"]) == ([], ["j2", "j3"], "codex", BOX_GOAL, ["codex test box"])
     assert "Where: this Mac and one EC2 devbox\n" in brief_text
     assert f"Handoff: The watch started this pass of o2's standing part \"codex test box\" once its last pass, j2, ended stopped. Its return, verbatim:\n> {said}\n" in brief_text
     assert render.standings(data, "o2", data["orders"]["o2"]) == [
         f'  STANDING "codex test box": standing on "{render.cut(BOX_GOAL, 80)}", its live pass codex j3 waiting, its last pass codex j2 stopped: "{render.cut(said, 80)}"'
     ]
-    assert (staged(watch.standing_lines, watching, T0 + timedelta(hours=2)), detached) == ([], [["job", "launch", "j3"]])
+    assert (staged(watch.standing_lines, watching, T0 + timedelta(hours=2)), detached) == ([], [])
 
 
 def test_a_standing_pass_added_with_no_brief_is_briefed_and_launched_on_the_next_pass_as_j7852_was_not(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2669,9 +2669,9 @@ def test_a_standing_pass_added_with_no_brief_is_briefed_and_launched_on_the_next
         data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"], state="done", said=said, brief_flags={"where": "this Mac and one EC2 devbox"})
         data["jobs"]["j3"] = state.new_job("o2", "codex", BOX_GOAL, ["codex test box"], state.stamp(T0))
     lines = staged(watch.standing_lines, watcher(demo), T0 + timedelta(hours=1))
-    assert lines == [f'STANDING j3 o2 "codex test box": j2 ended done: "{said}"; the watch added j3, a codex job on this Mac on its standing goal, and ran drive job launch j3, its output in the drive\'s {watch.RELAUNCHES_LOG}']
+    assert lines == [f'STANDING j3 o2 "codex test box": j2 ended done: "{said}"; the watch added j3, a codex job on this Mac on its standing goal, and the work queue starts its codex-ask run']
     brief = Path(state.load(demo)["jobs"]["j3"]["brief"]).read_text()
-    assert (detached, f"its last pass, j2, ended done. Its return, verbatim:\n> {said}\n" in brief) == ([["job", "launch", "j3"]], True)
+    assert (detached, f"its last pass, j2, ended done. Its return, verbatim:\n> {said}\n" in brief) == ([], True)
 
 
 def test_a_standing_pass_that_ended_at_once_starts_the_next_only_thirty_minutes_after_it_was_added_and_its_part_is_never_delivered_nor_an_orphan(
@@ -2687,7 +2687,7 @@ def test_a_standing_pass_that_ended_at_once_starts_the_next_only_thirty_minutes_
     assert (staged(watch.standing_lines, watching, early), watch.orphan_lines(watching, early), state.delivered(state.load(demo), "o2", "codex test box")) == ([], [], False)
     assert watch.orphan_lines(watching, T0 + state.STANDING_EVERY) == []
     assert [line.split(":")[0] for line in staged(watch.standing_lines, watching, T0 + state.STANDING_EVERY)] == ['STANDING j3 o2 "codex test box"']
-    assert detached == [["job", "launch", "j3"]]
+    assert detached == []
 
 
 def test_the_first_pass_of_a_standing_part_no_job_ever_held_starts_at_once_and_says_no_pass_ran_before(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2696,10 +2696,10 @@ def test_the_first_pass_of_a_standing_part_no_job_ever_held_starts_at_once_and_s
         standing_order(data, [])
     assert staged(watch.standing_lines, watcher(demo), T0) == [
         f'STANDING j2 o2 "codex test box": no pass of it ran before; the watch added j2, a codex job on this Mac on its standing goal,'
-        f" and ran drive job launch j2, its output in the drive's {watch.RELAUNCHES_LOG}"
+        " and the work queue starts its codex-ask run"
     ]
     brief_text = Path(state.load(demo)["jobs"]["j2"]["brief"]).read_text()
-    assert (detached, f"Goal: {BOX_GOAL}\n" in brief_text) == ([["job", "launch", "j2"]], True)
+    assert (detached, f"Goal: {BOX_GOAL}\n" in brief_text) == ([], True)
     assert "Handoff: The watch started the first pass of o2's standing part \"codex test box\": no pass of it ran before.\n" in brief_text
     assert f"Done when: {watch.PASS_DONE}\n" in brief_text
 

@@ -514,22 +514,14 @@ def test_a_priority_orders_job_passes_the_process_cap_and_waits_only_on_the_high
     assert place.admission(state.load(demo), "j3", "local", state.now()).startswith("2 local Claude lanes work across this Mac's drives, at its priority cap of 2")
 
 
-def test_a_first_lane_at_the_sprite_cap_waits_its_turn_on_sprite_slot_until_the_watch_frees_it_and_a_takeover_never_waits(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_first_sprite_lane_at_the_cap_is_never_refused_or_queued_since_its_launch_waits_on_admission_in_its_own_process(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix")
     run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
     full = {"local": {}, "sprite": {f"other/x{number}": f"x{number} builder on o9, its Sprite lane at work" for number in range(30)}}
     monkeypatch.setattr(place, "lanes", lambda moment: full)
     data = state.load(demo)
-    assert cli.admission_refusal(demo, data, "j1", False, None, True) is None
-    refused = cli.admission_refusal(demo, data, "j1", False, None, False)
-    assert refused.startswith(f"30 Sprite lanes run across this Mac's drives, at its cap of 30 set by {state.root() / place.CAPS_FILE} (x0 builder on o9")
-    assert refused.endswith("so j1 waits its turn for a Sprite lane, 1 of 1 in line, and the watch launches it as one frees")
-    data = state.load(demo)
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["waits"]) == ("waiting", [state.SPRITE_WAIT])
-    assert view.start_refusal(data, "j1", False) == "j1 waits on sprite-slot: start nothing for it now: once the last wait ends the watch starts it, or its FREE line names who does"
-    assert place.sprite_turns(data, state.now()) == ([], 30)
-    monkeypatch.setattr(place, "lanes", lambda moment: {"local": {}, "sprite": {}})
-    assert place.sprite_turns(data, state.now()) == (["j1"], 0)
+    assert (cli.admission_refusal(demo, data, "j1", False, None, True), cli.admission_refusal(demo, data, "j1", False, None, False)) == (None, None)
+    assert state.load(demo)["jobs"]["j1"]["waits"] == []
 
 
 def test_a_relaunch_or_takeover_waits_its_turn_in_its_own_process_until_the_sprite_cap_has_room(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

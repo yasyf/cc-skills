@@ -4893,10 +4893,28 @@ def test_the_spawner_starts_a_build_worker_per_pool_for_each_ready_group_no_work
     monkeypatch.setattr(place, "preempts", lambda data, job: False)
     monkeypatch.setattr(place, "admitted_room", lambda where, moment, priority=False: 10)
     monkeypatch.setattr(place, "local_builders", lambda data, moment: {})
-    lines, workers = work.spawned(data, moment, [build])
+    lines, starts = work.spawned(data, moment, [build])
+    workers = [start[-1] for start in starts]
+    assert [start[:2] for start in starts] == [["work", "start"]] * 3
     assert [(data["jobs"][worker_id]["where"], data["jobs"][worker_id]["builds_nothing"]) for worker_id in workers] == [("local", False), ("local", False), ("remote", False)]
     assert [data["jobs"][job_id]["claim"]["worker"] for job_id in ("j1", "j2", "j3")] == workers
     assert work.spawned(data, moment, [build]) == ([], [])
+
+
+def test_the_spawner_launches_each_ready_codex_items_own_run_with_no_worker_between_and_none_again_while_that_launch_goes(monkeypatch: pytest.MonkeyPatch) -> None:
+    moment = state.parse_time("2026-11-16T12:00:00-08:00")
+    data = {"name": "demo", "orders": {"o1": {}}, "slots": {}, "jobs": {job_id: state.new_job("o1", "codex", "fix it", [], state.stamp(moment)) | {"brief": f"{job_id}.md"} for job_id in ("j1", "j2")}}
+    codex = work.KIND[work.CODEX]
+    monkeypatch.setattr(work, "KIND", {work.CODEX: codex})
+    monkeypatch.setattr(work.Codex, "queued", lambda self, data, job: not work.worker(job))
+    monkeypatch.setattr(work.Codex, "ready", lambda self, data, job_id: not data["jobs"][job_id].get("launching"))
+    monkeypatch.setattr(work, "rank", lambda data, job_id: job_id)
+    monkeypatch.setattr(place, "admission", lambda data, job_id, where, moment: None)
+    monkeypatch.setattr(place, "preempts", lambda data, job: False)
+    monkeypatch.setattr(place, "admitted_room", lambda where, moment, priority=False: 1)
+    lines, starts = work.spawned(data, moment, [codex])
+    assert (starts, data["jobs"]["j1"]["launching"], data["jobs"]["j2"].get("launching"), [job_id for job_id, job in data["jobs"].items() if work.worker(job)]) == ([["job", "launch", "j1"]], state.stamp(moment), None, [])
+    assert work.spawned(data, moment, [codex])[1] == [["job", "launch", "j2"]]
 
 
 def test_no_new_cut_starts_while_a_cut_or_release_holds_the_env_or_a_release_waits_and_the_cut_the_packer_forms_writes_no_record(monkeypatch: pytest.MonkeyPatch) -> None:

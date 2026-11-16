@@ -12,6 +12,7 @@ PROVE = "prove"
 BUILD = "build"
 RESEARCH = "research"
 DESIGN = "design"
+CODEX = "codex"
 TOLD = ("ASK", "BLOCKED")
 WORKER = "worker"
 WORKER_ITEMS = 18
@@ -185,6 +186,7 @@ class Kind:
     agent = "builder"
     compiles = False
     free_here = False
+    runs_itself = False
     told: tuple[str, ...] | None = TOLD
     most: int | None = None
 
@@ -505,8 +507,22 @@ class Design(Kind):
         return not worker(job) and job["kind"] == "design"
 
 
+class Codex(Kind):
+    """Codex jobs: a codex job no codex-ask run of its own took yet, whose item is its run: the spawner launches each ready one's codex-ask run on this Mac by drive job launch, under the caps by its class, with no Claude worker between, and the watch takes the run's result onto the item's row as it takes any codex job's."""
+
+    name = CODEX
+    runs_itself = True
+
+    def matches(self, data: dict, job: dict) -> bool:
+        return not worker(job) and job["kind"] == "codex"
+
+    def where(self, data: dict, job: dict) -> str:
+        """A codex-ask run starts on this Mac."""
+        return "local"
+
+
 STAGE = StageTest()
-KIND = {kind.name: kind for kind in (STAGE, Prove(), Build(), Research(), Design())}
+KIND = {kind.name: kind for kind in (STAGE, Prove(), Build(), Research(), Design(), Codex())}
 
 
 def kind_of(data: dict, job: dict) -> Kind | None:
@@ -696,12 +712,12 @@ def room(data: dict, kind: Kind, where: str, moment: datetime) -> int:
     return min(left, WORKERS_PER_PASS)
 
 
-def spawned(data: dict, moment: datetime, kinds: list[Kind]) -> tuple[list[str], list[str]]:
-    """The spawner's write: first each item still holding a builder-slot or sprite-slot turn drops it, since the queue's caps place it now, and each worker recorded STALL_AFTER ago that no start took fails, so the items it claimed go back; then for each of these kinds and each pool, workers recorded while it wants one and room, read again for each one with the workers this pass recorded counted, lets one start, each claiming its first group, so ready items no worker holds start as fast as the caps allow and an urgent head's priority room starts no item behind it; the lines saying so and the workers to start."""
-    lines, workers = [], []
+def spawned(data: dict, moment: datetime, kinds: list[Kind]) -> tuple[list[str], list[list[str]]]:
+    """The spawner's write: first each item still holding a builder-slot turn drops it, since the queue's caps place it now, and each worker recorded STALL_AFTER ago that no start took fails, so the items it claimed go back; then for each of these kinds and each pool, workers recorded while it wants one and room, read again for each one with the workers this pass recorded counted, lets one start, each claiming its first group, or for a kind whose item is its own run, a codex job's, the head item stamped launching and started by drive job launch, so ready items no worker holds start as fast as the caps allow and an urgent head's priority room starts no item behind it; the lines saying so and the workers to start."""
+    lines, starts = [], []
     for job_id, job in data["jobs"].items():
-        if item_of(data, job) and (left := [wait for wait in job["waits"] if wait not in (state.SLOT_WAIT, state.SPRITE_WAIT)]) != job["waits"]:
-            job.update(waits=left, slot=None, sprite_turn=None)
+        if item_of(data, job) and state.SLOT_WAIT in job["waits"]:
+            job.update(waits=[wait for wait in job["waits"] if wait != state.SLOT_WAIT], slot=None)
         if worker(job) and job["state"] not in state.FINISHED_JOB_STATES and untaken(job) and not watch.launching(job, moment) and moment - state.parse_time(job["created"]) >= STALL_AFTER:
             job.update(state="failed", said=f"not started: no drive work start took it in {int(STALL_AFTER.total_seconds() // 60)} minutes", updated=state.stamp(moment))
             lines.append(f"WORK {job_id} failed: no start took it, so its claims go back to the queue")
@@ -710,9 +726,15 @@ def spawned(data: dict, moment: datetime, kinds: list[Kind]) -> tuple[list[str],
             started = 0
             while started < WORKERS_PER_PASS and kind.wanted(data, where, moment) and room(data, kind, where, moment) > started:
                 started += 1
-                workers.append(worker_id := add_worker(data, kind, where, moment))
+                if kind.runs_itself:
+                    first = kind.pool(data, where)[0]
+                    data["jobs"][first].update(launching=state.stamp(moment), updated=state.stamp(moment))
+                    starts.append(["job", "launch", first])
+                    lines.append(f"WORK {first} starts its {kind.name} run, the queue's item itself")
+                    continue
+                starts.append(["work", "start", worker_id := add_worker(data, kind, where, moment)])
                 lines.append(f"WORK {worker_id} records a {kind.name} worker {'on this Mac' if where == 'local' else 'on a Sprite'}, its first group claimed")
-    return lines, workers
+    return lines, starts
 
 
 def stalled(data: dict, job_id: str, moment: datetime) -> str | None:

@@ -205,7 +205,7 @@ def local_lanes(data: dict, moment: datetime) -> dict[str, str]:
 
 
 def sprite_lanes(data: dict, moment: datetime) -> dict[str, str]:
-    """The drive's lanes running on a Sprite, each beside what it is doing: each running job whose live lane is on one, each launching its first, and each whose turn for one came within the time a launch takes, its lane not started yet."""
+    """The drive's lanes running on a Sprite, each beside what it is doing: each running job whose live lane is on one, and each launching its first."""
     return {
         job_id: f"{job_id} {job['kind']} on {job['order']}, {work}"
         for job_id, job in data["jobs"].items()
@@ -215,8 +215,6 @@ def sprite_lanes(data: dict, moment: datetime) -> dict[str, str]:
             if job["state"] == "running" and on_sprite(job) and not state.lane_death(job, "dispatch")
             else f"its Sprite lane launching since {when(job['launching'], seconds=True)}"
             if not state.on_mac(job) and not job.get("dispatch") and job.get("where") == "remote" and watch.launching(job, moment)
-            else f"its turn for a Sprite lane came at {when(slot, seconds=True)}, its lane not started yet"
-            if job["state"] == "waiting" and not job.get("dispatch") and job.get("where") == "remote" and (slot := job.get("sprite_turn")) and moment - state.parse_time(slot) < watch.RELAUNCH
             else None
         )
     }
@@ -278,9 +276,6 @@ def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> s
     return f"{len(held)} {CAP_NAMES[where]} across this Mac's drives, at its {'priority ' if priority else ''}cap of {cap} set by {state.root() / CAPS_FILE} ({shown}{'; …' if len(held) > 5 else ''})"
 
 
-@contextlib.contextmanager
-
-
 def await_admission(name: str, job_id: str, where: str) -> None:
     """Return once this Mac admits a lane of the drive's job where it starts next, "local" or "sprite", by admission, reading again every TURN_SECONDS while it does not and saying on stderr once why it waits, so a relaunch or takeover, which adds a lane in place of one that ended or moved, waits its turn in the process that starts it rather than failing; one preempts lets through returns at once."""
     told = False
@@ -306,28 +301,6 @@ def admitted_room(where: str, moment: datetime, priority: bool = False) -> int:
     if where == "local" and not priority and strained():
         return 0
     return max(cap_of(where, priority) - len(lanes(moment)[where]), 0)
-
-
-def sprite_line(data: dict) -> list[str]:
-    """The jobs waiting their turn for a Sprite lane under this Mac's cap, a priority order's first, by state.first_in_line, then by ranked, then the oldest added, as waiting_builders orders builders, less each whose project spent its daily budget, by spend.over, which waits for the next day."""
-    moment = state.now()
-    waiting = [job_id for job_id, job in data["jobs"].items() if state.SPRITE_WAIT in job["waits"] and job["state"] == "waiting" and (preempts(data, job) or not spend.over(data, job, moment))]
-    held = standings(data)
-    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *ranked(data, data["jobs"][job_id], held), state.parse_time(data["jobs"][job_id]["created"])))
-
-
-def sprite_turns(data: dict, moment: datetime) -> tuple[list[str], int]:
-    """The jobs whose turn for a Sprite lane comes now, and how many run: each one preempts lets through while the priority cap of cap_of has room, as admission lets its launch through, so a job marked priority after it queued never waits out a full cap, then one for each lane under the cap no drive here runs."""
-    if not (line := sprite_line(data)):
-        return [], 0
-    first = [job_id for job_id in line if preempts(data, data["jobs"][job_id])][: admitted_room("sprite", moment, priority=True)]
-    rest = [job_id for job_id in line if not preempts(data, data["jobs"][job_id])]
-    return [*first, *rest[: max(admitted_room("sprite", moment) - len(first), 0)]], len(lanes(moment)["sprite"])
-
-
-def queue_sprite(job: dict, moment: datetime) -> None:
-    """Hold a job whose first lane the Sprite cap refused waiting its turn for one on sprite-slot, so the watch's FREE line names it as a lane frees."""
-    job.update(state="waiting", waits=list(dict.fromkeys([*job["waits"], state.SPRITE_WAIT])), sprite_turn=None, said="waits its turn for a Sprite lane under this Mac's cap", updated=state.stamp(moment))
 
 
 def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:

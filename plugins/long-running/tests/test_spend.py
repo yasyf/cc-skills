@@ -3,7 +3,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from drive import cli, place, spend, state
+from drive import place, spend, state
 
 Run = Callable[..., tuple[int, str]]
 MILLION = 1_000_000
@@ -44,13 +44,8 @@ def test_a_job_whose_project_hit_its_daily_budget_waits_for_tomorrow_unless_a_pr
     monkeypatch.setattr(spend, "kept", lambda moment: {"at": None, "offsets": {}, "usd": {f"{demo}/Releases": 150.0, "other/Releases": 50.0}, "told": []})
     data = state.load(demo)
     assert place.admission(data, "j1", "sprite", state.now()) == "Releases hit today's $100 budget, at $200 spent, set by caps.json"
-    assert cli.admission_refusal(demo, data, "j1", False, None, False) == (
-        "Releases hit today's $100 budget, at $200 spent, set by caps.json, so j1 waits on sprite-slot until its project's budget resets tomorrow, and the watch launches it then"
-    )
-    assert (state.load(demo)["jobs"]["j1"]["waits"], place.sprite_line(state.load(demo))) == ([state.SPRITE_WAIT], [])
     assert run("job", "set", "j1", "--priority")[0] == 0
-    data = state.load(demo)
-    assert (place.admission(data, "j1", "sprite", state.now()), state.SPRITE_WAIT in data["jobs"]["j1"]["waits"], place.sprite_line(data)) == (None, False, [])
+    assert place.admission(state.load(demo), "j1", "sprite", state.now()) is None
 
 
 def test_drive_tooling_hits_its_share_of_the_days_total_counted_over_every_drive_and_his_line_says_it_in_dollars(monkeypatch: pytest.MonkeyPatch) -> None:

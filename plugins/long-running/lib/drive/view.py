@@ -533,7 +533,7 @@ def tester_line(drive: dict, tester: str) -> str:
     job = drive["jobs"][tester]
     if job["state"] != "waiting" or not job["said"]:
         return job["state"]
-    if not {state.SLOT_WAIT, state.SPRITE_WAIT} & set(job["waits"]) and any(not said_names(job["said"], wait) for wait in job["waits"]):
+    if state.SLOT_WAIT not in job["waits"] and any(not said_names(job["said"], wait) for wait in job["waits"]):
         return f"waiting on {', '.join(job['waits'])}"
     return job["said"]
 
@@ -1073,8 +1073,6 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f"{review['login']}'s review of its head on GitHub", "url": None}
     if wait == state.SLOT_WAIT:
         return {"title": "a builder slot on this Mac", "url": None}
-    if wait == state.SPRITE_WAIT:
-        return {"title": "a Sprite lane under this Mac's cap", "url": None}
     if process := state.PID_WAIT.fullmatch(wait):
         return {"title": f"process {process['pid']} on this Mac ending", "url": None}
     if reserved := state.RESERVED_WAIT.fullmatch(wait):

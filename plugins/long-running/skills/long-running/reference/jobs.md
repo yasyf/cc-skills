@@ -37,8 +37,9 @@ Contents:
   - The watch hands a report or an unanswered message of his to the
     communicator as one `ANSWER THIS:` note, which meets no cap.
   - A stall's watchdog waits for a later pass.
-  - A first Sprite lane past the `sprite` cap waits on `sprite-slot`. The watch's `FREE` line
-    names it, earliest due first, as a lane frees.
+  - A first Sprite lane past the `sprite` cap waits in the process launching it until the cap has
+    room, as a relaunch or takeover does. A codex job is a work queue item: the spawner launches
+    its codex-ask run as the caps admit it.
   - Work on a priority or open incident order, or an `immediate fix` part, starts past both caps
     and the gate. Queued work waits. It does not fail.
 - **Budget.** The same file sets each project's daily budget in dollars. `daily_usd` is the day's
@@ -266,8 +267,9 @@ Waits a first line sets, and what ends them:
 
 ### Codex jobs
 
-A codex job runs no agent. `drive job launch <j>` starts its codex-ask run on this Mac from the
-session's folder: `codex-ask --dispatch -s <the job's scratch>/codex --schema <the job's
+A codex job runs no agent. A briefed codex job no run took is a work queue item: once nothing
+holds it, the watch's spawner runs `drive job launch <j>` under the caps, its class first, which
+starts its codex-ask run on this Mac from the session's folder: `codex-ask --dispatch -s <the job's scratch>/codex --schema <the job's
 scratch>/codex-result.json --effort high` on the job's brief, with `-m <model>` on a job added with
 `--model` and `--incident` on an incident. It runs the checks the Agent hooks run and records the
 run folder on the job in place of any earlier agent. The `scratch_folder` hook refuses a `codex:`

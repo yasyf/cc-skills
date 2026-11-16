@@ -214,9 +214,8 @@ LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-]|['’]s\b)")
 LINE_ORDER = re.compile(r"(?<![\w:/.-])o\d+(?![\w:@-])")
 SLOT_WAIT = "builder-slot"
 USAGE_LIMIT_LOG = "claude-usage-limits.jsonl"
-SPRITE_WAIT = "sprite-slot"
 CUT_WAIT = "release-cut"
-TURN_WAITS = (SLOT_WAIT, SPRITE_WAIT, CUT_WAIT)
+TURN_WAITS = (SLOT_WAIT, CUT_WAIT)
 USAGE_LIMIT = re.compile(r"You've hit your (?P<limit>\w+) limit · resets (?P<resets>.+?) \((?P<zone>[^)]+)\)")
 LIMIT_RESET = re.compile(r"(?:(?P<day>[A-Z][a-z]{2} \d{1,2}) at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<half>am|pm)")
 HOLDS_NOW = "## Holds now"
@@ -1273,7 +1272,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     for job in data["jobs"].values():
         job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
         job.setdefault("train", None)
-        job["waits"] = [wait for wait in job.get("waits") or [] if not str(wait).startswith("staging-slot:")]
+        job["waits"] = [wait for wait in job.get("waits") or [] if not str(wait).startswith("staging-slot:") and wait != "sprite-slot"]
+        job.pop("sprite_turn", None)
         job.setdefault("where", "remote" if job.get("dispatch") else "local")
         job.setdefault("returned", job["updated"])
         job.pop("stall", None)

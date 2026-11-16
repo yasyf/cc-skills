@@ -2359,7 +2359,7 @@ def job_set(args: argparse.Namespace) -> int:
             hold_card(job, args.card, shown)
             state.join_card(data, args.id, args.card)
         waits = merged_waits(data, job, [state.job_wait(data, wait, args.id, job) for wait in args.waits], args.no_waits, found)
-        job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT or job.get("priority") and wait == state.SPRITE_WAIT)]
+        job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)]
         if args.said:
             state.keep_waited(data, args.id, args.said)
         if args.carries:
@@ -4198,6 +4198,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
             job.update(
                 codex_run=str(folder),
                 agent=None,
+                launching=None,
                 brief=str(kept),
                 researched=brief.research_links(data, job, written),
             )
@@ -4794,7 +4795,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         or (crowded_here(name, data, job_id, step, text) if local else None)
     ):
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
-    if taker or died:
+    if taker or died or not local:
         place.await_admission(name, job_id, "local" if local else "sprite")
     with place.admitting():
         if crowd := admission_refusal(name, data, job_id, local, step, bool(taker or died)):
@@ -4804,7 +4805,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
             unstopped(job_id, job)
             job.update(route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(data, job, written))
             if not (taker or died):
-                job.update(where="remote", waits=[wait for wait in view.holding(data, job["waits"], None) if wait not in state.TURN_WAITS], sprite_turn=None)
+                job.update(where="remote", waits=[wait for wait in view.holding(data, job["waits"], None) if wait not in state.TURN_WAITS])
             elif text:
                 state.hold_text(job, text, state.held_sender(data))
             return job
@@ -4821,23 +4822,12 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
 
 
 def admission_refusal(name: str, data: dict, job_id: str, local: bool, step: str | None, takes_over: bool) -> str | None:
-    """Why a job's lane starts nowhere yet under this Mac's machine-wide caps, by place.admission, its work waiting its turn rather than failing: a first lane on a Sprite while the Sprite lanes every drive here runs fill their cap waits on sprite-slot, which the watch's FREE line ends as one frees, and a lane here of a job other than a builder, whose slot crowded_here gives, starts on a Sprite instead while this Mac is loaded, short of memory or at its local cap, unless its brief declares a step only this Mac runs; a takeover waits its turn before this, in launched, by place.await_admission."""
-    if takes_over:
+    """Why a job's first lane on this Mac starts nowhere yet under this Mac's machine-wide caps, by place.admission: a lane that is no builder and declares no step only this Mac runs, refused here, starts on a Sprite instead; None for a takeover, a lane on a Sprite, which waited on admission before this by place.await_admission, and every lane admitted."""
+    if takes_over or not local:
         return None
-    if local:
-        if data["jobs"][job_id]["kind"] == "builder" or step or not (why := place.admission(data, job_id, "local", state.now())):
-            return None
-        return f"{why}, so it starts on a Sprite: drive job launch {job_id}, with no --local"
-    if not (why := place.admission(data, job_id, "sprite", state.now())):
+    if data["jobs"][job_id]["kind"] == "builder" or step or not (why := place.admission(data, job_id, "local", state.now())):
         return None
-    def admission_refusal_write(data: dict):
-        place.queue_sprite(data["jobs"][job_id], state.now())
-        return data
-
-    data = state.write(name, admission_refusal_write)
-    if job_id not in (line := place.sprite_line(data)):
-        return f"{why}, so {job_id} waits on sprite-slot until its project's budget resets tomorrow, and the watch launches it then"
-    return f"{why}, so {job_id} waits its turn for a Sprite lane, {line.index(job_id) + 1} of {len(line)} in line, and the watch launches it as one frees"
+    return f"{why}, so it starts on a Sprite: drive job launch {job_id}, with no --local"
 
 
 def answers_since(data: dict, job_id: str, written: str) -> str:
