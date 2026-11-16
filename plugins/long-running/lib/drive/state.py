@@ -4857,7 +4857,7 @@ class Budget(NamedTuple):
 
 
 def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...], since: int | None = None, reads: frozenset[Row] = frozenset(), budget: Budget | None = None) -> None:
-    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records, one reads names or the order of a job the save finishes, whose standing part keeps its texts, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it. It waits on the drive's lock and then the database's write lock no longer than budget leaves, DRIVE_LOCK_SECONDS from now unless named, or for good under waiting_out_lock, then raises Busy, keeping nothing. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each open order the save moved to another lane, by its own record or by the drive's bindings, tells the lane losing it, by told_moved, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while older installs still save the whole drive under it; what a write left to do outside the drive runs after it, by write, in no order across processes."""
+    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records, one reads names or the order of a job the save finishes, whose standing part keeps its texts, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it. It waits on the drive's lock and then the database's write lock no longer than budget leaves, DRIVE_LOCK_SECONDS from now unless named, or for good under waiting_out_lock, then raises Busy, keeping nothing. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each open order the save moved to another lane, by its own record or by the drive's bindings, tells the lane losing it, by told_moved, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while older installs still save the whole drive under it; what a write left to do outside the drive runs after it, by write, in no order across processes, so a file a record names is written by publish."""
     budget = budget or Budget(time.monotonic(), math.inf if WAITS_OUT_LOCK.get() else DRIVE_LOCK_SECONDS)
     jobs = mine.get("jobs", {})
     ended = {key: then["state"] for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and jobs[key]["state"] in FINISHED_JOB_STATES and then.get("state") != jobs[key]["state"]}
@@ -5266,7 +5266,7 @@ def unrehearsed(name: str, run: Callable[[], str], stand_in: str) -> str:
 
 
 def after(effect: Callable[[], list[str]]) -> list[str]:
-    """Run what a write does outside the drive, such as withdrawing a card of his: inside a write's change once that run's commit lands, by write, dropped with a run refused or raced, else inside a batch once its save lands, or now outside both; the lines it prints now, none when it waits, since a deferred effect's lines go to the batch's list or nowhere. Effects run in the order one write left them, but in no order across processes, since another write may commit and run its own between this one's commit and its effects."""
+    """Run what a write does outside the drive, such as withdrawing a card of his or keeping a file its record names, by publish: inside a write's change once that run's commit lands, by write, dropped with a run refused or raced, else inside a batch once its save lands, or now outside both; the lines it prints now, none when it waits, since a deferred effect's lines go to the batch's list or nowhere. Effects run in the order one write left them, but in no order across processes, since another write may commit and run its own between this one's commit and its effects."""
     if (attempt := ATTEMPT.get()) is not None:
         attempt.effects.append(effect)
         return []
@@ -5274,6 +5274,19 @@ def after(effect: Callable[[], list[str]]) -> list[str]:
         AFTER_SAVE[batched].append(effect)
         return []
     return effect()
+
+
+def publish(path: Path, text: str, current: Callable[[dict], bool]) -> list[str]:
+    """Write text to path, a file in a drive's folder that one of its records names, such as an ask or a proof, only while current holds of the drive as committed now, read under a lock of that file alone, so whatever order the effects of two writes naming it run in across processes, the file ends as the write committed last wants it; whole, by a sibling file moved into place, so no reader reads it half written. An effect, run by after once the write naming it commits, the lines it prints, none: inside a write's change of its drive it raises, since its load there would read every row and its file would land before the commit. A file a check inside a change must read is written before the write instead, under a name the record keeps and nothing writes again."""
+    name = path.resolve().relative_to(root().resolve()).parts[0]
+    if (attempt := ATTEMPT.get()) is not None and attempt.name == name:
+        raise DriveError(f"{path} was published inside a write of {name}, before its commit: publish it by after")
+    with flocked(path.with_name(f".{path.name}.lock")):
+        if current(load(name)):
+            fresh = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+            fresh.write_text(text)
+            fresh.replace(path)
+    return []
 
 
 def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
