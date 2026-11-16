@@ -547,9 +547,14 @@ class Question:
         """The question card a handler draws from this block, its Root cause line under the summary's first line and its Interim fix line under that, each option's description as the hint cc-slack draws under it, each file name and path in its body and hints in code formatting, each PR it names as a ref, which cc-slack draws beside its options with the state GitHub reads for it, kept current until the PR ends, so no card's words alone tell him a PR's state, and the line the drive reads from its jobs saying what is built while he decides, which cc-slack draws above the buttons in place of its line saying the asking lane is stopped."""
         body = coded(card_body(self.summary, self.show_me, self.cause, self.interim))
         hinted = {"hints": {option: coded(hint) for option, hint in self.hints.items()}} if self.hints else {}
-        refs = pr_refs([self.title, *self.summary, self.cause, self.interim, *self.options, *self.hints.values(), *self.show_me])
+        refs = pr_refs(self.drawn)
         built = {"meanwhile": meanwhile} if meanwhile else {}
         return {"title": self.title, "body": body, "options": self.options, "recommended": self.recommended, **hinted, **({"refs": refs} if refs else {}), "waits": waits, "drive": drive, **built}
+
+    @property
+    def drawn(self) -> list[str]:
+        """The lines his card draws from this block, each PR they name drawn as a ref."""
+        return [self.title, *self.summary, self.cause, self.interim, *self.options, *self.hints.values(), *self.show_me]
 
 
 def pr_refs(lines: list[str]) -> list[dict]:

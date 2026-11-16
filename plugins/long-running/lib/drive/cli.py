@@ -2174,7 +2174,7 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
         problems.append(asked_elsewhere(job_id, *found_elsewhere))
     for ref in asked.replaces:
         try:
-            replacing(data, ref)
+            replacing(data, job_id, asked, ref)
         except DriveError as error:
             problems.append(str(error))
     if refused := slack.draw_refusal(asked.card(name, f"{name}:{job_id}-0")):
@@ -2266,7 +2266,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         twins = [question for other, question in asking(data, asked.title) if other == job_id]
-        targets = [other for other in {id(other): other for _, other in (replacing(data, ref) for ref in asked.replaces)}.values() if not any(other is twin for twin in twins)]
+        targets = [other for other in {id(other): other for _, other in (replacing(data, job_id, asked, ref) for ref in asked.replaces)}.values() if not any(other is twin for twin in twins)]
         target = next(iter(targets), None)
         stale = asked_before(job, asked.title, fresh, generic)
         own = {id(other) for other in job["questions"]}
@@ -2320,8 +2320,9 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
 def keep_settled(name: str, job_id: str, text: str, kept: Path, title: str, unsettled: str | None, answer: dict) -> tuple[Path, None, dict, str]:
     """Keep the job's ASK block his answer to that same question settles, closed on his words before any check of its shape or card, since no card draws from it: in place of each open question of the job asking it and each `asked_before` names, the question its file keeps standing when it already ended answered, and each question its `Replaces:` line names ending on his answer too. The file, no question shape, the question, and the line saying his words settle it."""
     data = state.load(name)
+    asked = limits.question_problems(text, kept=True)[0]
     for ref in limits.replaced(text):
-        replacing(data, ref)
+        replacing(data, job_id, asked, ref)
     settled_note(name, data, job_id, title, answer)
     question, job = keep_closed(name, job_id, text, kept, title, unsettled, answer["closed"])
     return kept, None, question, settled_line(job_id, job, question, answer)
@@ -2344,14 +2345,14 @@ def keep_closed(name: str, job_id: str, text: str, kept: Path, title: str, unset
     """Keep the job's ASK block closed as given, drawing no card: in place of each open question of the job asking it and each `asked_before` names, the question its file keeps standing when it already ended answered, and each question its `Replaces:` line names ending the same way. The question kept and its job."""
     from drive import superseded
 
-    refs = limits.replaced(text)
+    refs, asked = limits.replaced(text), limits.question_problems(text, kept=True)[0]
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
     generic = superseded.generic(state.load(name))
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         twins = [question for other, question in asking(data, title) if other == job_id]
-        named = {id(target): (asker, target) for asker, target in (replacing(data, ref) for ref in refs)}
+        named = {id(target): (asker, target) for asker, target in (replacing(data, job_id, asked, ref) for ref in refs)}
         if (question := state.kept_in(job, kept)) is None or not question["closed"] or question["closed"]["how"] != "answered":
             question = state.new_question(str(kept), title, state.stamp(), unsettled, closed=closed | {"at": state.stamp()})
         question["hash"] = state.ask_hash(text)
@@ -2554,8 +2555,8 @@ def repeating(data: dict, job_id: str, title: str, redraws: str | None) -> list[
     return sorted(drawn, key=lambda pair: len(said & settled.rare(pair[1]["title"])), reverse=True)[: settled.CANDIDATES]
 
 
-def replacing(data: dict, ref: str) -> tuple[str, dict]:
-    """The open question one name on an ASK's `Replaces:` line names, by the file it is kept in or its card's waits id, by its job, followed to the question a later ask folded it into, so a question built on open ones takes the first one's card and asks every choice; refused when no job keeps a question there or something closed it, since his answer on a closed card is already given."""
+def replacing(data: dict, job_id: str, asked: limits.Question, ref: str) -> tuple[str, dict]:
+    """The open question one name on the job's ASK's `Replaces:` line names, by the file it is kept in or its card's waits id, by its job, followed to the question a later ask folded it into, so a question built on open ones takes the first one's card and asks every choice; refused when no job keeps a question there or something closed it, since his answer on a closed card is already given, and when it is no card of an order the job works, by superseded.for_orders, or its card names a drive PR the asked card does not, by state.named_prs, since his one answer on the asked card ends it, as his tap on one PR's hotfix card once ended a question about another PR's production hotfix."""
     found = next(((job_id, kept) for job_id, job in data["jobs"].items() if (kept := state.kept_in(job, Path(ref).expanduser()))), None) or next(
         ((job_id, question) for job_id, job in data["jobs"].items() for question in job["questions"] if question["waits"] == ref and not question["replaced"]), None
     )
@@ -2567,6 +2568,22 @@ def replacing(data: dict, ref: str) -> tuple[str, dict]:
         raise DriveError(
             f'`Replaces: {ref}`: its question "{render.cut(found[1]["title"] or "", 80)}" ended {closed["how"]}, so it asks him nothing'
             " to replace: build on his words, and ask only what they leave open, with no Replaces line naming it"
+        )
+    owner, question = found
+    job = data["jobs"][job_id]
+    orders, order = [job["order"], *job["carries"]], data["jobs"][owner]["order"]
+    title = render.cut(question["title"] or "", 80)
+    if not superseded.for_orders(order, question, orders):
+        raise DriveError(
+            f'`Replaces: {ref}`: its question "{title}" asks for {order}, and {job_id} works {", ".join(orders)}, so his one answer on this card'
+            " would end a question of other work: ask only what this work leaves open, with no Replaces line naming it"
+        )
+    drawn = limits.redrawn(Path(question["file"]).read_text()).drawn if question["file"] else []
+    shown = set(state.named_prs(data, job["order"], "\n".join(asked.drawn)))
+    if unshown := [key for key in state.named_prs(data, order, "\n".join(drawn)) if key not in shown]:
+        raise DriveError(
+            f'`Replaces: {ref}`: its question "{title}" names {", ".join(map(state.pr_url, unshown))}, which this card names nowhere, so his one answer'
+            " here would end a question about a PR he never sees on it: name each on this card when one answer of his settles both, else ask with no Replaces line naming it"
         )
     return found
 
