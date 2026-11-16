@@ -622,3 +622,30 @@ def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_what_it
     applet.announce(demo, "run-page", file, layout | {"glance": glance | {"status": "Blocked on you: 28 approvals"}}, posted=False)
     assert applet.last_sent(demo, "run-page") == glance
     assert applet.unannounced(demo, quiet + applet.PAGE_QUIET) == []
+
+
+def test_a_compose_from_a_slice_read_short_and_replaced_before_it_settles_never_reaches_him(ordered: str) -> None:
+    from drive import applet
+
+    demo = ordered
+    applet.make(demo, "run-page", "o1", "ship it", None, "communicator")
+    folder = state.drive_dir(demo) / "applets" / "run-page"
+    folder.mkdir(parents=True)
+    glance = {"tone": "warn", "status": "36 PRs wait on you", "changed": "", "next": "Approve them", "why": "They are green"}
+    asks = applet.basis({"questions": [], "prs": [{"key": "a/b#1", "waits_on_him": True}], "orders": [{"key": "o1", "state": "running"}]})
+    start = time.time()
+
+    def laid(file: str, minutes: float, **layout: object) -> None:
+        (folder / file).write_text(json.dumps({"headline": "h", "summary": "s", "blocks": [], "glance": glance, "changed_for_him": "", "basis": asks} | layout))
+        os.utime(folder / file, (start + minutes * 60, start + minutes * 60))
+
+    def at(minutes: float) -> datetime:
+        return datetime.fromtimestamp(start + minutes * 60).astimezone()
+
+    laid("first.json", 0)
+    [(_, first, layout)] = applet.unannounced(demo, at(0))
+    applet.announce(demo, "run-page", first, layout)
+    laid("short.json", 20, basis=asks | {"approvals": False}, glance=glance | {"status": "No PRs wait on you"})
+    assert applet.unannounced(demo, at(21)) == []
+    laid("back.json", 22)
+    assert applet.unannounced(demo, at(40)) == []
