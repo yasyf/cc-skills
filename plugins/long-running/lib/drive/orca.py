@@ -37,6 +37,7 @@ LAUNCH_SECONDS = 1800
 RECLAIM_SECONDS = 300
 WAKE_SECONDS = 90
 MAIL_LIMIT = 100
+MARK_BATCHES = 20
 FENCED = "consumer_fenced"
 UNREACHABLE = "remote_runtime_unavailable"
 UNLIVE = "its worker's liveness is"
@@ -874,6 +875,13 @@ def mail(after: int | None) -> list[dict]:
     while len(messages := call("inbox", "--limit", str(limit))["messages"]) == limit and after is not None and min(message["sequence"] for message in messages) > after:
         limit *= 10
     return sorted((message for message in messages if message["to_handle"].startswith("run:") and (after is None or message["sequence"] > after)), key=lambda message: message["sequence"])
+
+
+def mark_read(run: str) -> None:
+    """Mark the Run's unread mail read with consuming checks as this process's Orca terminal, the drive's own, which coordinates the Run, once the watch took that mail by mail, whose read ignores the read flag, so nothing the drive reads is lost: at most MARK_BATCHES batches, the next pass marking the rest."""
+    for _ in range(MARK_BATCHES):
+        if not call("check", "--run", run)["messages"]:
+            return
 
 
 def mailbox(job: dict, dispatch: str) -> list[dict]:

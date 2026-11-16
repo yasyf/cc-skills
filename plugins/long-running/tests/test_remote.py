@@ -31,6 +31,7 @@ from conftest import (
     REAL_SESSION_OF,
     SILENT_SPRITE,
     UNLISTED,
+    REAL_MARK_READ,
     REAL_SPRITES,
     REAL_SPRITE_API,
     REAL_SPRITE_CONFIG,
@@ -5908,7 +5909,7 @@ def test_a_resume_names_the_saved_branches_github_holds_never_the_garbled_save_a
     assert state.load(remote)["jobs"]["j1"]["deaths"] == [kept]
 
 
-def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lane_mail_becomes_job_events_and_records_the_question_and_marks_its_run_read(remote: str, monkeypatch: pytest.MonkeyPatch, marked_read: list[str]) -> None:
     deliver(
         monkeypatch,
         [
@@ -5927,6 +5928,15 @@ def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monk
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == ("msg_question", "waiting", job["report"].splitlines()[0])
     assert job["report"].endswith("is red on it")
+    assert marked_read == [RUN]
+
+
+def test_marking_lane_mail_read_checks_the_run_until_it_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    batches = iter([{"messages": [{"id": "msg_1"}]}, {"messages": [{"id": "msg_2"}]}, {"messages": []}])
+    asked = []
+    monkeypatch.setattr(orca, "call", lambda *args: asked.append(args) or next(batches))
+    REAL_MARK_READ(RUN)
+    assert asked == [("check", "--run", RUN)] * 3
 
 
 @pytest.mark.parametrize(
