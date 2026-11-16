@@ -1068,7 +1068,7 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if build := providers.of(drive).build.fullmatch(wait):
         return {"title": build_title(build), "url": wait}
     if reply := state.REPLY_WAIT.fullmatch(wait):
-        return {"title": f"another drive's next record after its record {reply['seq']} on that topic", "url": None} if reply["seq"] else {"title": "a teammate's reply to the drive's question", "url": reply["link"]}
+        return {"title": f"another drive's next record to this job after its record {reply['seq']} on that topic", "url": None} if reply["seq"] else {"title": "a teammate's reply to the drive's question", "url": reply["link"]}
     if review := state.REVIEW_WAIT.fullmatch(wait):
         return {"title": f"{review['login']}'s review of its head on GitHub", "url": None}
     if process := state.PID_WAIT.fullmatch(wait):

@@ -2044,7 +2044,7 @@ def replies(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, s
 
 
 def posted_after(watcher: Watcher, data: dict, followed: dict[str, list[str]], moment: datetime) -> tuple[dict[str, str], list[str]]:
-    """Each reply:cci:<seq> wait among followed, which names the jobs waiting on it, that another drive's record ended, with who posted it and its seq: the first record after the one at its seq on that record's topic in the drive holding it, but for one whose lane names this drive, which is this drive's own line and no word of the other's, read in one cci show of every such seq, by state.anchors, and one cci grep per drive they name, whatever the number of waits. Its words, whole from the body file cci attaches to a record longer than its line, go onto each waiting job's held texts in one save, under the record's seq so no second read holds them again, which the watch carries it once nothing holds it, with no report to the communicator, since another drive's coordination line asks nothing of him; a failed read is said as a failed read is and tried again next read."""
+    """Each reply:cci:<seq> wait among followed, which names the jobs waiting on it, that another drive's record ended, with who posted it and its seq: the first record after the one at its seq on that record's topic in the drive holding it that is addressed to a waiting job's lane on this drive or answers a record that lane posted there since, never one whose lane names this drive, which is this drive's own line and no word of the other's, so a busy topic's records for other lanes wake nobody, as each of durable-agents' staging-slots records woke j182 for the packer's GO addressed to it, read in one cci show of every such seq, by state.anchors, and one cci grep per drive they name, whatever the number of waits. Its words, whole from the body file cci attaches to a record longer than its line, go onto each waiting job's held texts in one save, under the record's seq so no second read holds them again, which the watch carries it once nothing holds it, with no report to the communicator, since another drive's coordination line asks nothing of him; a failed read is said as a failed read is and tried again next read."""
     if not followed:
         return {}, []
     source = "reply:cci"
@@ -2067,9 +2067,12 @@ def posted_after(watcher: Watcher, data: dict, followed: dict[str, list[str]], m
         return {}, failed(watcher, source, f"read of the records {', '.join(followed)} wait on", error, moment)
     watcher.failures.pop(source, None)
     firsts = {}
-    for wait in followed:
+    for wait, job_ids in followed.items():
         anchor = anchors[state.REPLY_WAIT.fullmatch(wait)["seq"]]
-        if after := [record for record in posted[anchor["drive"]] if record.get("topic") == anchor["topic"] and record["seq"] > anchor["seq"] and not record["lane"].endswith(f"@{data['name']}")]:
+        lanes = {f"{job_id}@{data['name']}" for job_id in job_ids}
+        topic = [record for record in posted[anchor["drive"]] if record.get("topic") == anchor["topic"] and record["seq"] > anchor["seq"]]
+        theirs = {record["seq"] for record in topic if record["lane"] in lanes}
+        if after := [record for record in topic if not record["lane"].endswith(f"@{data['name']}") and (lanes & set(record.get("to") or ()) or record.get("re") in theirs)]:
             firsts[wait] = (anchor, min(after, key=lambda record: record["seq"]))
     if not firsts:
         return {}, []
@@ -4026,6 +4029,21 @@ class Returned(str):
             )
 
 
+class Rested(str):
+    """A running local job's gap once its agent, given each text since its return, ended its turn on that same kept return, as j182's did on its WAITING each time a record woke it: the job goes back to the state that return set, keeping nothing new and telling no one, so no ORPHAN or wake line follows a turn that changed nothing."""
+
+    line: str
+
+    def __new__(cls, job_id: str, line: str) -> Self:
+        made = super().__new__(cls, f'{job_id}\'s agent read what it was given and ended its turn on its kept return "{cut(line, 100)}" again')
+        made.line = line
+        return made
+
+    def take(self, name: str, job_id: str) -> None:
+        report = state.returns(name, job_id)[0]["body"]
+        state.write(name, lambda data: state.take_result(data, job_id, self.line, report))
+
+
 class Idle(str):
     """A local agent's gap that waking it closes: its turn ended on its kept return while its job reads running, on a reader's line opening with no result word, or on no result line. agent_gap adds the step that wakes it, never local_gap, since that step's place.woken judges every builder by local_gap."""
 
@@ -4112,6 +4130,8 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
         line = said_last(turn)
         if re.match(r"[A-Z]*", line)[0] in (*brief.OPENINGS, "POSTED"):
             if state.kept_return(data["name"], job_id, job, line):
+                if job["said"] == line and job.get("given") and state.parse_time(turn["timestamp"]) > state.parse_time(job["given"][-1]["at"]):
+                    return Rested(job_id, line)
                 return Idle(f'{job_id} reads running while its agent ended its turn on its kept return "{cut(line, 100)}", so wake it')
             return Returned(job_id, [block["text"] for block in turn["message"]["content"] if block.get("type") == "text"][-1], path)
         if state.result_state(job, line):
@@ -4253,12 +4273,28 @@ def relaunchable(ended: dict | None, moment: datetime) -> bool:
     return not land.runs(last) and last.get("tries", 1) < RELAUNCH_TRIES and moment - state.parse_time(last["at"]) >= RELAUNCH_RETRY
 
 
-def bg_death(job: dict) -> str | None:
-    """Why a running job's agent drive job start started as its own `claude --bg` session is dead: no running process names its session and Claude Code's background job for it failed, stopped or is gone, so the watch relaunches it as it does a dead Sprite lane, its session the bg entry names while no hook of it has bound the job's agent yet, so one that dies before its first step is relaunched too rather than left to the reap; None for any other agent and while it lives or its turn ended on its own."""
+RETURN_SAID = re.compile(rf"({'|'.join([*state.RESULT_STATES, 'BUILT'])})\b")
+
+
+def ended_on_return(kept: list[dict], bg: dict) -> str | None:
+    """Why a job's gone `claude --bg` session ended its turn normally, by its transcript: the job's newest kept report came after the session's last tool call, or its last turn ended on a text opening with a result word, as a return the drive already kept is; None when its transcript shows neither. kept is the job's returns, newest first."""
+    path = session_transcript(bg)
+    if not path.exists():
+        return None
+    called = last_tool_call(path)
+    if kept and called and state.parse_time(kept[0]["created_at"]) > called:
+        return f"kept its report at {kept[0]['created_at']} after its last tool call at {state.stamp(called.astimezone())}, so it ended its turn on that report"
+    if (last := last_turn(path, ("assistant",))) and (said := RETURN_SAID.match(said_last(last))):
+        return f"ended its turn at {state.stamp(state.parse_time(last['timestamp']).astimezone())} on its return {said[0]}, after its last tool call"
+    return None
+
+
+def bg_death(name: str, job_id: str, job: dict) -> str | None:
+    """Why a running job's agent drive job start started as its own `claude --bg` session is dead: no running process names its session, Claude Code's background job for it failed, stopped or is gone, and its transcript shows no turn it ended on a return, by ended_on_return, so the watch relaunches it as it does a dead Sprite lane, its session the bg entry names while no hook of it has bound the job's agent yet, so one that dies before its first step is relaunched too rather than left to the reap; None for any other agent, while it lives, and once its turn ended on a return, a WAITING included, since own_post resumes that same session on a text held after that end, as j182's was resumed six times in nine minutes while the watch, reading the background job that resume stops first, called it dead twice."""
     if not (session := state.own_session(job) or (None if job.get("agent") else (job.get("bg") or {}).get("session"))) or agents.alive(session, agents.session_records()):
         return None
     found = agents.background_job(session)
-    if found and found[1]["state"] not in ("failed", "stopped"):
+    if found and found[1]["state"] not in ("failed", "stopped") or ended_on_return(state.returns(name, job_id), job["bg"]):
         return None
     return f"its own claude --bg session {session} ended{' ' + found[1]['state'] if found else ', its background job gone'}"
 
@@ -4339,12 +4375,12 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     lost[job_id] = f"no bound session holds its agent {job['agent']}"
                 if running:
                     gap = agent_gap(job_id, job, data, moment)
-                    if isinstance(gap, Returned):
+                    if isinstance(gap, Returned | Rested):
                         gap.take(watcher.name, job_id)
-                    elif (why := bg_death(job)) and relaunchable(state.lane_death(job), moment):
+                    elif (why := bg_death(watcher.name, job_id, job)) and relaunchable(state.lane_death(job), moment):
                         deaths[job_id] = (job["agent"] or job["bg"]["agent"], why)
                         continue
-                    gaps[job_id] = None if isinstance(gap, Returned | Answered | Gone) else gap
+                    gaps[job_id] = None if isinstance(gap, Returned | Rested | Answered | Gone) else gap
                     if gaps[job_id] and job["kind"] == "codex" and not job.get("agent"):
                         lost[job_id] = gap
                 continue

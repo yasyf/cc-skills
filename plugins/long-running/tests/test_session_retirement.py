@@ -200,3 +200,19 @@ def test_a_new_text_of_his_held_after_a_normal_end_resumes_the_same_session_and_
     assert [call[:3] for call in resumed] == [("durable-agents", "j4481", bg)]
     assert line.startswith("j4481: posted to its own session 299d123b's cci address as handoff record 734300; its session 299d123b ended normally, kept its report at")
     assert line.endswith("so it is never started fresh, and the text held after that end resumes it, and resumed that session on it")
+
+
+@pytest.mark.parametrize("worked_after", [False, True])
+def test_j182_a_stopped_background_session_whose_turn_ended_on_its_kept_waiting_is_waiting_not_dead_and_one_gone_mid_turn_died(
+    monkeypatch: pytest.MonkeyPatch, ended_session: tuple[Path, dict], worked_after: bool
+) -> None:
+    transcript, bg = ended_session
+    transcript.write_text(tool_call("2026-11-16T20:34:15Z") + (tool_call("2026-11-16T20:37:20Z") if worked_after else closing_text("2026-11-16T20:34:20Z")))
+    waiting = {"created_at": "2026-11-16T12:34:16-08:00", "body": "WAITING reply:cci:736559: the packer's GO for my place"}
+    monkeypatch.setattr(agents, "session_records", list)
+    monkeypatch.setattr(agents, "alive", lambda session, records: False)
+    monkeypatch.setattr(agents, "background_job", lambda session: ("job", {"state": "stopped"}))
+    monkeypatch.setattr(state, "returns", lambda name, job_id: [waiting])
+    job = {"state": "running", "agent": "worker", "bg": bg | {"agent": "worker"}}
+    died = watch.bg_death("ssql-duckdb", "j182", job)
+    assert died == ("its own claude --bg session 299d123b ended stopped" if worked_after else None)
