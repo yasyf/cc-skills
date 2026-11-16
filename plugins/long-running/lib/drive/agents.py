@@ -502,10 +502,13 @@ def give_up(name: str, seq: str, line: str) -> None:
 
 def carry(name: str, seqs: list[str], done: str) -> None:
     """Keep the done record that gave up each of seqs as what carries it, so the drive owes it no post."""
-    with state.edit(name) as data:
+
+    def carried(data: dict) -> None:
         for seq in seqs:
             data["carried"].setdefault(seq, f"done record {done}")
             data["posts"]["unposted"].pop(seq, None)
+
+    state.update(name, (("", "carried"), ("", "posts")), carried)
 
 
 def trunk_failures(keys: list[str], since: str) -> list[dict]:
@@ -868,9 +871,12 @@ def forget(data: dict, handler: str) -> list[str]:
 
 def unstarted(name: str, handler: str) -> None:
     """Take a handler that did not start off the drive, with the job it was given and the order made for that job."""
-    with state.edit(name) as data:
+
+    def forgot(data: dict) -> None:
         if handler in data["handlers"]:
             forget(data, handler)
+
+    state.update(name, (("handlers", handler),), forgot)
 
 
 def brief_path(name: str, handler: str) -> Path:
@@ -932,9 +938,12 @@ def waits_turn(name: str, handler: str) -> None:
     waiter = {"pid": os.getpid(), "started": procs.started(os.getpid())}
     if (state.saved_row(name, "handlers", handler) or {}).get("waiter") == waiter:
         return
-    with state.edit(name) as data:
+
+    def wait(data: dict) -> None:
         if entry := data["handlers"].get(handler):
             entry["waiter"] = waiter
+
+    state.update(name, (("handlers", handler),), wait)
 
 
 def waiting(entry: dict) -> bool:
@@ -967,8 +976,11 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
         *LANE_RULES_ARGS, "-n", f"{name} handler {handler}", prompt,
     ]
     session = launched(backgrounded(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
-    with state.edit(name) as data:
+
+    def bound(data: dict) -> None:
         data["handlers"][handler]["session"] = session
+
+    state.update(name, (("handlers", handler),), bound)
 
 
 def backgrounded(argv: list[str], checkout: Path, env: dict[str, str]) -> str:
@@ -1192,11 +1204,14 @@ def take_handed(name: str, handler: str) -> list[str]:
     """The briefs drive handler handed the handler since its last step, moved to the ones it took so each reaches it once and a restart hands them again."""
     if not state.saved(name)["handlers"][handler]["handed"]:
         return []
-    with state.edit(name) as data:
+
+    def take(data: dict) -> list[str]:
         entry = data["handlers"][handler]
         briefs, entry["handed"] = entry["handed"], []
         entry["took"] += briefs
-    return briefs
+        return briefs
+
+    return state.update(name, (("handlers", handler),), take)
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
@@ -1228,7 +1243,7 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
                     data["handlers"].pop(payload["agent_id"])
             return ended_handler, briefs, given_up
 
-        ended_handler, briefs, given_up = state.update(name, (("handlers", payload["agent_id"]), *((("jobs", held_job),) if held_job else ())), end)
+        ended_handler, briefs, given_up = state.update(name, (("handlers", payload["agent_id"]), ("", "carried"), *((("jobs", held_job),) if held_job else ())), end)
         if briefs:
             return Unjudged(f"Refused on purpose: {handed(briefs)}")
     except Exception:
