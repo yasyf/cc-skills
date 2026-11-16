@@ -202,7 +202,7 @@ def landing_why(pr: dict) -> str:
     if lander["outcome"] == land.QUEUED:
         flaky = pr["flaky"] if pr["flaky"] and pr["flaky"]["requeued"] and pr["flaky"]["head"] == lander["head"] else None
         requeued = f", requeued {requeued_on(flaky)}" if flaky else ""
-        taken = f"; pid {dequeuer['pid']} takes it out of the queue since {dequeuer['at']}, and it lands again after that" if (dequeuer := lander.get("dequeue")) else ""
+        taken = f"; pid {land.pid_of(dequeuer)} takes it out of the queue since {dequeuer['at']}, and it lands again after that" if (dequeuer := lander.get("dequeue")) else ""
         return f"queued for merge at {lander['head'][:7]} since {lander['at']}{requeued}{taken}"
     if lander["outcome"]:
         return f"its lander's try at {lander['head'][:7]}, started {lander['at']}, {lander['outcome']}"

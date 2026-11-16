@@ -7811,7 +7811,7 @@ def test_his_hold_on_a_pr_trunk_queued_after_its_lander_ended_reads_held_and_the
     watch.landed(watching, T0)
     watch.landed(watching, T0)
     assert landers == [("--dequeue", KEY)]
-    assert state.load(demo)["prs"][KEY]["lander"]["dequeue"]["pid"] == os.getpid()
+    assert state.holder(state.load(demo)["prs"][KEY]["lander"]["dequeue"]) == os.getpid()
 
 
 def test_a_staging_test_started_on_a_pr_trunk_queued_after_its_lander_ended_reads_waiting_and_the_watch_starts_one_dequeue_of_it(home_repo: None, demo: str, landers: list[tuple[str, ...]]) -> None:
