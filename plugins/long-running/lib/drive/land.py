@@ -604,12 +604,15 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             misfiled = {key: why for key in keys if (why := unexempt(data, key))}
             untested = {key: unstaged for key, unstaged in cli.staging_reach(name, data, [key for key in keys if data["prs"][key]["wants_tap"]]).items() if not state.staging_tested(data, key)}
             if (untested or misfiled) and not dry_run:
-                with state.edit(name) as edited:
+
+                def reached(edited: dict) -> None:
                     for key, unstaged in untested.items():
                         state.reach_staging(edited, key, unstaged)
                     for key in misfiled:
                         if edited["prs"][key]["exempt"] == state.CI_ONLY:
                             edited["prs"][key].update(exempt=None, wants_tap=True)
+
+                state.update(name, None, reached)
             if misfiled:
                 outcome = f"not landed: {'; '.join(misfiled.values())}"
             elif untested:
