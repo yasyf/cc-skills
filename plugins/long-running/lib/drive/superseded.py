@@ -354,6 +354,22 @@ def moved_on(data: dict, job_id: str, report: str, kept: str | None) -> list[tup
     return [ended for question in unnamed if question["closed"] is None and (question["card"] or question["waits"]) not in holding for ended in end(data, job_id, question, closed)]
 
 
+def restart(data: dict, order_id: str, words: str, link: str | None) -> list[tuple[str, dict]]:
+    """Mark the order fresh on his words ordering the design of its feature started over from scratch, and end as withdrawn on those words, in the write the caller saves, every open question of his on a card or waits id that a job on any order of that feature asked before he wrote them, by his Slack message's time or now for words typed into a terminal, whichever job asked it and whether or not it still runs, so the old design's questions stop asking him the moment he restarts it and its new design asks again in the new architecture's terms: never one holding an open PR of the drive from landing, by state.part_cards, which his answer still decides. The questions it ended, by their job, for `follow`."""
+    posted = state.slack_message(link or "")
+    moment = state.stamp(datetime.fromtimestamp(float(posted[1])).astimezone()) if posted else state.stamp()
+    data["orders"][order_id]["fresh"] = {"at": moment, "words": words, "link": link}
+    holding = {drawn for pr in data["prs"].values() if pr["state"] == "open" for drawn in state.part_cards(data, pr["job"], pr)}
+    closed = state.new_close("withdrawn", words, link)
+    asked = [
+        (job_id, question)
+        for job_id, job in state.orders_jobs(data, state.feature_orders(data, order_id)).items()
+        for question in view.open_questions(job)
+        if (question["card"] or question["waits"]) and (question["card"] or question["waits"]) not in holding and state.parse_time(question["asked"]) < state.parse_time(moment)
+    ]
+    return [ended for job_id, question in asked if question["closed"] is None for ended in end(data, job_id, question, closed)]
+
+
 def follow(name: str, ended: list[tuple[str, dict]], shown: str = "his words") -> list[str]:
     """Show on each card drawn for a question that ended how it ended, his words, or what happened for an event that overtook it, and a link to them with no buttons, so it no longer asks him: settled for his answer, withdrawn for his other words, a withdraw or an answer superseding it. A card cc-slack does not close now the watch closes on its next pass. What was done, a line each, naming what the card shows."""
     found, _ = view.stored_cards(name)

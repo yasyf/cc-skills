@@ -80,7 +80,15 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   he owes, a cost he pays, a ruling of his lifted, or what the drive takes on, by his ruling 43aa665
   "don't ask me every little thing ask my high level preferences"; you decide every other tooling fork
   and design its recommended option, and `drive job ask` keeps an `ASK` Opus reads as a detail decided
-  with no card. Options differing only in which branch, pin or commit holds a fix are never his. What already exists, a value's printed
+  with no card. On a fresh order, one his words ordered designed from the ground up, which its
+  brief's `Fresh:` line names, design it anew rather than against what is built: every card asked on
+  its work before his words was withdrawn on them, so `open:` lists only the new design's forks, each
+  a crucial directional decision of the new architecture with its tradeoffs, never a question about
+  today's code; an older question that still matters is asked again in the new design's terms, with
+  `drive job ask <job> <file> --redraws <its waits id>` or on a new card. Its builders decide every
+  implementation detail with no card, by his words "I've said so many times to do this design from
+  the ground up and only ask me for the crucial directional decisions yet you keep bringing me old
+  questions". Options differing only in which branch, pin or commit holds a fix are never his. What already exists, a value's printed
   form, a wire, file or API shape, a default, a command's output or a behavior, stays as it is unless
   his words name the new one, as his order to design it from scratch does for all it covers, or the outcome
   they name cannot happen without it. A standard a word of
@@ -284,7 +292,7 @@ Design: <the design, fleshed out with its worked examples, in plain words>
 Researched:
 rulings: <by id and quote, each answer of his on the order's words and area, and each thing his words already decide, quoting him; or none>
 exists: <each thing that already does or holds what this part touches, by path:line or link, ending extended by change N, reused by change N or deleted by change N, separated by ;, or none: <each search that found nothing>>
-open: <each fork you kept with drive job ask and each other question the part implies that he has not answered, with its card's link; or none>
+open: <each fork you kept with drive job ask and each other question the part implies that he has not answered, with its card's link, on a fresh order only the new design's; or none>
 Native: <what the platform he sees it on already does for this part, with links, and which pieces the design builds on it, or "none: he never sees it">
 Change: <what one PR of the design changes, in at most 80 characters with no backtick, double quote, $ or backslash>
 Change: <the next, the same way, ending (waits on change <N>) when it builds on change N of this list, or (waits on change <N> and change <M>) on several>

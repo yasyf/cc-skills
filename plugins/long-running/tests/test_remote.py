@@ -617,12 +617,12 @@ def test_job_set_agent_with_the_jobs_own_dispatch_puts_an_agent_held_job_back_on
     assert cli.remote_job(data, "j1") is job
 
 
-@pytest.mark.parametrize("recorded", [SPRITE_DISPATCH, DISPATCH], ids=["the job's own dispatch", "another dispatch"])
+@pytest.mark.parametrize("held", [SPRITE_DISPATCH, DISPATCH], ids=["the job's own dispatch", "another dispatch"])
 def test_job_set_agent_records_the_run_task_terminal_and_lane_orca_shows_for_the_dispatch_so_resume_sends_on_its_run(
-    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, recorded: str
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, held: str
 ) -> None:
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(dispatch=recorded, task="task_old", terminal="term_old", lane="demo-j1-2", workspace="pool-old", environment="pool-old")
+        data["jobs"]["j1"].update(dispatch=held, task="task_old", terminal="term_old", lane="demo-j1-2", workspace="pool-old", environment="pool-old")
     monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER | {"dispatch": {"runId": FRESH_RUN, "taskId": "task_sprite"}})
     monkeypatch.setattr(orca, "task_title", lambda run_id, task: {(FRESH_RUN, "task_sprite"): "demo-j1-3"}[run_id, task])
     run("job", "set", "j1", "--agent", SPRITE_DISPATCH)
@@ -8231,18 +8231,18 @@ def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_
 
 
 @pytest.mark.parametrize(
-    "recorded",
+    "held",
     [{}, {"run": RUN, "task": "task_root", "terminal": "term_root"}, {"run": "run_earlier", "task": "task_earlier", "terminal": "term_earlier"}],
 )
 @pytest.mark.parametrize("observed", [ROOT_WORKER["terminal"], None])
 def test_resume_to_a_local_lane_that_finished_starts_the_next_worker_through_the_launcher_in_the_worktree_orca_shows_never_in_its_terminal(
-    run: Run, rooted: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded: dict[str, str], observed: dict | None
+    run: Run, rooted: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, held: dict[str, str], observed: dict | None
 ) -> None:
     cloned(tmp_path, rooted)
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(rooted, "j1", "builder", "Order (his words): the tooling root", state.LOCAL_ROUTE))
     with state.edit(rooted) as data:
-        data["jobs"]["j1"].update(recorded, lane="demo-j1", brief=str(first), ask=None, report=None)
+        data["jobs"]["j1"].update(held, lane="demo-j1", brief=str(first), ask=None, report=None)
     monkeypatch.setattr(orca, "worker", lambda dispatch: {**ROOT_WORKER, "worker": {**ROOT_WORKER["worker"], "state": "succeeded"}, "terminal": observed})
     monkeypatch.setattr(orca, "bound_command", lambda *args: pytest.fail("no worker starts in the terminal of a finished worker on this Mac"))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))

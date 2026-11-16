@@ -3690,7 +3690,7 @@ def test_a_tooling_question_jev_reads_as_only_a_detail_is_kept_decided_on_its_re
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
     kept = str(state.drive_dir("demo") / "asks" / f"j2-{state.ask_hash(SHORT_ASK)}.md")
     option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
-    assert run("job", "ask", "j2", "-") == (0, settled.DECIDED_LINE.format(file=kept, job="j2", option=option, ruling="43aa665"))
+    assert run("job", "ask", "j2", "-") == (0, settled.DECIDED_LINE.format(file=kept, job="j2", option=option, ruling="43aa665", what=settled.TOOLING_DETAILS.what))
     [question] = state.load("demo")["jobs"]["j2"]["questions"]
     assert (question["card"], question["waits"], question["closed"]["how"], question["closed"]["ruling"], question["closed"]["words"]) == (
         None,
@@ -3734,6 +3734,47 @@ def test_a_card_whose_recommended_option_names_only_releases_on_staging_or_sandb
     run("job", "ask", asking, "-")
     asked = state.load("demo")["jobs"][asking]["questions"][-1]
     assert (asked["closed"], bool(asked["waits"])) == (None, True)
+
+
+def test_order_set_fresh_withdraws_each_card_asked_on_its_feature_before_his_words_and_its_builder_then_decides_a_detail_with_no_card(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: {"answered": True})
+    old = "https://acme.slack.com/archives/D123/p1794300000000100"
+    with state.edit("demo") as data:
+        data["jobs"][asking]["questions"].append(state.new_question(None, "Which cache disk?", "2026-11-09T10:00:00-08:00", None, old) | {"waits": "demo:j1-7"})
+    assert run("cards", "list", "--order", "o1") == (0, f"demo:j1-7 o1 j1 asked 2026-11-09T10:00:00-08:00: Which cache disk? {old}")
+    code, out = run("order", "set", "o1", "--fresh")
+    assert code == 0
+    assert 'o1 marked fresh on his words "design the run page": 1 card asked on its design before them withdrawn on those words, so its design asks again in the new architecture\'s terms' in out.splitlines()
+    data = state.load("demo")
+    assert (data["orders"]["o1"]["fresh"]["words"], data["jobs"][asking]["questions"][0]["closed"]["how"], jev.restarted) == ("design the run page", "withdrawn", ["design the run page"])
+    jev.preference = 0.05
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    run("job", "ask", asking, "-")
+    asked = state.load("demo")["jobs"][asking]["questions"][-1]
+    assert (asked["card"], asked["closed"]["ruling"]) == (None, "ff17121")
+    assert run("cards", "list")[1] == "no open question card of his"
+
+
+def test_order_add_jev_reads_as_restarting_a_design_marks_the_order_fresh_ending_older_cards_on_its_feature_but_not_later_ones(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: {"answered": True})
+    later = state.stamp(datetime.now(UTC) + timedelta(hours=1))
+    with state.edit("demo") as data:
+        data["jobs"][asking]["questions"] += [
+            state.new_question(None, "Which cache disk?", "2026-11-09T10:00:00-08:00", None, "https://acme.slack.com/archives/D123/p1794300000000100") | {"waits": "demo:j1-7"},
+            state.new_question(None, "Which queue?", later, None, "https://acme.slack.com/archives/D123/p1794300000000200") | {"waits": "demo:j1-8"},
+        ]
+    jev.restarts = 0.9
+    words = "start the run page design over from the ground up"
+    assert run("order", "add", "--title", "Short title", words, "--joins", "o1")[0] == 0
+    data = state.load("demo")
+    assert (data["orders"]["o2"]["fresh"]["words"], jev.restarted) == (words, ["design the run page", words])
+    assert [question["closed"] and question["closed"]["how"] for question in data["jobs"][asking]["questions"]] == ["withdrawn", None]
+    assert state.fresh(data, data["jobs"][asking]) == data["orders"]["o2"]["fresh"]
 
 
 def test_a_withdrawn_card_asked_again_with_redraws_by_its_job_or_another_of_its_order_redraws_under_its_waits_id_leaving_its_own_job_and_folding_into_the_other(
@@ -4941,7 +4982,7 @@ def test_job_ask_drop_answer_on_his_tooling_ruling_ends_a_drawn_tooling_card_dec
     with state.edit("demo") as data:
         data["jobs"]["j2"]["questions"][-1]["unsettled"] = None
     option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
-    decided = settled.DECIDED.format(option=option)
+    decided = settled.TOOLING_DETAILS.decided.format(option=option)
     code, out = run("job", "ask", "j2", "--drop", str(kept), "--answer", "43aa665")
     assert (code, out.splitlines()) == (
         0,
@@ -9031,6 +9072,52 @@ def test_job_brief_carries_the_words_of_each_order_the_job_carries_and_each_ruli
         "  build the abstraction first\n- Partition strategies (bc0da25, 2026-11-12T11:33:00Z)\n  time, hash by key and spill all ship\nGoal: partition the tables\n"
     ) in written
     assert "9f3c2e1" not in written
+
+
+PARK_RULING = {
+    "id": f"4a5f9cd{'0' * 33}",
+    "title": "Why am I still getting cards about park?",
+    "body": "stop all the conflicting work and just get the HA rewrite done for ssql",
+    "tags": ["scope:durable", "area:The drive/Drive tooling"],
+    "created_at": "2026-11-12T11:36:00Z",
+}
+PARK_REMOVED = 'his ruling 4a5f9cd on all of {area}, "stop all the conflicting work and just get the HA rewrite done for ssql", removes "{part}", so no job starts on it'
+
+
+def test_his_ruling_on_a_whole_workstream_refuses_a_job_on_a_part_it_removes_and_binds_the_brief_of_an_order_on_no_feature_it_was_said_on(
+    run: Run, meta: str, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorded.listed = [PARK_RULING]
+    recorded.shown["4a5f9cd"] = PARK_RULING
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: park idle chats", "--kind", "build", "--parts", "park")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the run page")
+    jev.breaks("removes", "p1.4a5f9cd")
+    capsys.readouterr()
+    assert cli.main(["job", "add", "reader", "--order", "o1", "--part", "park", "--goal", "research: park"]) == 2
+    assert PARK_REMOVED.format(area="The drive/Drive tooling", part="park") in capsys.readouterr().err
+    assert "j1" not in state.load("demo")["jobs"]
+    jev.ruled.clear()
+    builder = run("job", "add", "builder", "--order", "o2", "--goal", "draw the run page")[1].splitlines()[0]
+    code, out = run("job", "brief", builder, "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    assert (code, "Decisions that bind:\n- Why am I still getting cards about park? (4a5f9cd, 2026-11-12T11:36:00Z)\n  stop all the conflicting work and just get the HA rewrite done for ssql\n" in written) == (0, True)
+
+
+def test_a_follow_up_piece_his_ruling_on_the_whole_project_removes_becomes_no_part_and_starts_no_builder(
+    run: Run, meta: str, recorded: Answers, jev: Jev, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorded.listed = [PARK_RULING | {"tags": ["scope:durable", "area:The drive"]}]
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    kept_proof(tmp_path, "j2")
+    jev.breaks("removes", "p1.4a5f9cd")
+    returned = "DONE the copy runs\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\nUNPROVEN: parking each idle copy is left for a follow-up\nUNBUILT: park each idle copy\n"
+    monkeypatch.setattr("sys.stdin", io.StringIO(returned))
+    assert cli.main(["job", "report", "j2", "-"]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == f"no builder added: {PARK_REMOVED.format(area='The drive', part='park each idle copy')}"
+    data = state.load("demo")
+    assert ("park each idle copy" in data["orders"]["o1"]["parts"], "j3" in data["jobs"], data["jobs"]["j1"]["parts"]) == (False, False, ["the copy"])
 
 
 def test_job_brief_names_an_answer_his_newer_one_replaced_only_by_that_answer_so_no_builder_reads_its_words_as_binding(

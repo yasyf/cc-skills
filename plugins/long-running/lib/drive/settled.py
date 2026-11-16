@@ -182,13 +182,41 @@ PREFERENCE = Noul(
     " process or wait does it, what an agent, hook or verb is refused or made to do, how many requests or processes it makes, or which"
     " branch, pin or commit holds a change, which by `ruling.said` its job decides.",
 )
-DECIDED = "{option}: decided without you under your ruling on tooling details"
+FRESH_SAID = "I've said so many times to do this design from the ground up and only ask me for the crucial directional decisions yet you keep bringing me old questions"
+DIRECTION = Noul(
+    "Do the options of `card.text`, asked by a builder of a design his words ordered from scratch, differ in the design's direction:"
+    " which components run, where data lives and in what shape, how they connect, what a user sees or waits on, or a cost or risk"
+    " he takes on?",
+    yes="A crucial directional decision of the design, which by `ruling.said` he answers.",
+    no="The options differ only in how the builder carries the design out, such as which file, function, hook, verb, flag, check,"
+    " test or wait does it, or in what order its steps land, which by `ruling.said` its builder decides.",
+)
+
+
+class Leave(NamedTuple):
+    """A ruling of his leaving some of a job's questions to the job: its id, his words, the Noul whose clear no reads a card as one of them, what such a question asks, and what his card shows once the job decides it."""
+
+    ruling: str
+    said: str
+    noul: Noul
+    what: str
+    decided: str
+
+
+TOOLING_DETAILS = Leave(state.TOOLING_DETAILS_RULING, TOOLING_SAID, PREFERENCE, "a detail of drive tooling", "{option}: decided without you under your ruling on tooling details")
+FRESH_DETAILS = Leave(
+    state.FRESH_DETAILS_RULING,
+    FRESH_SAID,
+    DIRECTION,
+    "a detail of how to build a design he ordered from scratch",
+    "{option}: decided without you under your ruling to bring you only a from-scratch design's crucial directional decisions",
+)
 DECIDED_LINE = (
-    '{file} keeps {job}\'s question decided on its recommended option, "{option}", with no card: Opus reads it as asking only a detail'
-    " of drive tooling, which his ruling {ruling} leaves to the job, so build that option and open its PR as for work no card holds"
+    '{file} keeps {job}\'s question decided on its recommended option, "{option}", with no card: Opus reads it as asking only {what},'
+    " which his ruling {ruling} leaves to the job, so build that option and open its PR as for work no card holds"
 )
 DECIDES = (
-    'drive job ask: Opus reads this card as asking only a detail of drive tooling, which his ruling {ruling} leaves to the job, so asking'
+    'drive job ask: Opus reads this card as asking only {what}, which his ruling {ruling} leaves to the job, so asking'
     ' it keeps it decided on its recommended option, "{option}", with no card'
 )
 REHEARSED = "{option}: decided without you, since a release on staging or sandbox alone needs no word of yours"
@@ -200,7 +228,23 @@ REHEARSES = (
     "drive job ask: every release this card's recommended option names runs on plat-usw2-staging or plat-usw2-sandbox alone, which his ruling {ruling}"
     ' leaves to the drive, so asking it keeps it decided on that option, "{option}", with no card'
 )
-RULED = {state.TOOLING_DETAILS_RULING: (DECIDED, DECIDED_LINE, DECIDES), state.REHEARSAL_RULING: (REHEARSED, REHEARSED_LINE, REHEARSES)}
+RULED = {
+    **{leave.ruling: (leave.decided, DECIDED_LINE.replace("{what}", leave.what), DECIDES.replace("{what}", leave.what)) for leave in (TOOLING_DETAILS, FRESH_DETAILS)},
+    state.REHEARSAL_RULING: (REHEARSED, REHEARSED_LINE, REHEARSES),
+}
+RESTARTS = Noul(
+    "Do `words` order the design of the work they are on started over from scratch, from the ground up or regardless of what is built"
+    " today, as \"design it from scratch\" or \"don't base it on what's in dev\" do?",
+    yes="His words restart that design, so every question asked of him on the old one ends and the new one asks again.",
+    no="They pick, refine or correct a step of the design as it stands, or only quote such words, as a self-retro on them does.",
+)
+REMOVES = Noul(
+    "Do `rulings.{ruling}.said`, his ruling on the whole project or workstream the work is filed under, remove the work `parts.{part}`"
+    " names, as work a design he named replaces, work he stopped or work he ruled out, so starting it goes against what he said?",
+    yes="Starting that work goes against his ruling, so no job starts on it.",
+    no="The work stands beside his ruling, or his ruling only shapes how it is done.",
+)
+REMOVED = 'his ruling {id} on all of {area}, "{said}", removes "{part}", so no job starts on it'
 APPROVED = "{option}: decided without you under your approval {answer}"
 APPROVED_LINE = (
     '{file} keeps {job}\'s question decided on its recommended option, "{option}", with no card: his standing approval {answer} covers it,'
@@ -433,8 +477,9 @@ def recorded(name: str, title: str, words: str, labels: list[str], where: str, c
     """Record his answer on the drive in cc-notes, the question as its title as `titled` fits it, his words as its body with the whole question in its notes when its title is cut, and the drive's labels before these, superseding by it each answer of the drive's still standing under that same question, so his changed pick leaves one answer per question for ccn answer match to rank, and each answer of his the question's card asked him to lift, by `lifting` its unsettled mark, that `lift` reads his answer replacing, and return its id; a standing answer cc-notes holds already under that title in those words, as a tap, a handler or an earlier call recorded it, is that answer, so its id comes back and nothing is added. A refusal names his words, the question and the card or message where he gave them."""
     handle = titled(title)
     said = (plain(handle), plain(words))
-    if kept := next((answer["id"] for answer in listed("scope:durable", cwd) if (plain(answer["title"]), plain(his(answer["body"]))) == said), None):
-        return kept
+    if kept := next((answer for answer in listed("scope:durable", cwd) if (plain(answer["title"]), plain(his(answer["body"]))) == said), None):
+        labelled(kept, labels, cwd)
+        return kept["id"]
     body = words if handle == title else f"{words}{NOTES}{WHOLE}{title}"
     standing = [answer["id"] for answer in listed(f"drive:{name}", cwd) if state.same_question(answer["title"], handle)]
     add = ["ccn", "answer", "add", f"--title={handle}", "--body-file", "-", *(f"--label={label}" for label in ["scope:durable", f"drive:{name}", *kind(words), *labels]), "--json"]
@@ -534,6 +579,13 @@ def backfill(cwd: str) -> None:
     for answer in listed("scope:durable", cwd):
         if APPROVAL not in answer["tags"] and (TAP_QUESTION.match(answer["title"]) or TAP_HEADER in answer["tags"]):
             ccn(["ccn", "answer", "edit", answer["id"], "--add-label", APPROVAL], "", cwd, f"could not label his answer {answer['id'][:7]} an approval")
+
+
+def labelled(answer: dict, labels: list[str], cwd: str) -> None:
+    """Add to his recorded answer each of these labels it lacks, so a label such as `area:<project>` named once the answer was recorded, by a handler or an earlier call, still reaches it."""
+    for label in labels:
+        if label not in answer["tags"]:
+            ccn(["ccn", "answer", "edit", answer["id"], "--add-label", label], "", cwd, f"could not label his answer {answer['id'][:7]} {label}")
 
 
 def ccn(argv: list[str], text: str, cwd: str, failure: str) -> str:
@@ -735,6 +787,32 @@ def matched(texts: list[str], data: dict) -> list[dict]:
     return list(found.values())
 
 
+def area_rulings(data: dict, order_ids: list[str]) -> list[dict]:
+    """His standing answers on the whole project or workstream any of these orders is filed under, by the labels state.area_labels names, each once with where he gave it and the area its label names, so a ruling such as "every SandSQL card" binds every order filed there whatever feature each is on."""
+    cwd = data["roles"]["coordinator"]["cwd"]
+    found = {
+        answer["id"][:7]: {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer), "area": label.removeprefix(state.AREA_LABEL)}
+        for label in state.area_labels(data, order_ids)
+        for answer in listed(label, cwd)
+    }
+    return list(found.values())
+
+
+def removed(parts: list[str], rulings: list[dict]) -> dict[str, dict]:
+    """Each of these parts Jev reads at YES as work one of these rulings of his on its whole area removes, beside the first such ruling, each part read beside each ruling in as many requests as batched needs; none when Jev gives no reading, said on stderr, so no work waits on Jev."""
+    items = (
+        ({"parts": {f"p{number}": part}, "rulings": {ruling["id"]: {"asked": ruling["asked"], "said": ruling["said"], "area": ruling["area"]}}}, {f"removes.p{number}.{ruling['id']}": asking(REMOVES, part=f"p{number}", ruling=ruling["id"])})
+        for number, part in enumerate(parts, 1)
+        for ruling in rulings
+    )
+    try:
+        read = jev_all(batched({}, {}, items))
+    except Unheard as failure:
+        print(f"drive: Jev gave no reading of whether his rulings on their whole area remove {', '.join(parts)}, so work on them starts: {failure}", file=sys.stderr)
+        return {}
+    return {part: ruling for number, part in enumerate(parts, 1) if (ruling := next((ruling for ruling in rulings if reading(read.get(f"removes.p{number}.{ruling['id']}")) is True), None))}
+
+
 def list_lines(text: str) -> list[str]:
     """Each line of a list in the text, a bullet, a numbered item or a table row other than its rule, without its marker, once each."""
     return list(dict.fromkeys(found[1].strip(" |") for line in text.splitlines() if (found := LIST_LINE.match(line)) and not TABLE_RULE.fullmatch(line)))
@@ -917,19 +995,26 @@ def deciding(asked: limits.Question, answers: list[dict]) -> list[dict]:
     return [answer for answer in answers if reading(read[f"decides.{answer['answer']}"])]
 
 
-def detail(case: str, words: list[dict]) -> bool:
-    """Whether a card on a drive tooling order asks him only a detail its job decides, by his ruling state.TOOLING_DETAILS_RULING: Opus reads its options under NO as differing in what he gets, by PREFERENCE, in one request holding the card, the ruling and each of his words whole; one Opus reads in the band between NO and YES, or gives no reading of, goes to him, the latter said on stderr."""
+def leaving(data: dict, job: dict) -> Leave | None:
+    """The ruling of his that leaves some of this job's questions to it: on a drive tooling order his ruling on tooling details, and for a builder or codex lane on a feature his words ordered designed from scratch, by state.fresh, his ruling that only the design's crucial directional decisions reach him; None for any other job, whose every question is his."""
+    if state.tooling(data["orders"][job["order"]]):
+        return TOOLING_DETAILS
+    return FRESH_DETAILS if job["kind"] in ("builder", "codex") and state.fresh(data, job) else None
+
+
+def detail(case: str, words: list[dict], leave: Leave) -> bool:
+    """Whether a card asks him only what this ruling of his leaves to its job: Opus reads its options under NO by the ruling's Noul, in one request holding the card, the ruling and each of his words whole; one Opus reads in the band between NO and YES, or gives no reading of, goes to him, the latter said on stderr."""
     items = (({"words": {f"w{number}": {field: word[field] for field in ("asked", "said", "rule") if field in word}}}, {}) for number, word in enumerate(words, 1))
     try:
-        read = opus(*together([({"card": {"text": case}, "ruling": {"id": state.TOOLING_DETAILS_RULING, "said": TOOLING_SAID}}, {"preference": PREFERENCE}), *items]))
+        read = opus(*together([({"card": {"text": case}, "ruling": {"id": leave.ruling, "said": leave.said}}, {"preference": leave.noul}), *items]))
     except Unheard as failure:
-        print(f"drive job ask: Opus gave no reading of whether this tooling card asks him only a detail, so it goes to him: {failure}", file=sys.stderr)
+        print(f"drive job ask: Opus gave no reading of whether this card asks him only {leave.what}, so it goes to him: {failure}", file=sys.stderr)
         return False
     return reading(read["preference"]) is False
 
 
 def ruled_close(option: str, link: str | None, ruling: str) -> dict:
-    """How a job's question ends when a ruling of his decides it on its recommended option with no card: answered by that ruling, state.TOOLING_DETAILS_RULING for a detail of drive tooling, else state.REHEARSAL_RULING for a release on staging or sandbox alone."""
+    """How a job's question ends when a ruling of his decides it on its recommended option with no card: answered by that ruling, the one `leaving` names for a card asking him only what it leaves to the job, else state.REHEARSAL_RULING for a release on staging or sandbox alone."""
     return state.new_close("answered", RULED[ruling][0].format(option=option), link, ruling=ruling)
 
 
@@ -966,6 +1051,16 @@ def approved_by(data: dict, key: str | None, order_id: str, work: dict) -> str |
         print(f"drive: Opus did not read whether a standing approval of his covers {key or order_id}, so it asks him: {failure}", file=sys.stderr)
         return None
     return next((answer_id for answer_id, slot in slots.items() if reading(read[f"inside.{slot}"])), None)
+
+
+def restarts(words: str) -> bool:
+    """Whether his words order the design of the work they are on started over from scratch, as Jev reads them at YES; no, said on stderr with the command that marks it, when Jev gives no reading."""
+    try:
+        read = jev({"words": words[:BODY_CHARS]}, {"restarts": RESTARTS})
+    except Unheard as failure:
+        print(f"drive: Jev did not read whether his words restart a design from scratch, so nothing is marked fresh; when they do, run drive order set <o> --fresh: {failure}", file=sys.stderr)
+        return False
+    return read["restarts"] >= YES
 
 
 def decided(title: str, words: str, older: dict[str, dict]) -> set[str]:

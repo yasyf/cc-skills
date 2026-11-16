@@ -383,8 +383,7 @@ def lane_of(transcript: Path) -> Path:
 
 
 @pytest.fixture
-def talker(run: Run) -> str:
-    run("start", "demo", "--role", "communicator")
+def talker(communicator: str) -> str:
     return os.environ["CLAUDE_CODE_SESSION_ID"]
 
 

@@ -1246,7 +1246,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 
 @dataclass
 class Jev:
-    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise, a names Noul reading yes for a part named holds and a plain Noul the probability unexplained gives its name, the whole card's Noul whole, its architectures Noul architectures, and the page Noul paged, its order's words kept in read_for_pages apart from asked, a same Noul yes for open work holding a text in same, its request kept in same_asked apart from asked, and each Pick the option picked names for its key, else its first, the fail-safe one; answer None makes every request Unheard."""
+    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise, a names Noul reading yes for a part named holds and a plain Noul the probability unexplained gives its name, the whole card's Noul whole, its architectures Noul architectures, and the page Noul paged, its order's words kept in read_for_pages apart from asked, a same Noul yes for open work holding a text in same, its request kept in same_asked apart from asked, the restart Noul restarts, its words kept in restarted apart from asked, and each Pick the option picked names for its key, else its first, the fail-safe one; answer None makes every request Unheard."""
 
     asked: list[dict] = field(default_factory=list)
     answer: float | None = 0.05
@@ -1270,6 +1270,8 @@ class Jev:
     weighed: list[str] = field(default_factory=list)
     preference: float = 0.95
     details: list[dict] = field(default_factory=list)
+    restarts: float = 0.05
+    restarted: list[str] = field(default_factory=list)
     picked: dict[str, str] = field(default_factory=dict)
     same: set[str] = field(default_factory=set)
     same_asked: list[dict] = field(default_factory=list)
@@ -1311,6 +1313,8 @@ class Jev:
             return self.preference
         if question == "same":
             return 0.9 if any(text in state["open"][about] for text in self.same) else 0.05
+        if key == "restarts":
+            return self.restarts
         if self.chosen and self.chosen[0] in key.split(".") and question not in {"awaited", "unasked"}:
             return self.chosen[1]
         return self.answer
@@ -1340,6 +1344,8 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
             judged.details.append({"state": state, "questions": questions})
         elif all(key.startswith("same.") for key in questions):
             judged.same_asked.append({"state": state, "questions": questions})
+        elif "restarts" in questions:
+            judged.restarted.append(state["words"])
         else:
             judged.asked.append({"state": state, "questions": questions})
         if judged.answer is None:

@@ -87,6 +87,16 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
    - Nothing his words settle is asked. `drive job ask` settles on his answer to the same
      question, or on a drive tooling order on Opus's reading that the fork is a detail, and Opus reads each card against his order, its thread and the recorded answers of
      his `ccn answer match` ranks nearest to the block, so also read his answers on the area.
+   - His words ordering a design from scratch mark its order fresh, as Jev reads them on `drive
+     order add` or on each first `drive answer` on the order, or with `drive order set <o> --fresh`:
+     every card asked on its work before them is withdrawn on his words in that call, but one holding
+     an open PR from landing, so old questions stop asking him at once. The new design asks again in
+     its own terms only its crucial directional decisions, with `--redraws` for an old card that still
+     matters, and its builders decide each fork Opus reads as an implementation detail with no card:
+     "only ask me for the crucial directional decisions yet you keep bringing me old questions".
+     `drive cards list --order <o>` lists the cards still open on a feature, and a ruling of his that
+     closes a class of questions withdraws each listed card of that class, never only the one he
+     replied under.
    - Meanwhile the recommended option's builder starts beside the cards and builds it on a pushed
      branch, because he wants work to go on while he decides. When his words on the order ask for
      options only, start no builder on the proper fix until he picks, in an incident too.

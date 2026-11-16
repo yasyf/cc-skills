@@ -275,8 +275,33 @@ def order_add(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     reworks = heard_reworks(name, args.rework)
     order_id, order, started, incidents = added_order(args)
+    restarted = fresh_marked(name, [order_id], args.words, args.source) if args.fresh else [] if args.fresh is False else restart_read(name, [order_id], args.words, args.source)
     reworked = rework_named_prs(name, order_id, reworks, thread_cards(name, order), f"drive order set {order_id} --rework <PR>=<his permalink>")
-    return emit(args, "\n".join([order_id, *started, *incidents, *reworked]), {"id": order_id, **order, "incidents": incidents})
+    return emit(args, "\n".join([order_id, *started, *incidents, *restarted, *reworked]), {"id": order_id, **state.load(name)["orders"][order_id], "incidents": incidents})
+
+
+def restart_read(name: str, order_ids: list[str], words: str, link: str | None) -> list[str]:
+    """Mark fresh each open build order of his product among these, incidents aside and those these words marked already, when Jev reads his words as ordering the design of its work started over from scratch, by settled.restarts, read once for them all, by `fresh_marked`; what was done, a line each."""
+    data = state.load(name)
+    orders = [
+        order_id
+        for order_id in dict.fromkeys(order_ids)
+        if (order := data["orders"][order_id])["state"] not in state.CLOSED_ORDER_STATES
+        and order["kind"] == "build"
+        and not (order["incident"] or state.tooling(order) or order["fresh"] and order["fresh"]["link"] == link)
+    ]
+    return fresh_marked(name, orders, words, link) if orders and settled.restarts(words) else []
+
+
+def fresh_marked(name: str, order_ids: list[str], words: str, link: str | None) -> list[str]:
+    """Mark each order fresh on his words restarting its design, ending as withdrawn on them every card asked on its feature before them, by superseded.restart, each card following; what was done, a line each, with each card it ended."""
+    with state.edit(name) as data:
+        ended = {order_id: superseded.restart(data, order_id, words, link) for order_id in order_ids}
+    lines = [
+        f'{order_id} marked fresh on his words "{render.cut(words, 120)}": {len(each)} {"card" if len(each) == 1 else "cards"} asked on its design before them withdrawn on those words, so its design asks again in the new architecture\'s terms'
+        for order_id, each in ended.items()
+    ]
+    return lines + superseded.follow(name, [question for each in ended.values() for question in each], "his words restarting its design")
 
 
 def rework_mark(text: str) -> tuple[str, str]:
@@ -834,7 +859,7 @@ def order_set(args: argparse.Namespace) -> int:
     order = find(data["orders"], args.id, "order")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     communicating = state.session_role(data, session) == "communicator"
-    shaping = args.incident is not None or not communicating and (args.add_part or args.drop_part or args.kind or args.standing is not None or args.options_only is not None)
+    shaping = args.incident is not None or not communicating and (args.add_part or args.drop_part or args.kind or args.standing is not None or args.options_only is not None or args.fresh is not None)
     if shaping and (refused := state.held_elsewhere(data, args.id, session)):
         raise DriveError(f"{args.id}: refused, nothing written: {refused}")
     refuse_unquotable_parts("--add-part", args.add_part)
@@ -975,6 +1000,8 @@ def order_set(args: argparse.Namespace) -> int:
             order["complex"] = args.complex
         if args.priority is not None:
             order["priority"] = state.priority_seat(args.id) if args.priority else None
+        if args.fresh is False:
+            order["fresh"] = None
         if args.reporter or unreported:
             order["reporters"] = reporters
         unjoined = unjoined_lines(args.id, *state.unjoin(data, args.id)) if args.unjoin else []
@@ -988,6 +1015,7 @@ def order_set(args: argparse.Namespace) -> int:
             order["updated"] = state.stamp(moment)
         if args.lined:
             order["last_line"] = order["updated"]
+    restarted = fresh_marked(name, [args.id], order["text"], order["from"]) if args.fresh else []
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, reworks, cards, f"drive order set {args.id} --rework <PR>=<his permalink>")
     answered_lines = {part: answered_line(data, args.id, part, job_ids) for part, job_ids in taken.items()}
@@ -995,7 +1023,7 @@ def order_set(args: argparse.Namespace) -> int:
     turned += state.asked_lines(data, order["text"]) if turning else []
     repeated = repeated_lines(data, args.id, list(dict.fromkeys(args.add_part)))
     seated = [said] if args.priority and (said := seat_started(name, order["priority"])) else []
-    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *repeated, *render.builder_lines(name, data, added), *reworked, *seated]), {"id": args.id, **order})
+    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *restarted, *repeated, *render.builder_lines(name, data, added), *reworked, *seated]), {"id": args.id, **(state.load(name)["orders"][args.id] if restarted else order)})
 
 
 def unjoined_lines(order_id: str, head: str, carriers: list[str], told: list[str]) -> list[str]:
@@ -1461,6 +1489,9 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             print(f"drive job add: {line}", file=sys.stderr)
     running = args.release and not unreleased and release_running(name, args.release)
     unworded = brief.unworded_return(args.kind, {"--goal": args.goal})
+    before = state.load(name)
+    named = args.part or (list(filed) if len(filed := find(before["orders"], args.order, "order")["parts"]) == 1 else [])
+    removing = {} if lands or args.release or args.builds_nothing else brief.removed_parts(before, args.order, named)
     given = {
         "kind": args.kind,
         "goal": args.goal,
@@ -1486,6 +1517,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or unreleased
             or running
             or unworded
+            or next((removing[part] for part in parts if part in removing), None)
             or (args.model == "astra" and not re.search(r"\bastra\b", order["text"], re.IGNORECASE) and f"--model astra runs only on an order whose words name astra, which {args.order}'s do not")
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
@@ -2001,7 +2033,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
 
 
 def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[str]:
-    """End the job's own open question on his card kept in this file on his recorded answer that already settles it, by `ended_on`, its card closing in place on his words and the link where he gave them: the way out for a card whose recommended option his answer already chose, which no redraw may ask again. On his ruling state.TOOLING_DETAILS_RULING it ends a question of a drive tooling order, the meta session or its job having read it as asking him only a detail, decided on the recommended option the file keeps, by settled.ruled_close as `keep_decided` keeps one no card was drawn for, its card showing settled.DECIDED and a link to his ruling's message; refused there on any other order, since his ruling reaches drive tooling alone, and for a card kept unsettled, which asks him to lift words of his. Refused for a question on no card, which --drop alone throws away, one that ended, and an answer holding no words of his. What was done, a line each, then who builds on it, by `builds_on`."""
+    """End the job's own open question on his card kept in this file on his recorded answer that already settles it, by `ended_on`, its card closing in place on his words and the link where he gave them: the way out for a card whose recommended option his answer already chose, which no redraw may ask again. On his ruling state.TOOLING_DETAILS_RULING it ends a question of a drive tooling order, the meta session or its job having read it as asking him only a detail, decided on the recommended option the file keeps, by settled.ruled_close as `keep_decided` keeps one no card was drawn for, its card showing settled.TOOLING_DETAILS's decided words and a link to his ruling's message; refused there on any other order, since his ruling reaches drive tooling alone, and for a card kept unsettled, which asks him to lift words of his. Refused for a question on no card, which --drop alone throws away, one that ended, and an answer holding no words of his. What was done, a line each, then who builds on it, by `builds_on`."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     question = state.kept_in(job, file)
@@ -2059,7 +2091,7 @@ def asked_unsettled(job: dict, text: str, unsettled: str | None) -> str | None:
 
 
 def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, pictures: Path) -> tuple[limits.Question, str, str | None, list[dict], str | None]:
-    """The question the job's ASK block puts to him, the words of its `Holds:` line his card holds, the --unsettled it is kept under, the one `asked_unsettled` reads else Opus's mark, and the recorded answers the release gate, `brief.approval_refusal`, reads as ordering a release its recommended option names in backticks, which his card offers as its Already answered tap, and the ruling or standing approval of his under which `keep_ask` keeps it decided on its recommended option with no card, else None, once every check `drive job ask <j>` runs passes: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words, and each paragraph `cc-slack check-post` finds a wall of text in on the card as it draws; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing or choose between architectures with an ```arch diagram missing, by `limits.unread`, which in the same call prints each name the card never says in plain words, a code name, a capitalised word no sentence opens, or a run id or word the drive coined that `cc-slack check-post` finds on the card as it draws; each raw id check-post finds there is printed too, refusing nothing, by his pick 320b7a7; then each release note `brief.release_notes` reads as speaking to a release its options, their descriptions or its Show me name in backticks is printed on stderr with its words, refusing nothing; last Opus's read of it against his words by `settled.judged`, the recorded answers of his its job's brief binds or the block cites among them, printing each finding, the recorded answer Opus reads as already answering a line of its question or options, of those `settled.line_answers` finds for that line, with the two ways on, ANSWERED, and the mark keeping it unsettled, UNSETTLED, an answer its Already answered tap carries never marked by an option it does not recommend, nor one recorded before such an answer, OUTWEIGHED, and refused with no card, UNASKED, when his words on an order the job works tell it to ask him nothing on that work and it asks no step his rules keep for him, and each open card `repeating` finds that Opus reads it as asking again, with that card's job, order and PRs and the `Replaces:` line that would fold it, REPEATED, sharing no card; for a card nothing keeps unsettled, no answer of his answers or orders its release and no card of his already asks, his standing approval covering its order or holding it in Opus's read, by `settled.approved_by`, said by `--check` as APPROVES, else on a drive tooling order Opus's read of whether it asks him only a detail, by `settled.detail`, said by `--check` as DECIDES; and on any order, before Opus reads it against his words, a card whose recommended option names in backticks only releases brief.rehearsal() reads as on staging or sandbox alone, and that no --unsettled, --redraws, `Replaces:` line or drawn card of the same question holds, decided under his ruling state.REHEARSAL_RULING, said by `--check` as REHEARSES. `drive job ask <j> --check` and `keep_ask` both check here, so --check prints every finding before any card draws."""
+    """The question the job's ASK block puts to him, the words of its `Holds:` line his card holds, the --unsettled it is kept under, the one `asked_unsettled` reads else Opus's mark, and the recorded answers the release gate, `brief.approval_refusal`, reads as ordering a release its recommended option names in backticks, which his card offers as its Already answered tap, and the ruling or standing approval of his under which `keep_ask` keeps it decided on its recommended option with no card, else None, once every check `drive job ask <j>` runs passes: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words, and each paragraph `cc-slack check-post` finds a wall of text in on the card as it draws; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing or choose between architectures with an ```arch diagram missing, by `limits.unread`, which in the same call prints each name the card never says in plain words, a code name, a capitalised word no sentence opens, or a run id or word the drive coined that `cc-slack check-post` finds on the card as it draws; each raw id check-post finds there is printed too, refusing nothing, by his pick 320b7a7; then each release note `brief.release_notes` reads as speaking to a release its options, their descriptions or its Show me name in backticks is printed on stderr with its words, refusing nothing; last Opus's read of it against his words by `settled.judged`, the recorded answers of his its job's brief binds or the block cites among them, printing each finding, the recorded answer Opus reads as already answering a line of its question or options, of those `settled.line_answers` finds for that line, with the two ways on, ANSWERED, and the mark keeping it unsettled, UNSETTLED, an answer its Already answered tap carries never marked by an option it does not recommend, nor one recorded before such an answer, OUTWEIGHED, and refused with no card, UNASKED, when his words on an order the job works tell it to ask him nothing on that work and it asks no step his rules keep for him, and each open card `repeating` finds that Opus reads it as asking again, with that card's job, order and PRs and the `Replaces:` line that would fold it, REPEATED, sharing no card; for a card nothing keeps unsettled, no answer of his answers or orders its release and no card of his already asks, his standing approval covering its order or holding it in Opus's read, by `settled.approved_by`, said by `--check` as APPROVES, else, for a job a ruling of his leaves some questions to, by settled.leaving, a drive tooling order's or a builder's of a design his words ordered from scratch, Opus's read of whether it asks him only what that ruling leaves to the job, by `settled.detail`, said by `--check` as DECIDES; and on any order, before Opus reads it against his words, a card whose recommended option names in backticks only releases brief.rehearsal() reads as on staging or sandbox alone, and that no --unsettled, --redraws, `Replaces:` line or drawn card of the same question holds, decided under his ruling state.REHEARSAL_RULING, said by `--check` as REHEARSES. `drive job ask <j> --check` and `keep_ask` both check here, so --check prints every finding before any card draws."""
     from drive import view
 
     data = state.load(name)
@@ -2190,7 +2222,8 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
     order = data["orders"][job["order"]]
     if approval := settled.approved_by(data, None, job["order"], {"order": order["text"], "card": {"question": asked.title, "recommended": asked.recommended}}):
         return asked, holds, unsettled, ordering, approval
-    return asked, holds, unsettled, ordering, state.TOOLING_DETAILS_RULING if state.tooling(order) and settled.detail(case, words) else None
+    leave = settled.leaving(data, job)
+    return asked, holds, unsettled, ordering, leave.ruling if leave and settled.detail(case, words, leave) else None
 
 
 def judging_words(name: str, data: dict, job: dict, asked: limits.Question, text: str) -> list[dict]:
@@ -2211,11 +2244,11 @@ def reads_as_detail(name: str, data: dict, job: dict, file: Path) -> bool:
     text = limits.ask_block(file.read_text())
     asked = limits.question_problems(text, kept=True)[0]
     cited = frozenset(answer["answer"] for answer in recorded_answers(data, job, text))
-    return settled.detail(limits.ask_case(text, asked, cited), judging_words(name, data, job, asked, text))
+    return settled.detail(limits.ask_case(text, asked, cited), judging_words(name, data, job, asked, text), settled.TOOLING_DETAILS)
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None = None) -> tuple[Path, limits.Question | None, dict, str]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, once it is in the shape he reads and the words his card draws type no clock time for work already done, in one file for its card's life, the file of the job's own question it takes the place of written over, the one whose card it takes first, so the path the first ask printed keeps its words, else a new file named for the hash of its words after the job, the question keeping that hash, which `kept_ask` reads to tell a file edited by hand, in place of the job's open question asking the same, or of each question `superseded.redrawn` finds holding the card `redraws` names by its waits id, the job's own or another job's on one of its orders, open or withdrawn, the job's own leaving the job and another job's staying on it folded into this one, set the job waiting on it, unless it is a builder, which keeps running to build the question's recommended option and return BUILT, and draw his card on it in the same call, as drive pr add draws a PR card, under the waits id of the question it takes the place of, the one `redraws` names first, else one minted for it: every ask of one question draws under its one waits id, which cc-slack redraws where it sits, new words included, the question taking the card of the one it takes the place of, so a redraw that fails leaves it on that card, which his answer there closes and --drop refuses, and a first draw that fails leaves it undrawn for the watch's next read, which draws it; a job waiting on an order he has not scheduled, by state.unscheduled_job, keeps it undrawn until he schedules it, by his answer state.UNSCHEDULED_RULING, and the watch draws it then. The question keeps the words of its `Holds:` line, with the parts each PR of state.held_prs they name serves appended, and each change state.change_builders wrote onto the words of the question whose card it takes beside the builder building it, by state.kept_builders, a PR the drive tracks on the job's orders or one waiting on the job or a part it carries, as the PR its staging test tests, which hold from landing each PR they name by link, #N or whole branch name and, among the PRs of jobs working a change they name, only those its design's builder, a job briefed on its research or a job they name by id carries, refused for a builder or codex lane when they name no such PR and no branch in backticks, and for a reader when they name no part of the job's orders; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled an agent gave its kept question with that title, never Opus's mark, which this ask's own read decides. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer before any check of its shape or its card, by `keep_settled`, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it. One he has not answered Opus reads, in one request, against his words on each order its job works, its own and each it carries, the words of his the drive quotes in each and each message of his in its thread, without the lines he quoted, and the recorded answers of his ccn ranks nearest to the block, with his rulings beside them, and each option his words rule out, each amount or choice they name with no tap and each ruling the card breaks is printed to the agent and refuses nothing, by his pick 320b7a7, his ruling on root causes read once against the card's recommended option, the recorded answers its job's brief binds or its block cites read beside them, with the lines of its findings naming one; the recorded answer or ruling of his Opus picks for its recommended option at settled.YES or more, the cited answer the card says that option goes against first, else the first Opus picks as sure for any other option it offers, keeps the card unsettled as `<id>: Opus reads the recommended option as breaking it`, or `<id>: Opus reads option "<that option>" as breaking it`, when no --unsettled names words of his and it is no cited answer the release gate, `brief.approval_refusal`, reads as ordering a release that option names in backticks, nor one recorded before a cited answer that orders that release or decides the card, since his newest words stand, which the question keeps for its card's Already answered tap, asking him to lift that one, so it holds its PR on an incident too, as --unsettled naming words of his does. One whose job's order or a carried one holds words Opus reads at settled.YES or more as telling it to ask him nothing on that work is refused with no card, by `settled.UNASKED`, unless Opus reads the card as asking a step his rules keep for him, a landing, a production release or a post as him. On a drive tooling order, one Opus then reads as asking him only a detail, kept unsettled by nothing, ordering no release by an answer of his and asked on no card of his already, is kept decided on its recommended option by his ruling state.TOOLING_DETAILS_RULING, by `keep_decided`, draws no card and leaves the job as it was, so it builds that option and opens its PR; so is one on any order his standing approval covers, by settled.approved_by, its thread told in one POST progress line. On any order, one whose recommended option names in backticks only releases on plat-usw2-staging or plat-usw2-sandbox alone, by brief.rehearsal(), and that no --unsettled, --redraws, `Replaces:` line or drawn card of its question holds, is kept decided on that option by his ruling state.REHEARSAL_RULING before Opus reads it against his words, by `keep_decided`, and draws no card. One whose summary cites a recorded answer of his that Opus reads as deciding its question or making it moot, or with a recorded answer the release gate reads as ordering a release its recommended option names in backticks, draws its card with an Already answered option, his words under it, so his tap closes it on those words, and only those answers. A block whose summary links no PR the drive tracks open on the job is refused, so his card never says no PR while one is up. One the card `question_card` draws refuses stays kept as the job's pending question with its refusal and draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job `asked_before` names is replaced, the one its file keeps included, so a file keeps one question and a question once kept settled on another answer of his draws its card when asked again. A block whose `Replaces:` line names open questions, comma-separated, each by the file it is kept in or its card's waits id, as a question built on them asking every choice does, takes the first one's card and waits id and leaves each open, folded into this one, so drawing its card redraws that card, `post_ask` shows each other named card asked again with a link to it, and his answer to this one ends them all; a question folded so, asked again, stays folded and draws no card. A job whose card another job's question took, by `took`, folds an ask of it into that question and draws no card, asked in that question's words or its own. Asked in other words, Opus reads it in that same call against each open card `repeating` finds, and each card Opus reads it as asking again is printed to the agent by settled.REPEATED, which shares no card: only an agent's `Replaces:` line or --redraws shares one, since a card Opus read as asked again once drew one hotfix's question in place of another's and his tap there closed both; asked again in its own words it is read against none. The question keeps the lines threads hold about the one it takes the place of, by `talk.keep_line`, and `post_ask` sends a thread `card_places` puts the card's line in a line only by `card_line`. What drive job ask prints: the file, then where his card stands."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, once it is in the shape he reads and the words his card draws type no clock time for work already done, in one file for its card's life, the file of the job's own question it takes the place of written over, the one whose card it takes first, so the path the first ask printed keeps its words, else a new file named for the hash of its words after the job, the question keeping that hash, which `kept_ask` reads to tell a file edited by hand, in place of the job's open question asking the same, or of each question `superseded.redrawn` finds holding the card `redraws` names by its waits id, the job's own or another job's on one of its orders, open or withdrawn, the job's own leaving the job and another job's staying on it folded into this one, set the job waiting on it, unless it is a builder, which keeps running to build the question's recommended option and return BUILT, and draw his card on it in the same call, as drive pr add draws a PR card, under the waits id of the question it takes the place of, the one `redraws` names first, else one minted for it: every ask of one question draws under its one waits id, which cc-slack redraws where it sits, new words included, the question taking the card of the one it takes the place of, so a redraw that fails leaves it on that card, which his answer there closes and --drop refuses, and a first draw that fails leaves it undrawn for the watch's next read, which draws it; a job waiting on an order he has not scheduled, by state.unscheduled_job, keeps it undrawn until he schedules it, by his answer state.UNSCHEDULED_RULING, and the watch draws it then. The question keeps the words of its `Holds:` line, with the parts each PR of state.held_prs they name serves appended, and each change state.change_builders wrote onto the words of the question whose card it takes beside the builder building it, by state.kept_builders, a PR the drive tracks on the job's orders or one waiting on the job or a part it carries, as the PR its staging test tests, which hold from landing each PR they name by link, #N or whole branch name and, among the PRs of jobs working a change they name, only those its design's builder, a job briefed on its research or a job they name by id carries, refused for a builder or codex lane when they name no such PR and no branch in backticks, and for a reader when they name no part of the job's orders; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled an agent gave its kept question with that title, never Opus's mark, which this ask's own read decides. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer before any check of its shape or its card, by `keep_settled`, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it. One he has not answered Opus reads, in one request, against his words on each order its job works, its own and each it carries, the words of his the drive quotes in each and each message of his in its thread, without the lines he quoted, and the recorded answers of his ccn ranks nearest to the block, with his rulings beside them, and each option his words rule out, each amount or choice they name with no tap and each ruling the card breaks is printed to the agent and refuses nothing, by his pick 320b7a7, his ruling on root causes read once against the card's recommended option, the recorded answers its job's brief binds or its block cites read beside them, with the lines of its findings naming one; the recorded answer or ruling of his Opus picks for its recommended option at settled.YES or more, the cited answer the card says that option goes against first, else the first Opus picks as sure for any other option it offers, keeps the card unsettled as `<id>: Opus reads the recommended option as breaking it`, or `<id>: Opus reads option "<that option>" as breaking it`, when no --unsettled names words of his and it is no cited answer the release gate, `brief.approval_refusal`, reads as ordering a release that option names in backticks, nor one recorded before a cited answer that orders that release or decides the card, since his newest words stand, which the question keeps for its card's Already answered tap, asking him to lift that one, so it holds its PR on an incident too, as --unsettled naming words of his does. One whose job's order or a carried one holds words Opus reads at settled.YES or more as telling it to ask him nothing on that work is refused with no card, by `settled.UNASKED`, unless Opus reads the card as asking a step his rules keep for him, a landing, a production release or a post as him. On a drive tooling order, or from a builder or codex lane of a design his words ordered from scratch, one Opus then reads as asking him only a detail, kept unsettled by nothing, ordering no release by an answer of his and asked on no card of his already, is kept decided on its recommended option under the ruling settled.leaving names, his ruling state.TOOLING_DETAILS_RULING or state.FRESH_DETAILS_RULING, by `keep_decided`, draws no card and leaves the job as it was, so it builds that option and opens its PR; so is one on any order his standing approval covers, by settled.approved_by, its thread told in one POST progress line. On any order, one whose recommended option names in backticks only releases on plat-usw2-staging or plat-usw2-sandbox alone, by brief.rehearsal(), and that no --unsettled, --redraws, `Replaces:` line or drawn card of its question holds, is kept decided on that option by his ruling state.REHEARSAL_RULING before Opus reads it against his words, by `keep_decided`, and draws no card. One whose summary cites a recorded answer of his that Opus reads as deciding its question or making it moot, or with a recorded answer the release gate reads as ordering a release its recommended option names in backticks, draws its card with an Already answered option, his words under it, so his tap closes it on those words, and only those answers. A block whose summary links no PR the drive tracks open on the job is refused, so his card never says no PR while one is up. One the card `question_card` draws refuses stays kept as the job's pending question with its refusal and draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job `asked_before` names is replaced, the one its file keeps included, so a file keeps one question and a question once kept settled on another answer of his draws its card when asked again. A block whose `Replaces:` line names open questions, comma-separated, each by the file it is kept in or its card's waits id, as a question built on them asking every choice does, takes the first one's card and waits id and leaves each open, folded into this one, so drawing its card redraws that card, `post_ask` shows each other named card asked again with a link to it, and his answer to this one ends them all; a question folded so, asked again, stays folded and draws no card. A job whose card another job's question took, by `took`, folds an ask of it into that question and draws no card, asked in that question's words or its own. Asked in other words, Opus reads it in that same call against each open card `repeating` finds, and each card Opus reads it as asking again is printed to the agent by settled.REPEATED, which shares no card: only an agent's `Replaces:` line or --redraws shares one, since a card Opus read as asked again once drew one hotfix's question in place of another's and his tap there closed both; asked again in its own words it is read against none. The question keeps the lines threads hold about the one it takes the place of, by `talk.keep_line`, and `post_ask` sends a thread `card_places` puts the card's line in a line only by `card_line`. What drive job ask prints: the file, then where his card stands."""
     text = f"{limits.ask_block(text).strip()}\n"
     data = state.load(name)
     job = data["jobs"][job_id]
@@ -2294,7 +2327,7 @@ def keep_settled(name: str, job_id: str, text: str, kept: Path, title: str, unse
 
 
 def keep_decided(name: str, job_id: str, text: str, kept: Path, asked: limits.Question, by: str) -> tuple[Path, limits.Question, dict, str]:
-    """Keep a job's ASK block decided on its recommended option by the ruling or standing approval of his `checked_ask` names, as `keep_settled` keeps one his answer settles: no card draws and the job goes on building. A ruling is state.TOOLING_DETAILS_RULING for a drive tooling card Opus reads as asking him only a detail, or state.REHEARSAL_RULING for a card on any order whose recommended option names only releases on staging or sandbox alone, and tells no thread; under his standing approval the order's thread gets one POST progress line naming the decision, by `approved_post`. The file, the question asked, its question kept, and the line saying the job decided it."""
+    """Keep a job's ASK block decided on its recommended option by the ruling or standing approval of his `checked_ask` names, as `keep_settled` keeps one his answer settles: no card draws and the job goes on building. A ruling is the one settled.leaving names, state.TOOLING_DETAILS_RULING or state.FRESH_DETAILS_RULING, for a card Opus reads as asking him only what it leaves to the job, or state.REHEARSAL_RULING for a card on any order whose recommended option names only releases on staging or sandbox alone, and tells no thread; under his standing approval the order's thread gets one POST progress line naming the decision, by `approved_post`. The file, the question asked, its question kept, and the line saying the job decided it."""
     data = state.load(name)
     option = render.cut(asked.recommended, 200)
     if by not in settled.RULED:
@@ -2777,6 +2810,27 @@ def cards_redraw(args: argparse.Namespace) -> int:
     return 0
 
 
+def cards_list(args: argparse.Namespace) -> int:
+    """Print each open question of the drive drawn on his card, newest first, on the feature of the order --order names, on orders filed under the project --project names, or all: its waits id, order, job, when it was asked, its title and its card's permalink, so each card of a class his ruling closes can be withdrawn by name."""
+    from drive import view
+
+    data = state.load(state.resolve(args.drive))
+    if args.order:
+        find(data["orders"], args.order, "order")
+    orders = set(state.feature_orders(data, args.order)) if args.order else None
+    cards = sorted(
+        (
+            {"waits": question["waits"], "order": job["order"], "job": job_id, "asked": question["asked"], "title": question["title"], "card": question["card"]}
+            for job_id, job in data["jobs"].items()
+            for question in view.open_questions(job)
+            if question["card"] and not question["replaced"] and (orders is None or job["order"] in orders) and args.project in (None, data["orders"][job["order"]]["project"])
+        ),
+        key=lambda card: state.parse_time(card["asked"]),
+        reverse=True,
+    )
+    return emit(args, "\n".join(f"{card['waits']} {card['order']} {card['job']} asked {card['asked']}: {card['title']} {card['card']}" for card in cards) or "no open question card of his", cards)
+
+
 def cards_withdraw(args: argparse.Namespace) -> int:
     """End as withdrawn each open question drawn on his card that his words, wherever he wrote them after it was asked, withdraw, or whose question or options they change, or that an event at --via overtook, as settled.unhappened reads it, refusing a --via Slack message older than any of those questions, since no answer he gave another question settles one, so a tap has nothing left to pick, and its card follows: it shows his words, or what happened, and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job, or any job of its order carrying on that work, asks again with `drive job ask --redraws` and the card's waits id once the work is back, which redraws it. The event's words are never recorded as his. With --via another open question card of the drive, by its waits id or permalink, each folds into the question that card asks, as `drive job ask` folds a question it reads as asked again into a newer card, by `fold_onto`: its card shows ASKED_AGAIN and a link to that card with no buttons, each wait on it moves to that card's waits id, and it stays open on that card, so his one answer there ends it too."""
     from drive import superseded, view
@@ -2983,12 +3037,14 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
             fixes += [f"FIX kept, {key}: tracked under {pr['order']}", *render.builder_lines(name, state.load(name), testers)]
         except DriveError as error:
             fixes.append(f"FIX kept, {error}")
+    changed = [state.whole_order(found["change"]) for found in state.change_lines(job["kind"], whole)] if job["kind"] in ("design", "builder") else []
+    removing = brief.removed_parts(state.load(name), job["order"], changed)
     with state.edit(name) as data:
         held = built and state.change_job(data, job["order"], [], data["jobs"][job_id]["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))
         replaced = [state.hand_over(data, held, job_id, job["order"], [], state.stamp(), built["branch"], job["repo"])] if held else []
         state.take_result(data, job_id, line, whole)
         state.cite_designs(data, job_id, line, whole)
-        added = state.add_changes(name, data, job_id, whole)
+        added = state.add_changes(name, data, job_id, whole, removing)
         rebriefed = brief.unstarted_builders(data, job_id) if job["kind"] == "reader" and data["jobs"][job_id]["state"] == "done" else []
         brief.name_goals(name, data, rebriefed, whole)
         moved_on = superseded.moved_on(data, job_id, whole, asked and str(asked))
@@ -3001,8 +3057,9 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
     elif started:
         state.returned(name, told, job_id, "; ".join(started))
     shown = f"{where}\n{said}" if said else where
-    shown = "\n".join([shown, *replaced, *registered, *fixes, *withdrawn, *briefed, *started])
-    return shown, {"id": job_id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added}
+    unstarted = [f"no builder added: {why}" for why in removing.values()]
+    shown = "\n".join([shown, *replaced, *registered, *fixes, *withdrawn, *briefed, *started, *unstarted])
+    return shown, {"id": job_id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added, "removed": removing}
 
 
 def register_named(name: str, job_id: str, line: str) -> list[str]:
@@ -3200,6 +3257,8 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Linked messages": linked_messages(job_id, [order["text"], *(data["orders"][order_id]["text"] for order_id in job["carries"])], flags["handoff"]),
         "Serves": flags["serves"],
         "Decisions that bind": rulings or "none named; search his answers on the area",
+        "Fresh": (fresh := state.fresh(data, job))
+        and f'his words "{fresh["words"]}", at {fresh["link"] or "the terminal"} on {fresh["at"]}, order this work designed from the ground up: every card asked on it before them was withdrawn, so ask him only the new design\'s crucial directional decisions, in its terms, and decide every implementation detail yourself',
         "Goal": job["goal"],
         "Done when": flags["done_when"],
         "Where": " ".join(filter(None, [flags["where"], (stacked := state.stacked_on(data, job)) and f"Cut your branch {stacked}, so your PR stacks on the changes it waited on."])),
@@ -5024,11 +5083,19 @@ def answer(args: argparse.Namespace) -> int:
             superseded.tooling_only(data, data["answers"][args.id], superseded.listed(data, data["answers"][args.id], asked))
     if cited and args.title and settled.titled(args.title) != cited["title"]:
         done.append(f'his answer {args.id} now answers "{render.cut(settled.retitled(cited, args.title, cwd), 200)}" in cc-notes, where it answered "{render.cut(cited["title"], 200)}"')
+    if cited:
+        settled.labelled(cited, args.label, cwd)
     if not marking:
         done += replaced(name, args.id, asked, cwd)
         with state.edit(name) as data:
             ended = superseded.answer_cards(data, args.id, data["answers"][args.id])
         done += superseded.follow(name, ended) + superseded.supersede_taps(name, ended)
+        kept = data["answers"][args.id]
+        areal = state.area_orders(data, [*(cited["tags"] if cited else []), *args.label])
+        if kept["words"] and (restarted := restart_read(name, sorted(reached(data, kept, asked) | set(areal)), kept["words"], kept["link"])):
+            done += restarted
+            data = state.load(name)
+            asked = superseded.asking(data, found, kept["link"])
     kept = data["answers"][args.id]
     asked = superseded.listed(data, kept, asked)
     open_keys = superseded.unmarked(kept, asked)
@@ -5146,8 +5213,7 @@ def replaced(name: str, answer_id: str, asked: dict[str, dict], cwd: str) -> lis
     """Mark in cc-notes each standing answer of his recorded before his answer, on the feature of each order it reaches, by brief.spec, that Opus reads his answer's words as replacing, at settled.YES or more, in one request, so every brief's Decisions that bind and every judge reads it as replaced, as his order to design something from scratch replaces his rulings on the design it starts over; one read in the band between is said on stderr with the command marking it, and no reading leaves each standing, said on stderr."""
     data = state.load(name)
     kept = data["answers"][answer_id]
-    orders = {entry["order"] for key in kept["cards"] if (entry := asked.get(key)) and entry["order"]} | {data["jobs"][job_id]["order"] for job_id in kept["jobs"]}
-    features = {tuple(state.job_feature(data, {"order": order_id, "carries": []})): order_id for order_id in sorted(orders)}
+    features = {tuple(state.job_feature(data, {"order": order_id, "carries": []})): order_id for order_id in sorted(reached(data, kept, asked))}
     new = settled.shown(answer_id, cwd)
     words = {entry["id"]: entry for order_id in features.values() for entry in brief.unreplaced(brief.spec(name, data, {"order": order_id, "carries": []})) if entry["id"] and entry["id"] not in data["orders"] and state.parse_time(entry["at"]) < state.parse_time(new["created_at"])}
     if not words or not kept["words"]:
@@ -5166,6 +5232,11 @@ def replaced(name: str, answer_id: str, asked: dict[str, dict], cwd: str) -> lis
             settled.supersede(old["id"], answer_id, cwd)
             done.append(f'his answer {old["id"]} to "{render.cut(old["asked"], 200)}" is superseded by {answer_id} in cc-notes, as Opus reads his new words replacing it, so each brief written from now and each judge reads it as replaced')
     return done
+
+
+def reached(data: dict, kept: dict, asked: dict[str, dict]) -> set[str]:
+    """The orders an answer of his reaches: that of each card it lists, by the job that drew it, and that of each job it lists."""
+    return {entry["order"] for key in kept["cards"] if (entry := asked.get(key)) and entry["order"]} | {data["jobs"][job_id]["order"] for job_id in kept["jobs"]}
 
 
 def ended_on(name: str, closed: dict, key: str, card: str | None, shown: str = "his words") -> list[str]:
@@ -6071,6 +6142,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--options-only", action="store_true", help="he asked for options only: no builder or codex job starts on the proper fix until he picks, only a reader or designer, while its immediate fix part's starts at once"
     )
+    verb.add_argument(
+        "--fresh",
+        action=argparse.BooleanOptionalAction,
+        help="his words order its design started over from scratch: every card asked on its work before them is withdrawn on them, and its builders decide implementation details with no card; with neither, Jev reads his words for it",
+    )
     verb.add_argument("--once", action="store_true", help="a repair he asked to run once: its job runs it and puts up no PR")
     verb.add_argument("--every", type=int, default=0, metavar="MINUTES", help="he asked for a line every this many minutes: its thread owes one that long after its last line until the order is done")
     verb.add_argument(
@@ -6167,6 +6243,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
     verb.add_argument(
         "--options-only", action=argparse.BooleanOptionalAction, help="limit it to options, so no builder or codex job starts on it, or lift that once he picks, adding the builder of each change a design on it listed"
+    )
+    verb.add_argument(
+        "--fresh",
+        action=argparse.BooleanOptionalAction,
+        help="mark it fresh on its own words, withdrawing every card asked on its work before them, as his words ordering its design from scratch do; --no-fresh takes the mark off, withdrawing nothing again",
     )
     verb.add_argument("--once", action=argparse.BooleanOptionalAction, help="mark or unmark it as a repair he asked to run once, which puts up no PR")
     verb.add_argument(
@@ -6948,7 +7029,12 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id", nargs="?", help="his answer's cc-notes id; leave it out with --title on the first call to record it in cc-notes")
     verb.add_argument("--title", help="the question his answer settles, verbatim, as its cc-notes title; with no id, the first call records it there, and with an id it rewords that answer's question there")
-    verb.add_argument("--label", action="append", default=[], help="a cc-notes label beyond scope:durable and drive:<drive>, such as header:<topic> or from:owner")
+    verb.add_argument(
+        "--label",
+        action="append",
+        default=[],
+        help="a cc-notes label beyond scope:durable and drive:<drive>, such as header:<topic>, from:owner, or area:<project> or area:<project>/<workstream> for a ruling on all work filed there, added to an answer recorded already too",
+    )
     verb.add_argument(
         "--about",
         choices=state.ABOUTS,
@@ -7162,7 +7248,21 @@ def parser() -> argparse.ArgumentParser:
         help="serve on this inherited listening socket, asking GitHub nothing: an older install's receiver hands its socket to the newest this way",
     )
     verb.set_defaults(run=receive)
-    cards = verbs.add_parser("cards", help="redraw or withdraw his open question cards").add_subparsers(dest="action", required=True)
+    cards = verbs.add_parser("cards", help="list, redraw or withdraw his open question cards").add_subparsers(dest="action", required=True)
+    verb = cards.add_parser(
+        "list",
+        parents=both,
+        help="list his open question cards, newest first, of an order's feature or a project",
+        description=(
+            "List each open question of the drive drawn on his card, newest first: its waits id, order, job, when it was asked,"
+            " its title and its card's permalink. --order keeps the cards of that order's feature, --project those of orders"
+            " filed under that project. A ruling of his that closes a class of questions withdraws each listed card of that class"
+            " with drive cards withdraw."
+        ),
+    )
+    verb.add_argument("--order", help="only the cards on this order's feature")
+    verb.add_argument("--project", metavar="NAME", help="only the cards on orders filed under this project")
+    verb.set_defaults(run=cards_list)
     verb = cards.add_parser(
         "redraw",
         parents=both,
@@ -7178,8 +7278,7 @@ def parser() -> argparse.ArgumentParser:
             " under its waits id, else the one a question linked to the card keeps when it asks the card's question, else"
             " asks/<waits id>.md rebuilt from the card as posted, which a question of its job then keeps. Each card that does"
             " not redraw, one whose redraw is refused, is named once the rest are printed, and the verb exits 2. It is no list"
-            " of his open cards: the asks him: lines of `drive status <order or job>` name each card its jobs asked, and"
-            " `cc-slack drive-cards --drive <drive> | grep -i '<words>'` each open card on those words, each in under a second."
+            " of his open cards: drive cards list is."
             " A --waits naming a PR card's merge: waits id, open or answered and neither replaced nor withdrawn, has"
             " cc-slack redraw that card in place as drive card draws it now, said on stderr."
         ),
