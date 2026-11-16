@@ -52,11 +52,13 @@ def scanned(command: str) -> tuple[str, list[str]]:
 
 
 def tokens(text: str) -> Iterator[tuple[str, str]]:
-    """What the shell reads in text: `word` and each word, `control` and each control operator, a newline read as `;`, or a redirection operator and the word it names; a comment and the descriptor number written against a redirection are none of them. The commands of each `$(…)` or backtick substitution a command's words run, in double quotes or bare backticks, follow that command, each after a `;`."""
+    """What the shell reads in text: `word` and each word, `control` and each control operator, a newline read as `;`, `comment` and each comment, a `#` opening a word through its line's end, or a redirection operator and the word it names; the descriptor number written against a redirection is none of them. The commands of each `$(…)` or backtick substitution a command's words run, in double quotes or bare backticks, follow that command, each after a `;`."""
     at, redirect, pending = 0, None, []
     while at < len(text):
         if blank := BLANK.match(text, at):
             at = blank.end()
+            if blank[0].startswith("#"):
+                yield "comment", blank[0]
         elif operator := next((operator for operator in REDIRECTS if text.startswith(operator, at)), None):
             at, redirect = at + len(operator), operator
         elif control := next((operator for operator in CONTROLS if text.startswith(operator, at)), None):
@@ -75,6 +77,11 @@ def tokens(text: str) -> Iterator[tuple[str, str]]:
         else:
             raise ValueError(f"no closing quotation in {text[at:]!r}")
     yield from substituted(pending)
+
+
+def comments(text: str) -> list[str]:
+    """Each comment the shell reads in text, never a `#` inside a word or its quotes."""
+    return [value for kind, value in tokens(text) if kind == "comment"]
 
 
 def substituted(found: list[str]) -> Iterator[tuple[str, str]]:

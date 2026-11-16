@@ -58,6 +58,28 @@ def test_a_builder_opens_its_pr_the_repositorys_way(demo: str) -> None:
     assert bash_guard.deny_reason(bash("CAPT_HOOK_CCX_RAW=1 gh pr create --title X --body-file /s/body.md", **builder)) is None
 
 
+def test_a_builder_opens_its_pr_raw_through_the_ccx_raw_escape_hatch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    create = 'gh pr create --repo Forge-AI/monorepo --base j6985 --head j7139 --title "$(cat /s/pr.title)" --body-file /s/pr-body.md'
+    refused = "refused: a builder opens its PR the repository's way, never a bare `gh pr create`"
+    assert bash_guard.deny_reason(bash(f"{create} # ccx:raw", **builder)) is None
+    assert bash_guard.deny_reason(bash(f"cd /work && {create}  # ccx:raw fallback: ccx vcs ship refused", **builder)) is None
+    reason = bash_guard.deny_reason(bash(create, **builder))
+    assert reason.startswith(refused)
+    assert "ending in a real `# ccx:raw` comment opens it" in reason
+    for unmarked in (f"echo '# ccx:raw' && {create}", f'{create} --label "# ccx:raw"', f"{create} #ccx:raws", f"{create}#ccx:raw"):
+        assert bash_guard.deny_reason(bash(unmarked, **builder)).startswith(refused), unmarked
+    assert bash_guard.deny_reason(bash('gh pr create --title X --body "y" # ccx:raw', **builder)).startswith(refused)
+    assert bash_guard.deny_reason(bash("gh pr create --fill --body-file /s/b # ccx:raw", **builder)).startswith(refused)
+    assert bash_guard.deny_reason(bash(f"CAPT_HOOK_CCX_RAW=yes {create}", **builder)) is None
+    for unmarked in (f"CAPT_HOOK_CCX_RAW=0 {create}", f"echo CAPT_HOOK_CCX_RAW=1 && {create}", f"{create} --label CAPT_HOOK_CCX_RAW=1"):
+        assert bash_guard.deny_reason(bash(unmarked, **builder)).startswith(refused), unmarked
+    monkeypatch.setenv("CAPT_HOOK_CCX_RAW", "0")
+    assert bash_guard.deny_reason(bash(create, **builder)).startswith(refused)
+    monkeypatch.setenv("CAPT_HOOK_CCX_RAW", "1")
+    assert bash_guard.deny_reason(bash(create, **builder)) is None
+
+
 def test_a_builder_opens_no_pr_while_his_open_cards_hold_its_job(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Landing", "ship the watch")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "ship it")[1] == "j1"
@@ -71,6 +93,8 @@ def test_a_builder_opens_no_pr_while_his_open_cards_hold_its_job(demo: str, run:
     assert reason.startswith("refused: j1's work waits on his answer to demo:j2-1-a, and this ship would open its PR")
     assert "`ccx vcs ship --no-pr`" in reason
     assert bash_guard.deny_reason(bash("ccx vcs ship --no-pr", **builder)) is None
+    raw = "gh pr create --title X --body-file /s/b # ccx:raw"
+    assert bash_guard.deny_reason(bash(raw, **builder)).startswith("refused: j1's work waits on his answer to demo:j2-1-a")
     assert bash_guard.deny_reason(bash(f"{opening} --dry-run", **builder)) is None
     registered = f'{opening} && drive pr add "$(gh pr view --json url -q .url)" --job j1 --exempt'
     assert '--exempt "flake fix"`' in reason

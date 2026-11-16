@@ -7,14 +7,14 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from fnmatch import fnmatchcase
 from functools import cache, partial, reduce
-from itertools import pairwise
+from itertools import pairwise, takewhile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, brief, github, install, land, limits, orca, state
 from drive.orca import OrcaError
-from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, literal, runnable, simple_commands, spread
+from drive.shell import KEYWORDS, Case, Function, Loop, comments, expanded, grouped, literal, runnable, simple_commands, spread
 
 AGENTS = "long-running:"
 DESIGNER = "long-running:designer"
@@ -22,10 +22,13 @@ BUILDER = "long-running:builder"
 SHELLS = {"sh", "bash", "zsh", "dash", "fish"}
 WRAPPERS = {"command", "exec", "nohup", "env", "time"}
 VALUED = {"-C", "-R", "--repo", "--drive"}
-CCX_RAW = re.compile(r"#\s*ccx:raw\b|\bCAPT_HOOK_CCX_RAW=1\b")
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 SHIP = ("ccx", "vcs", "ship")
-PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), SHIP, ("gt", "submit"))
+CREATE = ("gh", "pr", "create")
+RAW = "ccx:raw"
+RAW_ENV = "CAPT_HOOK_CCX_RAW"
+TRUTHY = frozenset({"1", "true", "yes"})
+PUSHES = (CREATE, ("git", "push"), ("jj", "git", "push"), SHIP, ("gt", "submit"))
 PUSH_ONLY = {"--no-pr", "--dry-run"}
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
 RERUNS = {
@@ -205,19 +208,30 @@ def designer_push(found: list[list[str]]) -> str | None:
 
 
 def bare_pr(found: list[list[str]], command: str) -> str | None:
-    """Why a builder's `gh pr create` must not run: it skips the repository's own way of opening a PR; None for one carrying the `# ccx:raw` escape hatch or `CAPT_HOOK_CCX_RAW=1`, the route when ccx itself refuses."""
-    if CCX_RAW.search(command) or not any(tuple(verb(words)[:3]) == ("gh", "pr", "create") for words in found):
+    """Why a builder's `gh pr create` must not run: it skips the repository's own way of opening a PR; None for one giving `--title` and `--body-file` in a call carrying the `ccx:raw` escape hatch, the route when ccx itself refuses."""
+    created = [words for words in found if tuple(verb(words)[:3]) == CREATE]
+    if not created or (raw(command) and all(option(words, "--title") and option(words, "--body-file") for words in created)):
         return None
     return (
         "refused: a builder opens its PR the repository's way, never a bare `gh pr create`: its own submit wrapper, otherwise"
         " the `open-pr` skill, which ships it with `ccx vcs ship --pr-title-file <title> --pr-body-file <body>` and keeps"
-        " the branch, stack and PR text the repository expects; when ccx itself refuses, end the raw call with `# ccx:raw`"
+        " the branch, stack and PR text the repository expects. When ccx refuses, a `gh pr create` giving `--title` and"
+        " `--body-file` and ending in a real `# ccx:raw` comment opens it, and your report quotes ccx's refusal"
     )
 
 
+def raw(command: str) -> bool:
+    """Whether a call carries the `ccx:raw` escape hatch: a `ccx:raw` word in a real comment of its shell text, never inside a quoted word or a heredoc's body, as capt-hook reads it, or `CAPT_HOOK_CCX_RAW` set to 1, true or yes in the session's environment or by an assignment opening one of its commands."""
+    script = runnable(command)
+    assigned = [word.split("=", 1)[1] for words in simple_commands(script) for word in takewhile(ASSIGNMENT.fullmatch, words) if word.startswith(f"{RAW_ENV}=")]
+    if any(value.strip().lower() in TRUTHY for value in [os.environ.get(RAW_ENV, ""), *assigned]):
+        return True
+    return any(RAW in comment.lstrip("#").split() for comment in comments(script))
+
+
 def opens_pr(found: list[list[str]]) -> bool:
-    """Whether a call runs a `ccx vcs ship` that may open a PR: one with neither `--no-pr` nor `--dry-run`."""
-    return any(tuple(verb(words)[:3]) == SHIP and not PUSH_ONLY & set(words) for words in found)
+    """Whether a call may open a PR: a `gh pr create`, or a `ccx vcs ship` with neither `--no-pr` nor `--dry-run`."""
+    return any(tuple(verb(words)[:3]) == CREATE or (tuple(verb(words)[:3]) == SHIP and not PUSH_ONLY & set(words)) for words in found)
 
 
 def exempted(found: list[list[str]]) -> str | None:
