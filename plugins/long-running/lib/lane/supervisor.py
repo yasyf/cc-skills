@@ -2,8 +2,11 @@
 
 import json
 import os
+import plistlib
+import subprocess
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from lane import facts, rank, store, verbs
 from lane import owner as owners
@@ -203,3 +206,17 @@ def supervise(drive: str) -> None:
         deadline = time.monotonic() + store.config(drive)["pass_seconds"]
         while time.monotonic() < deadline and (kick.stat().st_mtime if kick.exists() else 0.0) == seen:
             time.sleep(1)
+
+
+def install(drive: str) -> str:
+    """Keep the drive's supervisor running as a launchd agent that launchd restarts whenever it exits, on this process's PATH; the plist's path."""
+    label = f"dev.long-running.lane.{drive}"
+    plist = Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
+    log = store.drive_dir(drive) / "supervisor.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    env = {key: os.environ[key] for key in ("PATH", "HOME", "LONG_RUNNING_STATE", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR") if key in os.environ}
+    plist.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [str(owners.BIN), "--drive", drive, "supervise"], "KeepAlive": True, "RunAtLoad": True, "ThrottleInterval": 10, "EnvironmentVariables": env, "StandardOutPath": str(log), "StandardErrorPath": str(log), "ProcessType": "Background"}))
+    domain = f"gui/{os.getuid()}"
+    subprocess.run(["launchctl", "bootout", f"{domain}/{label}"], capture_output=True, check=False)
+    subprocess.run(["launchctl", "bootstrap", domain, str(plist)], capture_output=True, check=True)
+    return str(plist)

@@ -123,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     verbs_parser.add_parser("check")
     verbs_parser.add_parser("pass")
     verbs_parser.add_parser("supervise")
+    verbs_parser.add_parser("install", help="keep the drive's supervisor running under launchd")
     hooking = verbs_parser.add_parser("hook")
     hooking.add_argument("event", choices=["stop"])
 
@@ -184,6 +185,8 @@ def run(args: argparse.Namespace) -> int:
             print(json.dumps(supervisor.run_pass(args.drive)))
         case "supervise":
             supervisor.supervise(args.drive)
+        case "install":
+            print(supervisor.install(args.drive))
         case "hook":
             return stop_hook(*where(args))
     return 0

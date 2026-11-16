@@ -1,6 +1,7 @@
 """The outside facts a wait names, each read from its source: pull requests in one batched GraphQL query, a staging cut's result file, and his messages in a lane's channel."""
 
 import json
+import re
 import subprocess
 from functools import cache
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 from lane import store
 
 DONE_ROLLUPS = ("SUCCESS", "FAILURE", "ERROR")
+CHANNEL_EVENT = re.compile(r"^(<@\w+> has (joined|left) the channel|set the channel (description|topic|purpose|name)|renamed the channel)")
 
 
 def pr_key(event: dict) -> tuple[str, int]:
@@ -111,7 +113,7 @@ def his_messages(lane: dict) -> list[dict]:
     messages = json.loads(done.stdout).get("messages") or []
     found = []
     for message in messages:
-        if message.get("user") != who["user_id"] or message.get("from_claude") or (after and float(message["ts"]) <= float(after)):
+        if message.get("user") != who["user_id"] or message.get("from_claude") or CHANNEL_EVENT.match(message.get("text") or "") or (after and float(message["ts"]) <= float(after)):
             continue
         link = f"{who['team_url']}archives/{channel['id']}/p{message['ts'].replace('.', '')}" + (f"?thread_ts={channel['thread']}&cid={channel['id']}" if channel.get("thread") else "")
         found.append({"at": store.stamp(), "words": message.get("text") or "", "link": link, "ts": message["ts"], "seen": False})
