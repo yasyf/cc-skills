@@ -610,8 +610,10 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   run again to see whether something moved, no `sleep`, `pgrep` or `until` loop. A step that must
   wait on a PR or a GitHub Actions run, such as a proof waiting on a merge's CI, reads it once and,
   while it is still pending, runs `drive wait <its link>`, which blocks on GitHub's webhook to this
-  Mac and returns within a second of the next delivery for it, then reads it once more. Its default
-  110 s fits Bash's 120-second call; `--timeout 270` with Bash `timeout: 280000` is the longest.
+  Mac and returns within a second of the next delivery for it, then reads it once more. Read only
+  after a delivery, never after a wait that timed out. Each wait prints `--after <offset>`: pass it to
+  the next wait so a delivery between the two is not missed. Its default 110 s fits Bash's 120-second
+  call; `--timeout 270` with Bash `timeout: 280000` is the longest.
 - Block in one call for at most 270 s, then call again: a wait past 5 minutes expires your prompt
   cache, and the next turn re-reads your whole context at full price, a median 158k tokens.
 - Wait on a step of your own with the wait your run has, never a loop or a `sleep` you write, which

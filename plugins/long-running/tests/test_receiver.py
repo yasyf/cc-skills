@@ -410,11 +410,20 @@ def test_drive_wait_blocks_until_the_receiver_appends_the_delivery_it_waits_on_a
     receiver.took(REPO, 9, "g0", "pull_request", {"pull_request": {"number": 42}})
     want = receiver.wanted(f"{REPO}#42", {})
     started = time.monotonic()
-    assert receiver.waited(want, 0.2) is None
+    assert receiver.waited(want, 0.2) == (None, state.lines_end(receiver.deliveries_path()))
     assert time.monotonic() - started >= 0.2
     later = threading.Timer(0.2, lambda: [receiver.took(REPO, 9, guid, "pull_request", {"pull_request": {"number": number}}) for guid, number in (("g1", 43), ("g2", 42))])
     later.start()
     try:
-        assert receiver.waited(want, 5)["guid"] == "g2"
+        assert receiver.waited(want, 5)[0]["guid"] == "g2"
     finally:
         later.join()
+
+
+@pytest.mark.skipif(not hasattr(select, "kqueue"), reason="drive wait blocks on kqueue, which macOS alone has")
+def test_drive_wait_given_the_offset_the_last_one_ended_at_ends_on_a_delivery_that_came_between_them(home: None) -> None:
+    receiver.took(REPO, 9, "g0", "pull_request", {"pull_request": {"number": 43}})
+    ended = state.lines_end(receiver.deliveries_path())
+    receiver.took(REPO, 9, "g1", "pull_request", {"pull_request": {"number": 42}})
+    delivery, offset = receiver.waited(receiver.wanted(f"{REPO}#42", {}), 0, ended)
+    assert (delivery["guid"], offset) == ("g1", state.lines_end(receiver.deliveries_path()))

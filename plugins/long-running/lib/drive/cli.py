@@ -5735,11 +5735,14 @@ def wait(args: argparse.Namespace) -> int:
         raise DriveError(f"--timeout {args.timeout}: wait 1 to {receiver.WAIT_SECONDS_MOST} seconds, so the prompt cache outlives the wait; wait again after a read for longer")
     data = state.load(state.resolve(args.drive))
     want = receiver.wanted(args.ref, {key: pr["head"] for key, pr in data["prs"].items()})
-    if (delivery := receiver.waited(want, args.timeout)) is None:
-        print(json.dumps({"ref": args.ref, "delivery": None}) if args.json else f"{args.ref}: no delivery in {args.timeout}s; read it once, then wait again only if it is still pending")
+    delivery, offset = receiver.waited(want, args.timeout, args.after)
+    again = f"drive wait {args.ref} --after {offset}"
+    if delivery is None:
+        print(json.dumps({"ref": args.ref, "delivery": None, "after": offset}) if args.json else f"{args.ref}: no delivery in {args.timeout}s; read it once, then, only while it is still pending, {again}")
         return 1
     said = ", ".join(f"{field} {delivery[field]}" for field in ("numbers", "head", "action") if delivery.get(field))
-    return emit(args, f"{args.ref}: {delivery['event']} delivery at {delivery['at']}{f' ({said})' if said else ''}; read it now with one gh call", {"ref": args.ref, "delivery": delivery})
+    line = f"{args.ref}: {delivery['event']} delivery at {delivery['at']}{f' ({said})' if said else ''}; read it now with one gh call, then, only while it is still pending, {again}"
+    return emit(args, line, {"ref": args.ref, "delivery": delivery, "after": offset})
 
 
 def term(args: argparse.Namespace) -> int:
@@ -7507,6 +7510,7 @@ def parser() -> argparse.ArgumentParser:
         default=receiver.WAIT_SECONDS_DEFAULT,
         help=f"seconds to wait, default {receiver.WAIT_SECONDS_DEFAULT}, inside Bash's default 120-second call; at most {receiver.WAIT_SECONDS_MOST}, with Bash timeout 280000, so the prompt cache outlives the wait",
     )
+    verb.add_argument("--after", type=int, help="the deliveries log offset the last drive wait printed, so a delivery that came between two waits ends this one")
     verb.set_defaults(run=wait)
 
     verb = verbs.add_parser("status", parents=both, help="where each order, job and PR stands")
