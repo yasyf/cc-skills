@@ -64,6 +64,7 @@ AWAIT_POLL = 10
 STILL_WAITING = 75
 PAGES_ENV = "github-pages"
 MERGE_METHODS = ("squash", "rebase", "merge")
+ALLOWED_FIELD = {"squash": "squashMergeAllowed", "rebase": "rebaseMergeAllowed", "merge": "mergeCommitAllowed"}
 GREEN = ("SUCCESS", "SKIPPED", "NEUTRAL")
 RED = ("FAILURE", "ERROR", "CANCELLED", "TIMED_OUT")
 
@@ -341,8 +342,10 @@ def publish(args) -> int:
 
 
 def merge_flag(url: str) -> str:
-    allowed = json.loads(run(["gh", "api", f"repos/{'/'.join(url.split('/')[3:5])}"]))
-    return next(f"--{m}" for m in MERGE_METHODS if allowed[f"allow_{m}_merge"])
+    owner, name = url.split("/")[3:5]
+    query = f"query($owner:String!,$name:String!){{repository(owner:$owner,name:$name){{{' '.join(ALLOWED_FIELD.values())}}}}}"
+    allowed = json.loads(run(["gh", "api", "graphql", "-F", f"owner={owner}", "-F", f"name={name}", "-f", f"query={query}"]))
+    return next(f"--{m}" for m in MERGE_METHODS if allowed["data"]["repository"][ALLOWED_FIELD[m]])
 
 
 def pages_live(repo: str, sha: str) -> bool:
