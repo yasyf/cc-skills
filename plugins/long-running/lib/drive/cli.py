@@ -4504,13 +4504,18 @@ def slot_hand(args: argparse.Namespace) -> int:
     own = (os.environ.get(state.JOB_ENV) or "").split("/")[1:2]
     if own and held and own[0] not in state.slot_members(data["slots"][args.env]) or not own and not state.top_coordinator(data, os.environ.get("CLAUDE_CODE_SESSION_ID")):
         raise DriveError(f"refused: only the job holding the {args.env} slot or the top coordinator hands it on")
+    before = [member for member in [held, *(held["riders"] if held else [])] if member and not member["starts"]]
     with state.edit(name) as data:
         entry, line = state.slot_hand(data, args.env, args.to, state.now())
         until = data["slots"][args.env]["holder"]["until"]
         steps = state.SLOT_GO_STEPS.format(env=args.env, job=args.to) + state.holding(state.repo_config(data).get("release"), data, [args.to])
+        stopped = [member["job"] for member in before if data["jobs"][member["job"]]["state"] not in state.SLOT_LIVE_END]
+    for job_id in stopped:
+        state.detach(name, ["job", "resume", job_id, state.SLOT_STOP.format(env=args.env, to=args.to)], watch.RELAUNCHES_LOG)
     command = ["job", "release", args.to] if entry["starts"] else ["job", "resume", args.to, f"GO staging {args.env} until {until}: {steps}"]
     state.detach(name, command, watch.RELAUNCHES_LOG)
-    return emit(args, f"{line}; drive {' '.join(command[:3])} runs now", {"env": args.env, "job": args.to, "line": line})
+    told = f"; {', '.join(stopped)} told to STOP" if stopped else ""
+    return emit(args, f"{line}{told}; drive {' '.join(command[:3])} runs now", {"env": args.env, "job": args.to, "line": line, "stopped": stopped})
 
 
 def slot_release(args: argparse.Namespace) -> int:
@@ -4525,13 +4530,16 @@ def slot_release(args: argparse.Namespace) -> int:
 
 
 def slot_queue(args: argparse.Namespace) -> int:
-    """Each staging slot, or the one env named: its holder and when its lease ends, then each job waiting, in order."""
-    slots = state.load(state.resolve(args.drive))["slots"]
+    """Each staging slot, or the one env named: its holder, GO with when its lease ends once its cut has its START, by state.cut_started, else held for it and waiting for that START, so no job reads a lease it has not started as leave to run, then each job waiting, in order."""
+    data = state.load(state.resolve(args.drive))
+    slots = data["slots"]
     shown = {env: slot for env, slot in slots.items() if not args.env or env == args.env}
     lines = []
     for env, slot in shown.items():
         held = slot["holder"]
-        lines.append(f"{env}: {held['job'] + ' until ' + held['until'] + ''.join(', ' + rider['job'] + ' riding its cut' for rider in held['riders']) if held else 'free'}")
+        riding = "".join(", " + rider["job"] + " riding its cut" for rider in held["riders"]) if held else ""
+        said = (f"GO {held['job']} until {held['until']}{riding}" if state.cut_started(data, held, env) else f"held for {held['job']} until {held['until']}{riding}, waiting for its START") if held else "free"
+        lines.append(f"{env}: {said}")
         lines += [f"  {place}. {each['job']} for {each['minutes']} minutes, queued {each['at']}" for place, each in enumerate(slot["queue"], 1)]
     return emit(args, "\n".join(lines) or "no staging slot is held or queued", {"slots": shown})
 

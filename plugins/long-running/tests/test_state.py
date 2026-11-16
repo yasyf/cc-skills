@@ -2849,3 +2849,9 @@ def test_a_pass_on_an_order_joined_to_a_priority_order_or_a_cut_naming_its_teste
     for job_id in data["jobs"]:
         state.slot_claim(data, "plat-usw2-staging", job_id, 20, [], None, moment)
     assert [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]] == ["j2", "j3", "j4", "j1", "j5"]
+
+
+def test_a_slot_holder_has_its_start_once_its_job_kept_a_release_build_or_waits_on_staging_serving_its_cut() -> None:
+    data = {"jobs": {"j1": {"waits": [], "release_build": None}, "j2": {"waits": ["staging:api/plat-usw2-staging@abc1234"], "release_build": None}, "j3": {"waits": [], "release_build": "https://buildkite.com/forge/release/builds/17522"}}}
+    assert [state.cut_started(data, {"job": job_id}, "plat-usw2-staging") for job_id in ("j1", "j2", "j3")] == [False, True, True]
+    assert state.cut_started(data, {"job": "j2"}, "plat-usw2-sandbox") is False

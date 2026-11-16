@@ -6774,6 +6774,15 @@ def priority_family(data: dict) -> set[str]:
 SLOT_LIVE_END = ("done", "stopped")
 
 
+SLOT_STOP = "STOP: you no longer hold the {env} staging slot, which {to} holds now: stop every staging command on {env} at once, leave what you started as it stands, and return WAITING on what you wait for; the watch resumes you with GO when the slot is yours again"
+
+
+def cut_started(data: dict, held: dict, env: str) -> bool:
+    """Whether a staging slot's holder has its START: its job started a release, keeping its build, or waits on staging serving a commit of its cut on this env."""
+    job = data["jobs"][held["job"]]
+    return bool(job.get("release_build")) or any((found := STAGING_WAIT.fullmatch(wait)) and found["env"] == env for wait in job["waits"])
+
+
 def slot_hand(data: dict, env: str, to: str, moment: datetime) -> tuple[dict, str]:
     """Hand a staging env's slot to a job waiting in its queue now, its lease starting now, putting the cut that held it back at the head of the queue, by drive slot hand, so a priority cut ready now never waits behind a lease running nothing; the new holder's queue entry and the line saying so, refused for a job not in the queue."""
     slot = data["slots"].get(env) or {"holder": None, "queue": []}
