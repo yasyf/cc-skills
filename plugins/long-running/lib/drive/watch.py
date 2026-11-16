@@ -499,20 +499,24 @@ def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Take each open PR the retired release reach put on its staging test off it, by state.unreach, unless its paths are a dangerous class, by land.dangerous and the repository's [[dangerous]] classes, read in one github.paths call, since a PR owes a staging test before it merges only for a dangerous change and any other merges on green CI, proven after its merge on what the promotion deploys; a dangerous one keeps its test, only unmarked reached."""
+    """Take each open PR the retired release reach put on its staging test off it, by state.unreach, unless its paths are a dangerous class, by land.dangerous and the repository's [[dangerous]] classes, each PR's read on its own by github.files so one GitHub cannot read waits alone for the next pass, since a PR owes a staging test before it merges only for a dangerous change and any other merges on green CI, proven after its merge on what the promotion deploys; a dangerous one keeps its test, only unmarked reached."""
     data = state.load(watcher.name)
     keys = [key for key, pr in data["prs"].items() if pr["state"] == "open" and pr["reached"]]
     if not keys:
         return []
-    try:
-        read = github.paths(keys)
-    except github.GithubError as error:
-        return read_failed(watcher, "release reach", error, moment)
-    watcher.failures.pop("release reach", None)
+    read, unread = {}, []
+    for key in keys:
+        try:
+            read[key] = github.files(key)
+        except github.GithubError as error:
+            unread.append(f"{key}: {error}")
+    failed = read_failed(watcher, "release reach", github.GithubError("; ".join(unread)), moment) if unread else []
+    if not unread:
+        watcher.failures.pop("release reach", None)
 
     def reach_lines_write(data: dict) -> tuple[dict, dict[str, list[str]]]:
         lifted = {}
-        for key, (_, paths) in read.items():
+        for key, paths in read.items():
             if not data["prs"][key]["reached"]:
                 continue
             if land.dangerous(data, paths) or state.dangerous(data, paths):
@@ -526,7 +530,7 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
     for key, stopped in lifted.items():
         ended = f", and {', '.join(stopped)} stopped" if stopped else ""
         lines.append(f"PR {key}: {state.UNDANGEROUS_MERGES.format(key=key)}{ended} {ids(data['prs'][key])}")
-    return lines
+    return [*failed, *lines]
 
 
 def main_lines(watcher: Watcher, moment: datetime) -> list[str]:

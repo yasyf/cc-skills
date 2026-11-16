@@ -423,13 +423,14 @@ def test_the_watch_takes_each_pr_the_retired_reach_staged_off_its_test_unless_it
         data["jobs"]["j2"] = state.new_job("o1", "builder", "test #42 on staging", [lifted], state.stamp(T0)) | {"agent": "a2"}
         data["prs"][KEY]["tap"] = approve
     asked: list[list[str]] = []
-    monkeypatch.setattr(github, "paths", lambda keys: asked.append(keys) or {KEY: ("aaaaaaa111", ["dashboard/src/iris/components/Sidebar.tsx"]), OTHER: ("ccccccc333", ["go/sand/next/internal/runtime-api/memory/routes.go"])})
+    changed = {KEY: ["dashboard/src/iris/components/Sidebar.tsx"], OTHER: ["go/sand/next/internal/runtime-api/memory/routes.go"]}
+    monkeypatch.setattr(github, "files", lambda key: asked.append(key) or changed[key])
     [line] = watch.reach_lines(watcher(demo), T0)
     data = state.load(demo)
     assert line == f"PR {KEY}: {state.UNDANGEROUS_MERGES.format(key=KEY)}, and j2 stopped {watch.ids(data['prs'][KEY])}"
     assert (lifted in data["orders"]["o1"]["parts"], data["prs"][KEY]["waits"], data["prs"][KEY]["reached"], data["prs"][KEY]["tap"], data["jobs"]["j2"]["state"]) == (False, [], False, approve, "stopped")
     assert (kept in data["orders"]["o1"]["parts"], data["prs"][OTHER]["waits"], data["prs"][OTHER]["reached"]) == (True, [f"o1:{kept}"], False)
-    assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
+    assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [KEY, OTHER])
 
 
 def test_the_watch_classifies_a_head_through_a_provider_the_loader_executes_from_its_commit_whose_class_has_no_file_inspect_can_read(
