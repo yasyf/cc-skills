@@ -36,7 +36,7 @@ A job's question in the drive decides its card.
 - His answer also ends, as superseded, each older open question of the same job it decides, as Opus reads it.
 - His tap ends the question in the first write of cc-slack's card command, before its `answer` record posts. cc-slack reruns the command until the record stores, and the card shows the tap recorded only then.
 - The tool refuses an `answer` naming only ended questions, since his answer is recorded already. One exception: his words under a card whose question his tap ended in the ten minutes before, by Slack ts, end it in place of the tap, and the card drops the tap and its Undo through `card-answer --replaces`. His tap or write-in on any copy of a card after the answer that ended it replaces that answer: the card command marks the earlier cc-notes answer superseded and redraws the question's other card copies.
-- A PR card stays up through all of this. The holding session's `--rework <PR>=<his permalink>`, on his order or on the job carrying it, withdraws it.
+- His words answering a PR card close it and every copy of it in the same `record` call. Name the card by its `merge:` waits id and list the PRs his words approve, as numbers, in `attrs.approves`. Those PRs take his Approve, as his tap would, and the card is withdrawn showing his words. Each other PR on it draws on a fresh card at the watch's next read, or stays held.
 
 ## Shape
 

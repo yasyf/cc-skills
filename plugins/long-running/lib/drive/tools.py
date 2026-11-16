@@ -4,11 +4,13 @@ import hashlib
 import io
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
 
 from drive import brief, cli, limits, reads, render, reports, settled, state, superseded, talk, view
+from drive import slack as slack_api
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json", "dry_run"}
@@ -89,8 +91,9 @@ RECORD = {
                 " none and ends nothing: an answer under a question card, in"
                 " whatever thread the record names, ends the job's question that card asks as answered, and owner words"
                 " under it about that card's work end it as withdrawn, and the card follows, showing his words with no"
-                " buttons; his feedback on the drive under a product card leaves it asking, and only the coordinator's"
-                " --rework naming its PR, on his order or the job carrying it, withdraws a PR card. A ruling the record names"
+                " buttons; his feedback on the drive under a product card leaves it asking; his words answering a PR card, under it or"
+                " naming its merge: waits id, close it and every copy in the same call, the PRs they approve, named in attrs"
+                " approves, taking his Approve, and the rest drawing on a fresh card or staying held. A ruling the record names"
                 " is kept as his drive answer at this link, listing each other card, part and PR it could change. A record"
                 " that ends a question or names a ruling is refused unless his message or card answer here holds its text,"
                 " and the ruling's words above Notes:, or sits inside those words where they hold more than his, as an attribution before his quote"
@@ -119,7 +122,8 @@ RECORD = {
                 "the waits id, <drive>:<j>-<n>, of the question card his tap or words answer: attrs waits and job=<j>, topic card:<its card's thread_ts>, else the waits id,"
                 " ending the job's question as answered in the same call, and the card follows, showing his words with no"
                 " buttons; a question his recorded words settle before its card drew is answered by its waits id the same"
-                " way, so no card draws"
+                " way, so no card draws; or a PR card's merge: waits id, which his words answering it close with every"
+                " copy, the PRs attrs approves names, space-separated numbers his words approve, taking his Approve"
             ),
         },
         "thread_card": {
@@ -233,7 +237,8 @@ def verb_tools() -> list[dict]:
                 " go out on that drive as its communicator lane, whatever session calls, as his tap on it does, so every"
                 " order, job and seq the call names is that drive's, and a call mixing two drives' records is refused. Once the records go out, each open card his words close is closed: a question card his"
                 " answer answers settles showing his words, and one his owner words under it change is withdrawn showing them;"
-                " a PR card stays up, since only the coordinator's --rework naming its PR withdraws it; an answer"
+                " a PR card his words answer, by its merge: waits id, is withdrawn with every copy, showing his words, the PRs"
+                " attrs approves names taking his Approve and the rest drawing on a fresh card or staying held; an answer"
                 " whose waits names a card no longer waiting on him is refused, since his answer there is"
                 " recorded already. A ruling an owner or answer record names with url is kept as his drive answer in the same"
                 " call, listing each card, part and PR it could change for drive answer <id> to mark, only those of \"Drive tooling:\""
@@ -672,6 +677,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     said += [f"{index} held on {', '.join(jobs)} for its running worker or codex run, as drive job resume holds a text" for index, jobs in enumerate(hearing, start=1) if jobs]
     ended = stamped(name, posts, seqs)
     handed(name, lane, posts, seqs)
+    said += [line for made in posts if role == "communicator" for line in pr_card_answered(name, made)]
     his = [index for index, made in enumerate(posts) if superseded.said_at(data, made.get("url"))]
     keep_undelivered(name, [posts[index] for index in his], [seqs[index] for index in his], [closes[index] for index in his], found)
     said += [f"{index} {job_id}'s question \"{render.cut(question['title'] or '', 80)}\" ended {question['closed']['how']} by {seqs[index - 1]}" for index, job_id, question in ended]
@@ -679,6 +685,39 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     said += superseded.supersede_taps(name, [(job_id, question) for _, job_id, question in ended])
     said += keep_rulings(name, posts, found)
     return "\n".join(said)
+
+
+def pr_card(waits: str) -> bool:
+    return bool(state.ASK_WAITS.fullmatch(waits) or state.LONG_ASK_WAITS.fullmatch(waits))
+
+
+def pr_card_answered(name: str, made: dict) -> list[str]:
+    """Close the PR card his words answer, by its merge: waits id, and every copy of it, in the call that records them, by his words "So why isn't this card withdrawn then? And why do I have to keep asking that?" (736716), where his words approving 3 of 4 PRs left the card's buttons live for 45 minutes: the PRs his words approve, which the communicator names in attrs approves, take his Approve as his tap would, by card.answered, and the card is withdrawn showing his words, so each other PR of it draws on a fresh card on the watch's next read or stays held; what was done, a line each."""
+    from drive import card
+
+    attrs = made.get("attr") or {}
+    if made["kind"] not in ("owner", "answer") or not made.get("url") or not pr_card(waits := attrs.get("waits") or ""):
+        return []
+    data = state.load(name)
+    by_number = {key.rpartition("#")[2]: key for key in data["prs"]}
+    listed = asked[1].split(".") if (asked := state.ASK_WAITS.fullmatch(waits)) else waits.split(":")[1].split("-")
+    approved = [number.lstrip("#") for number in re.split(r"[\s,]+", attrs.get("approves") or "") if number.lstrip("#") in by_number]
+    lines = []
+    if approved:
+        repo, _, _ = by_number[approved[0]].partition("#")
+        card.answered({"repo": repo, "number": int(approved[0]), "waits": f"merge:{'.'.join(approved)}:{hashlib.sha256(made['url'].encode()).hexdigest()[:8]}", "label": "Approve", "heads": {}, "action_ts": None, "source": made["url"]})
+        lines.append(f"{waits}: his words approve {', '.join(f'#{number}' for number in approved)}, kept as his Approve")
+    reason = f"Answered in your words: {render.cut(made['text'], 160)}"
+    withdrawn = []
+    for number in dict.fromkeys([*listed, *approved]):
+        if number in by_number:
+            try:
+                withdrawn += slack_api.withdraw_pr_card(data["prs"][by_number[number]]["url"], reason, made["url"])
+            except slack_api.SlackError as error:
+                lines.append(f"{waits}: withdrawing the cards carrying #{number} failed, so withdraw them with cc-slack withdraw-pr-card: {error}")
+    view.refresh_cards(name)
+    lines += [f"{waits}: his card {each} withdrawn, showing his words" for each in dict.fromkeys(withdrawn)]
+    return lines
 
 
 def card_drive(name: str, records: list[dict]) -> str:
@@ -990,10 +1029,12 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
             made[key] = item[key]
     if re := item.get("re"):
         made["re"] = [re]
-    if waits := item.get("waits"):
+    if (waits := item.get("waits")) and pr_card(waits):
+        attrs |= {"waits": waits}
+    elif waits:
         waits = state.waits_of(drive, waits)
         if not (named := state.WAITS_ID.fullmatch(waits)):
-            raise DriveError(f"{waits} is no question card's waits id, <drive>:<j>-<n>; a PR card's tap needs no record")
+            raise DriveError(f"{waits} is no card's waits id: a question card's is <drive>:<j>-<n> and a PR card's merge:<numbers>:<hash>")
         if named[1] != drive:
             raise DriveError(f"{waits} is a card of drive {named[1]}, not {drive}: only his owner or answer words under it go to that drive, kept there by this call")
         attrs |= {"job": state.waits_job(data, waits), "waits": waits}

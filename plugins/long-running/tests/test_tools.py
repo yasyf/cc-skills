@@ -1960,7 +1960,7 @@ def test_his_answer_settling_a_finished_readers_question_is_held_on_the_builder_
     assert watch.undelivered_lines(watching, state.now() + timedelta(minutes=11)) == []
 
 
-def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its_thread_withdraws_it(
+def test_his_owner_words_under_a_pr_card_naming_no_waits_id_leave_it_up(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
@@ -1974,6 +1974,34 @@ def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its
     assert (withdrawals.asked, answered) == ([], [])
     pr_entry = state.load(demo)["prs"]["Forge-AI/monorepo#54084"]
     assert (pr_entry["wants_tap"], pr_entry["rework"]) == (True, None)
+
+
+def test_his_words_approving_three_of_four_prs_on_a_pr_card_approve_those_and_withdraw_the_card_and_its_copies_in_the_same_call(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    numbers = (53810, 53833, 54225, 54428)
+    urls = [f"https://github.com/Forge-AI/monorepo/pull/{number}" for number in numbers]
+    for url in urls:
+        run("pr", "add", url, "--job", "j1", *LEAD)
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 71}\n', ""))
+    open_cards(monkeypatch, prs=tuple(urls))
+    withdrawals.cards += [PR_CARD, f"{PR_CARD[:-2]}01"]
+    approves: list[dict] = []
+    monkeypatch.setattr(card, "answered", lambda ask: approves.append(ask) or {"ok": True})
+    words = {"kind": "answer", "text": "All except for the delete one is approved", "url": f"{PR_CARD[:-2]}50?thread_ts=1794200000.000900", "waits": "merge:53810.53833.54225.54428:00f8b867", "attrs": {"order": "o1", "approves": "53810 53833 54225"}}
+    said = tools.run("record", demo, {"records": [words]}).splitlines()
+    assert said[0] == "1 answer 71"
+    assert said[1:] == [
+        "merge:53810.53833.54225.54428:00f8b867: his words approve #53810, #53833, #54225, kept as his Approve",
+        f"merge:53810.53833.54225.54428:00f8b867: his card {PR_CARD} withdrawn, showing his words",
+        f"merge:53810.53833.54225.54428:00f8b867: his card {PR_CARD[:-2]}01 withdrawn, showing his words",
+    ]
+    [ask] = approves
+    assert (ask["label"], ask["number"], ask["waits"].split(":")[1], ask["source"]) == ("Approve", 53810, "53810.53833.54225", words["url"])
+    assert [url for url, _ in withdrawals.asked] == urls and set(withdrawals.vias) == {words["url"]}
+    assert all(reason == "Answered in your words: All except for the delete one is approved" for _, reason in withdrawals.asked)
 
 
 def test_his_messages_in_a_row_naming_one_ruling_are_checked_together_and_kept_as_one_drive_answer_at_the_first_each_once(
