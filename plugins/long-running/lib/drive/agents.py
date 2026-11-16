@@ -476,10 +476,12 @@ def start_posts(name: str, moment: datetime) -> None:
             handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}")
         except Exception as error:
             errors.append(f"the handler on POST report {seq} did not start: {start_error(error)}")
-    with state.edit(name) as data:
+    def marked(data: dict) -> None:
         for seq, why in carried.items():
             data["carried"].setdefault(seq, why)
         data["posts"]["mark"] = min(young) - 1 if young else newest
+
+    state.update(name, None, marked)
     if errors:
         raise state.DriveError("; ".join(errors))
 

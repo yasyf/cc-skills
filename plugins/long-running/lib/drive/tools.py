@@ -825,7 +825,7 @@ def superseded_by_answer(data: dict, made: dict, questions: list[tuple[str, dict
 
 def keep_closed(name: str, posts: list[dict], closes: list[list[tuple[str, dict]]], decided: list[list[tuple[str, dict, dict]]]) -> None:
     """End in one write, before any of these records goes out, each job question his words in them are on, answered by an answer, in place of his tap when they replace it by view.answerable, and withdrawn by other words, with his words, their link and the ruling it names, and each older question of its job his answer decides too, superseded, so a record cci refuses leaves none of them asking him; stamped names the record once it stores."""
-    with state.edit(name) as data:
+    def closed(data: dict):
         for made, questions, deciding in zip(posts, closes, decided, strict=True):
             closed = state.new_close("answered" if made["kind"] == "answer" else "withdrawn", made["text"], made.get("url"), ruling=(made.get("attr") or {}).get("ruling"))
             for job_id, question in questions:
@@ -834,6 +834,7 @@ def keep_closed(name: str, posts: list[dict], closes: list[list[tuple[str, dict]
             for job_id, older, question in deciding:
                 if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None:
                     superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
+    state.update(name, None, closed)
 
 
 def stamped(name: str, posts: list[dict], seqs: list[str]) -> list[tuple[int, str, dict]]:

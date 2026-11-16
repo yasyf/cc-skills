@@ -362,11 +362,13 @@ def fresh_pr_cards(name: str) -> list[dict]:
 
 def rework_prs(name: str, reworks: list[dict], by: str) -> list[str]:
     """Mark the open drive PRs reworked to his words, each kept with the link where he said them, and withdraw in the same call, once the drive is saved, each open card of his carrying one, his words its reason linked to them, by his words "So why isn't this card withdrawn then? And why do I have to keep asking that?": no card asks his tap on one until its builder's READY says how his words are met, while his Approve stands; the watch wakes its builder with his words, and withdraws again a card whose withdrawal failed."""
-    with state.edit(name) as data:
+    def reworked(data: dict):
         kept = {each["key"]: each for each in reworks if each["key"] in data["prs"] and data["prs"][each["key"]]["state"] == "open"}
         for key, each in kept.items():
             state.rework(data["prs"][key], by, each["words"], each["link"])
         keys = list(kept)
+        return keys
+    keys = state.update(name, None, reworked)
     lines = [f"{key} reworked to {by}: its card stays down until its builder's READY says how his words are met" for key in keys]
     return lines + state.after_save(name, lambda: [said for key in keys for said in withdrawn_card(name, key)])
 
@@ -1826,7 +1828,7 @@ def job_set(args: argparse.Namespace) -> int:
     reworks = heard_reworks(name, args.rework, args.id)
     shown = args.card and shown_card(name, args.card)
     lane = args.agent and args.agent.startswith(state.DISPATCH_PREFIX) and orca.receipt(args.agent)
-    with state.edit(name) as data:
+    def changed(data: dict):
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
         if args.branch:
@@ -1887,6 +1889,8 @@ def job_set(args: argparse.Namespace) -> int:
         job["updated"] = state.stamp()
         state.end_carried_designs(data, job["order"], job["created"])
         replaced = state.end_replaced(data, [job["order"], *args.carries], job["updated"])
+        return data, job, replaced
+    data, job, replaced = state.update(name, None, changed)
     owned = {pr["url"] for pr in data["prs"].values() if pr["job"] == args.id}
     cards = [card for card in fresh_pr_cards(name) if owned & set(card["prs"])] if args.carries else []
     reworked = [
@@ -2460,7 +2464,7 @@ def keep_closed(name: str, job_id: str, text: str, kept: Path, title: str, unset
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
     generic = superseded.generic(state.load(name))
-    with state.edit(name) as data:
+    def questioned(data: dict):
         job = data["jobs"][job_id]
         twins = [question for other, question in asking(data, title) if other == job_id]
         named = {id(target): (asker, target) for asker, target in (replacing(data, job_id, asked, ref) for ref in refs)}
@@ -2473,6 +2477,8 @@ def keep_closed(name: str, job_id: str, text: str, kept: Path, title: str, unset
         for asker, target in named.values():
             if not any(target is twin for twin in twins):
                 superseded.end(data, asker, target, question["closed"])
+        return question, job
+    question, job = state.update(name, None, questioned)
     return question, job
 
 
@@ -3118,8 +3124,9 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
     if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
         raise DriveError(f"{job_id}: refused, nothing kept: {served.NAMELESS}")
     if repro:
-        with state.edit(name) as data:
+        def repro_kept(data: dict):
             data["jobs"][job_id]["repro"] = keep_repro(name, job_id, job["kind"], str(repro))
+        state.update(name, None, repro_kept)
     try:
         registered = register_named(name, job_id, line)
     except DriveError as error:
@@ -3789,8 +3796,9 @@ def returned(job: dict) -> str | None:
 
 def hold(name: str, job_id: str, text: str, sender: str | None) -> None:
     """Keep the text on the job's undelivered list with who sent it by state.hold_text before any Orca call, so an outage delays it and never drops it."""
-    with state.edit(name) as data:
+    def held(data: dict):
         state.hold_text(data["jobs"][job_id], text, sender)
+    state.update(name, None, held)
 
 
 def hold_unread(name: str, job_id: str, lane: dict) -> list[str]:

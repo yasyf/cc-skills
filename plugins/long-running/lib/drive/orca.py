@@ -310,10 +310,12 @@ def kept_terminal(drive: str, key: str, title: str) -> str:
         if error.code != STALE_TERMINAL:
             raise
     opened = request("terminal", "create", "--worktree", f"path:{loaded['roles']['coordinator']['cwd']}", "--title", f"{drive}-{title}")["terminal"]["handle"]
-    with state.edit(drive) as data:
+    def keep(data: dict) -> str:
         if data[key] == kept:
             data[key] = opened
         return data[key]
+
+    return state.update(drive, None, keep)
 
 
 def reload_command(terminal: str, text: str, request_id: str | None = None) -> str:
@@ -1147,11 +1149,12 @@ def died(drive: str, job_id: str, dispatch: str, end: LaneEnd, **outcome: str | 
 
 def death_kept(drive: str, job_id: str, dispatch: str, why: str, kept: dict) -> None:
     """Keep on the death of the job's lane by its dispatch, recorded by state.lane_died for why if none is, what a step of its restart came to, unless a lane since replaced it."""
-    with state.edit(drive) as data:
+    def died(data: dict):
         job = data["jobs"][job_id]
         if job.get("dispatch") == dispatch:
             state.lane_died(job, dispatch, why, state.now())
             state.lane_death(job, "dispatch").update(kept)
+    state.update(drive, None, died)
 
 
 def followed(drive: str, job_id: str, job: dict, shown: dict) -> dict:

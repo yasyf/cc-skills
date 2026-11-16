@@ -4622,8 +4622,8 @@ def loaded_rows(name: str, rows: tuple[Row, ...]) -> tuple[dict, dict[Row, objec
         return data, held
 
 
-def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...]) -> None:
-    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each open order the save moved to another lane, by its own record or by the drive's bindings, tells the lane losing it, by told_moved, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while writes of no rows and older installs still save the whole drive under it."""
+def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...], since: int | None = None, reads: frozenset[Row] = frozenset()) -> None:
+    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records or one reads names, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each open order the save moved to another lane, by its own record or by the drive's bindings, tells the lane losing it, by told_moved, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while writes of no rows and older installs still save the whole drive under it."""
     jobs = mine.get("jobs", {})
     ended = {key: then["state"] for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and jobs[key]["state"] in FINISHED_JOB_STATES and then.get("state") != jobs[key]["state"]}
     dropped = set(drop_ended_texts(mine, ended))
@@ -4641,10 +4641,17 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         try:
             for statement in LISTED:
                 db.execute(statement)
+            if since is not None:
+                if db.execute("SELECT COALESCE(MIN(rev), 1) FROM changed").fetchone()[0] > since + 1:
+                    raise Raced(("drive",))
+                watched = {*records, *reads}
+                for theirs in db.execute("SELECT DISTINCT collection, key FROM changed WHERE rev > ?", (since,)):
+                    if theirs in watched or (theirs[0], "*") in watched:
+                        raise Raced(tuple(filter(None, theirs)))
             for collection, key in records:
                 found = db.execute("SELECT body FROM rows WHERE collection = ? AND key = ?", (collection, key)).fetchone()
                 now = ABSENT if found is None else {} if found[0] is None else json.loads(found[0])
-                if now != held[(collection, key)]:
+                if since is None and now != held[(collection, key)]:
                     raise Raced(tuple(filter(None, (collection, key))))
                 wrote = fields.get((collection, key))
                 value = row_of(mine, (collection, key)) if not wrote or now is ABSENT else fields_set(now, row_of(mine, (collection, key)), wrote)
@@ -4699,6 +4706,135 @@ def redrawn(name: str) -> None:
             return
 
 
+class Reads(set[Row]):
+    pass
+
+
+class ReadCollection(dict):
+    """A collection of the drive that records in reads each record a write reads by its key, and every record, as "*", once it lists, counts or walks them."""
+
+    def __init__(self, collection: str, records: dict, reads: Reads) -> None:
+        super().__init__(records)
+        self.collection, self.reads = collection, reads
+
+    def __getitem__(self, key: str) -> object:
+        self.reads.add((self.collection, key))
+        return super().__getitem__(key)
+
+    def get(self, key: str, default: object = None) -> object:
+        self.reads.add((self.collection, key))
+        return super().get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        self.reads.add((self.collection, str(key)))
+        return super().__contains__(key)
+
+    def setdefault(self, key: str, default: object = None) -> object:
+        self.reads.add((self.collection, key))
+        return super().setdefault(key, default)
+
+    def pop(self, key: str, *default: object) -> object:
+        self.reads.add((self.collection, key))
+        return super().pop(key, *default)
+
+    def everything(self) -> None:
+        self.reads.add((self.collection, "*"))
+
+    def __iter__(self) -> Iterator[str]:
+        self.everything()
+        return super().__iter__()
+
+    def __len__(self) -> int:
+        self.everything()
+        return super().__len__()
+
+    def keys(self):  # type: ignore[override]
+        self.everything()
+        return super().keys()
+
+    def values(self):  # type: ignore[override]
+        self.everything()
+        return super().values()
+
+    def items(self):  # type: ignore[override]
+        self.everything()
+        return super().items()
+
+    def __eq__(self, other: object) -> bool:
+        self.everything()
+        return super().__eq__(other)
+
+    def __or__(self, other: dict) -> dict:  # type: ignore[override]
+        self.everything()
+        return dict(super().items()) | other
+
+    def copy(self) -> dict:
+        self.everything()
+        return dict(super().items())
+
+
+class ReadDrive(dict):
+    """The drive as a write of no named rows reads it, recording in reads each top-level field it reads and, through ReadCollection, each record, and every row once it walks the drive whole, so its save is refused only when another write committed a row it read or wrote."""
+
+    def __init__(self, data: dict, reads: Reads) -> None:
+        super().__init__({field: ReadCollection(field, value, reads) if field in COLLECTIONS else value for field, value in data.items()})
+        self.reads = reads
+
+    def __getitem__(self, field: str) -> object:
+        if field not in COLLECTIONS:
+            self.reads.add(("", field))
+        return super().__getitem__(field)
+
+    def get(self, field: str, default: object = None) -> object:
+        if field not in COLLECTIONS:
+            self.reads.add(("", field))
+        return super().get(field, default)
+
+    def __contains__(self, field: object) -> bool:
+        self.reads.add(("", str(field)))
+        return super().__contains__(field)
+
+    def setdefault(self, field: str, default: object = None) -> object:
+        self.reads.add(("", field))
+        return super().setdefault(field, default)
+
+    def pop(self, field: str, *default: object) -> object:
+        self.reads.add(("", field))
+        return super().pop(field, *default)
+
+    def everything(self) -> None:
+        self.reads.update({("", "*"), *((collection, "*") for collection in COLLECTIONS)})
+
+    def __iter__(self) -> Iterator[str]:
+        self.everything()
+        return super().__iter__()
+
+    def keys(self):  # type: ignore[override]
+        self.everything()
+        return super().keys()
+
+    def values(self):  # type: ignore[override]
+        self.everything()
+        return super().values()
+
+    def items(self):  # type: ignore[override]
+        self.everything()
+        return super().items()
+
+    def __or__(self, other: dict) -> dict:  # type: ignore[override]
+        self.everything()
+        return plain(self) | other
+
+    def copy(self) -> dict:
+        self.everything()
+        return plain(self)
+
+
+def plain(data: dict) -> dict:
+    """The drive a ReadDrive holds, as plain dicts, recording no reads."""
+    return {field: dict(dict.items(value)) if isinstance(value, ReadCollection) else value for field, value in dict.items(data)}
+
+
 def fields_set(record: dict, mine: object, fields: set[str]) -> dict:
     """The record with each of the fields as mine holds it, removed where mine holds none, every other field as the record holds it."""
     kept = {field: value for field, value in record.items() if field not in fields}
@@ -4720,11 +4856,45 @@ def handled_lock(name: str) -> Iterator[None]:
             kept_write(name, got - asked, time.monotonic() - got, "rows")
 
 
+def read_updated[T](name: str, change: Callable[[dict], T]) -> T:
+    """Apply change to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, running each effect it left by after_save only once its save commits; else run it again on the drive as it then stands, up to UPDATE_TRIES runs, and once each raced, a last time under the drive's lock as a write naming no rows, which locks.log names."""
+    why = ""
+    for _ in range(UPDATE_TRIES):
+        with editing(name) as taken:
+            loaded = load(name)
+            since, base, reads = LOADED_REV.get(), marshal.dumps(loaded), Reads()
+            data = ReadDrive(loaded, reads)
+            AFTER_SAVE[name] = []
+            try:
+                done = change(data)
+            finally:
+                effects = AFTER_SAVE.pop(name)
+            mine = plain(data)
+            was = marshal.loads(base)
+            written = tuple(sorted(written_rows(was, mine)))
+            try:
+                if written:
+                    rows_saved(name, {row: row_of(was, row) for row in written}, was, mine, written, since, frozenset(reads))
+            except Raced as raced:
+                why = f"another write changed {'.'.join(raced.args[0])} each time it ran"
+                released(taken)
+                continue
+        for effect in effects:
+            effect()
+        return done
+    with open(drive_dir(name) / "locks.log", "a") as log:
+        log.write(f"{stamp()} pid {os.getpid()} ran as a write of the whole drive, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
+    with edit(name) as data:
+        return change(data)
+
+
 def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], T]) -> T:
     """Apply change, a function of the drive that only reads and changes data, to the drive and return what it returns, as a write of rows that is never refused, or with rows None as a write naming no rows: on the drive as it loads, saved by rows_saved, and again on the drive as it then stands each time another write changed one of the rows meanwhile, up to UPDATE_TRIES runs; a change changing a row it did not name, or one raced past those runs, runs once more as a write naming no rows; locks.log names each such last run."""
-    if rows is None or name in BATCHED or WAITS_OUT_LOCK.get() or not database_path(name).exists():
+    if name in BATCHED or WAITS_OUT_LOCK.get() or not database_path(name).exists():
         with edit(name) as data:
             return change(data)
+    if rows is None:
+        return read_updated(name, change)
     for _ in range(UPDATE_TRIES):
         with editing(name) as taken:
             data, held = loaded_rows(name, rows)
