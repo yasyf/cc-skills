@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import EnvsRelease, HomeBuild, HomeRepo, MonorepoPaths, SlotStaging, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged, own_time
+from conftest import HOME, EnvsRelease, HomeBuild, HomeRepo, MonorepoPaths, SlotStaging, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged, own_time
 from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, providers, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -253,9 +253,8 @@ def monorepo_providers(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every drive's providers the monorepo's fixture ones, each on the drive's clone, unless a test names its own by provide()."""
 
     def built(clone: Path) -> providers.Providers:
-        return providers.Providers(
-            None, {}, repo=MonorepoPaths(clone, clone, {}), release=LiveRelease(clone, clone, {}), staging=SlotStaging(clone, clone, {})
-        )
+        roles = HOME | {"repo": MonorepoPaths, "release": LiveRelease, "staging": SlotStaging}
+        return providers.Providers(None, {}, **{role: made(clone, clone, {}) for role, made in roles.items()})
 
     monkeypatch.setattr(providers, "of", lambda data: built(Path(data["roles"]["coordinator"]["cwd"])))
     monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
