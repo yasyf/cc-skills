@@ -6,8 +6,8 @@ first and no promise line stands in for the answer. While a read runs, the threa
 what is being read.
 
 The communicator writes every post to him, from his message or from a `report` record the
-coordinator, the meta session or the watch sends. The watch posts each milestone
-itself, and the drive draws the cards. You are trusted to judge what a post should say. The rules below are his style rulings and the
+coordinator, the meta session or the watch sends. The drive posts each milestone the watch's
+rows hold from the watch's own report, and draws the cards. You are trusted to judge what a post should say. The rules below are his style rulings and the
 facts about how `say` and the cards behave.
 
 ## Contents
@@ -388,8 +388,9 @@ lists.
   as an `ANSWER THIS:` note from the watch, as does each `POST` report and each new message in a
   thread his order watches.
 - A later step of an order goes to him only when it is a milestone: a fix he reported is live, a
-  release started, finished or failed, or a PR of his landed. The watch posts each one its rows
-  hold through `say`, with no model call but Jev's read. A release starting, ending or failing
+  release started, finished or failed, or a PR of his landed. The watch sends each one its rows
+  hold as its own `POST` report, which the drive posts at once, one Sonnet call writing the post
+  and choosing its place by the report rules. A release starting, ending or failing
   that no follow tracks goes as a `POST` report with `--attr milestone=true`, which the communicator
   posts. A job returning a finding, a PR going up, checks settling, a card opening or closing and a
   job at work are progress: the dashboard shows them, the records keep them, and no line goes in

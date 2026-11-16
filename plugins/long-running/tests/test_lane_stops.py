@@ -6,7 +6,7 @@ from pathlib import Path
 import one_line_result
 import pytest
 from conftest import LANE_SPEC, Thread, own_time
-from drive import agents, install, reads, slack, state, talk
+from drive import agents, answer, install, reads, slack, state, talk
 
 THREAD = "1794200000.000100"
 QUESTION_LINK = f"https://acme.slack.com/archives/D123/p1794200100000100?thread_ts={THREAD}&cid=D123"
@@ -47,21 +47,24 @@ def failed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], 
     return 0, capsys.readouterr().out
 
 
-def test_the_watchs_own_live_line_of_a_proved_order_posts_through_say_from_no_session_and_closes_its_order_on_its_report(
+def test_the_watchs_own_live_line_of_a_proved_order_posts_through_report_line_from_no_session_and_closes_its_order_on_its_report(
     communicator: str, run, started: list[list[str]], slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}")
     kept = {"id": "install-proved-j1", "kind": "report", "to": ["communicator@demo"], "topic": "install-proved-o1", "attr": {"close": "o1", "thread": THREAD}, "text": "POST Copy fix is live in long-running 1.0.3", "body": "Fixed: Copy fix\n"}
     with state.edit("demo") as data:
         data["orders"]["o1"] |= {"close_report": kept | {"seq": "700002"}, "closed_on": "700002"}
-    report = {"seq": 700002, "kind": "report", "lane": "watch", "at": state.stamp(), "fields": {"attrs": {"close": "o1", "thread": THREAD}}}
+    report = {"seq": 700002, "kind": "report", "lane": "watch", "at": state.stamp(), "text": kept["text"], "refs": {}, "fields": {"attrs": {"close": "o1", "thread": THREAD}}}
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps(report) if argv[1] == "show" else ""))
     live = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": live, "thread_ts": THREAD})
-    monkeypatch.setattr(talk, "hook_refusal", lambda name, data, post: None)
+    asked: list[str] = []
+    monkeypatch.setattr(answer, "ask", lambda rows, words, system, tag: asked.append(rows) or (json.dumps({"text": "Copy fix is live in long-running 1.0.3.", "place": "thread"}), {}))
+    monkeypatch.setattr(slack, "post_findings", lambda text, draws_card: [])
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
-    line = talk.proved_line("demo", {"text": "Copy fix is live in long-running 1.0.3.", "record": "700002", "thread_ts": THREAD})
+    line = talk.report_line("demo", "700002")
     assert (line.startswith(f"POSTED {live}; o1 "), line.endswith("; o1 closed on report 700002")) == (True, True)
+    assert asked[0].splitlines()[:2] == ["Report 700002, a report:", "Copy fix is live in long-running 1.0.3"]
     data = state.load("demo")
     assert (data["orders"]["o1"]["state"], data["orders"]["o1"]["closed_on"], data["carried"]["700002"]) == ("done", "700002", live)
 

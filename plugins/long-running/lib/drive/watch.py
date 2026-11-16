@@ -271,11 +271,6 @@ def failed(watcher: Watcher, source: str, what: str, error: Exception, moment: d
     return [f"WATCH {what} failed {failures} times in a row: {error}"]
 
 
-def placed(attr: dict) -> dict:
-    """The say place a record's thread and channel attrs name, none for a record naming no thread."""
-    return ({"thread_ts": attr["thread"]} if attr.get("thread") else {}) | ({"channel_id": attr["channel"]} if attr.get("thread") and attr.get("channel") else {})
-
-
 def ids(pr: dict) -> str:
     return f"[{pr['order']} {pr['job']}]"
 
@@ -1242,7 +1237,7 @@ def status_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def status(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict, moment: datetime) -> None:
-    """Post the status message of the build a part follows, or rewrite it when its words changed, and once the build ended mark the follow ended and post its end line in the thread of his ask once, by end_line, so a post say refuses is said as a failed read is and never tried again."""
+    """Post the status message of the build a part follows, or rewrite it when its words changed, and once the build ended mark the follow ended and post its end line in the thread of his ask once, by end_line, so a post the drive refuses is said as a failed read is and never tried again."""
     from drive import talk
 
     if (read := watcher.builds[follow["build"]]) is None:
@@ -1280,7 +1275,7 @@ def status_words(read: dict, moment: datetime) -> str:
 
 
 def end_line(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict, read: dict) -> str:
-    """Post the end line of the build a part of the order follows in the thread of his ask, where the line delivers the part: its status message's final words, citing the record of the build's end; say's result."""
+    """Post the end line of the build a part of the order follows in the thread of his ask, where the line delivers the part, through milestone: its status message's final words, over the facts of the build's end; milestone's result."""
     facts = [
         f"His order {order_id}: {order['text']}",
         f"His ask, the part the end line delivers: {part}",
@@ -1292,19 +1287,21 @@ def end_line(watcher: Watcher, order_id: str, order: dict, part: str, follow: di
         "topic": f"follow-{order_id}",
         "id": f"follow-end-{order_id}-{follow['build']}",
         "attr": {"order": order_id, "part": f"{order_id}:{part}", "thread": follow["thread"]},
-        "text": f"the build {order_id} follows ended {read['state']}",
         "body": "\n".join(facts) + "\n",
     }
     return milestone(watcher, record, follow["words"])
 
 
 def milestone(watcher: Watcher, record: dict, words: str) -> str:
-    """Send the record holding a milestone's facts from the watch's lane, addressed to no session, so it wakes none, then post its words to him through say from the watch itself, by talk.watch_line, citing that record; say's result."""
+    """Send a milestone's report from the watch's lane, addressed to no session, so it wakes none, its text `POST` and the words the watch wrote him and its body the facts behind them, then post it from the drive itself by talk.report_line, whose Sonnet call writes the post from those words under REPORT_RULES and places it by the record's thread and channel attrs, at his DM root for a record naming neither; its result, or, for a report the model skips, the rule it gave, which settles the milestone as a post does."""
     from drive import talk, tools
 
-    [seq] = tools.sent(watcher.name, LANE, [record])
-    post = {"text": f"{words} ({{record:{seq}|its facts}}).", "record": seq} | placed(record.get("attr") or {})
-    return talk.watch_line(watcher.name, post)
+    made = record | {"text": f"POST {words}"}
+    [seq] = tools.sent(watcher.name, LANE, [limits.shortened(made) or made])
+    try:
+        return talk.report_line(watcher.name, seq)
+    except talk.Skipped as skipped:
+        return f"SKIPPED report {seq}: {skipped}"
 
 
 def build_line(watcher: Watcher, link: str) -> str:
@@ -1512,7 +1509,7 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the watch to post in the order's thread, or at his DM root for an order of his with none, and close it, by proved_lines, or, for an order whose reporters get its line in their own threads, for the handler this read starts on it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well. One an older install kept on a drive tooling order a session opened, which posts him no line, goes nowhere: that order closes done on the proof it holds, as install.finish now closes one. A report the watch posts itself, by state.watch_posts_itself, stays on its order with its seq once cci takes it, by reported, for proved_lines to post."""
+    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the watch to post in the order's thread, or at his DM root for an order of his with none, and close it, by proved_lines, or, for an order whose reporters get its line in their own threads, for the report-post this read starts on it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well. One an older install kept on a drive tooling order a session opened, which posts him no line, goes nowhere: that order closes done on the proof it holds, as install.finish now closes one. A report the watch posts itself, by state.watch_posts_itself, stays on its order with its seq once cci takes it, by reported, for proved_lines to post."""
     data = state.load(watcher.name)
     closing = {order_id: order for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
     if unasked := [order_id for order_id, order in closing.items() if state.unasked_tooling(order)]:
@@ -1542,7 +1539,7 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post the live line of each close report the watch sent that it posts itself, through say, by talk.proved_line, which the say hook's checks and Jev read first and which closes its order, so no handler session starts to post the words the report holds: the report's own words, its POST taken off, citing the report, whose Proof: fact is the read drive job prove made, as a line of a session posting on its own carries the record behind its fixed or live, in the thread its thread attr names; then the order keeps the report no longer. Any refusal, a check's or Jev's, his absence holding the line among them, or a post that fails, leaves the report to the relay's handler, the path every other report takes; a post whose order did not close, a step after the post failing included, keeps the report, so the next pass closes it posting nothing, said from its third failure in a row. Each outcome goes to the drive's posts log."""
+    """Post the live line of each close report the watch sent that it posts itself, by talk.report_line, whose Sonnet call writes the post from the report's words, whose Proof: fact is the read drive job prove made, under REPORT_RULES and places it by the report's thread and channel attrs, then closes its order on it, so no handler session starts to post the words the report holds; a report already carried in a post only closes its order, so a watch that ended between the post and the close posts no second line, and one the model skips closes its order with no line, as the model's call. Then the order keeps the report no longer. A post that fails, or a report placed outside the drive's channels, leaves the report to the relay's report-post, the path every other report takes, which hands one outside the drive's channels to the communicator; a post whose order did not close, a step after the post failing included, keeps the report, so the next pass closes it posting nothing, said from its third failure in a row. Each outcome goes to the drive's posts log."""
     from drive import talk
 
     data = state.load(watcher.name)
@@ -1550,13 +1547,16 @@ def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
     for order_id, order in heard_orders(watcher, data).items():
         if not (report := order["close_report"]) or "seq" not in report:
             continue
-        words = report["text"].removeprefix("POST ")
-        post = {"text": f"{words} ({{record:{report['seq']}|proof}}).", "record": report["seq"]} | placed(report["attr"])
+        seq, failed_post = report["seq"], False
         try:
-            outcome = f"{order_id} live line posted by the watch: {talk.proved_line(watcher.name, post)}"
-            closes = state.load(watcher.name)["orders"][order_id]["state"] in state.CLOSED_ORDER_STATES
+            said = f"CARRIED {link}{talk.closed(watcher.name, order_id, seq)}" if (link := state.load(watcher.name)["carried"].get(seq)) else talk.report_line(watcher.name, seq)
+            outcome = f"{order_id} live line posted by the drive: {said}"
+        except talk.Skipped as skipped:
+            outcome = f"{order_id} live line skipped: {skipped}{talk.closed(watcher.name, order_id, seq)}"
         except (state.DriveError, slack.SlackError) as error:
-            outcome, closes = f"{order_id} live line left to the communicator: {error}", report["seq"] not in state.load(watcher.name)["carried"]
+            outcome, failed_post = f"{order_id} live line left to the relay's report-post: {error}", True
+        now = state.load(watcher.name)
+        closes = now["orders"][order_id]["state"] in state.CLOSED_ORDER_STATES or failed_post and seq not in now["carried"]
         with open(state.drive_dir(watcher.name) / POSTS_LOG, "a") as log:
             log.write(f"{when(state.stamp(moment))} {outcome}\n")
         if not closes:
@@ -1588,7 +1588,7 @@ def reported(watcher: Watcher, records: list[dict]) -> list[str]:
 
 
 def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: datetime) -> list[str]:
-    """Close an incident that is over: its live work moves to a plain order and each of its orders keeps the recovery of its monitors, when it has any, and its fix live as its proof, then the record naming each PR of the incident as the watch last read it from GitHub and each order it closes, and the Live line the watch posts in its thread from that record, by talk.watch_line; a record that fails goes again next read."""
+    """Close an incident that is over: its live work moves to a plain order and each of its orders keeps the recovery of its monitors, when it has any, and its fix live as its proof, then the record naming each PR of the incident as the watch last read it from GitHub and each order it closes, its text the Live line the watch wrote him, which the drive posts in its thread from that record by talk.report_line, whose Sonnet call writes the post from those words under REPORT_RULES and closes each order the record names; one the model skips closes them with no line, as the model's call, and one that fails goes to a report-post of its own, which hands one outside the drive's channels to the communicator. The record carries no `POST`, so the relay never posts it a second time; a record that fails goes again next read."""
     from drive import talk
 
     read_ok = f"{', '.join(links)} read OK"
@@ -1614,7 +1614,7 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
         "kind": "report",
         "topic": f"watch-recovered-{head}",
         "attr": {"close": ",".join(group)} | state.thread_attr(data, incident),
-        "text": f"incident {head} is over: {'its monitors read OK and ' if links else ''}its fix is live",
+        "text": f"Live: {incident['title'] or cut(incident['text'], 80)} is over, {'its monitors read OK and ' if links else ''}its fix is live",
         "body": "\n".join(facts) + "\n",
     }
     try:
@@ -1622,24 +1622,25 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
     except state.DriveError as error:
         return failed(watcher, f"close of {head}", f"close record of {head}", error, moment)
     watcher.failures.pop(f"close of {head}", None)
-    lines, said = [], None
-    live = {"text": f"Live: {incident['title'] or cut(incident['text'], 80)} is over, {'its monitors read OK and ' if links else ''}its fix is live ({{record:{seq}|its facts}}).", "record": seq} | placed(record["attr"])
-    try:
-        said = talk.watch_line(watcher.name, live)
-    except (slack.SlackError, state.DriveError) as error:
-        lines = failed(watcher, f"live line {head}", f"Live line of {head}, posted from its record instead", error, moment)
-        try:
-            state.detach(watcher.name, ["report-post", seq], POSTS_LOG)
-        except OSError as failure:
-            lines += failed(watcher, f"live post {head}", f"post of the Live line of {head} from its record", failure, moment)
     def recovered_write(data: dict) -> None:
         for order_id in group:
             data["orders"][order_id]["recovered"] = state.stamp(moment)
 
     state.update(watcher.name, None, recovered_write)
-    closes = "".join(talk.closed(watcher.name, order_id, seq) for order_id in group) if said else ""
+    lines = []
+    try:
+        said = f"the drive posted its Live line: {talk.report_line(watcher.name, seq)}"
+    except talk.Skipped as skipped:
+        said = f"the drive posted no Live line, as {skipped}{''.join(talk.closed(watcher.name, order_id, seq) for order_id in group)}"
+    except (slack.SlackError, state.DriveError) as error:
+        said = "its Live line goes to report-post"
+        lines = failed(watcher, f"live line {head}", f"Live line of {head}, posted from its record by report-post instead", error, moment)
+        try:
+            state.detach(watcher.name, ["report-post", seq], POSTS_LOG)
+        except OSError as failure:
+            lines += failed(watcher, f"live post {head}", f"post of the Live line of {head} from its record", failure, moment)
     moved = f"; its live jobs, open PRs and parts left moved to the plain order {follow}" if follow else ""
-    return [*lines, f"RECOVERED {head}: {f'{read_ok} and ' if links else ''}{fix}, so the watch posted its Live line{closes}{moved}"]
+    return [*lines, f"RECOVERED {head}: {f'{read_ok} and ' if links else ''}{fix}, so {said}{moved}"]
 
 
 def follow_up(data: dict, head: str, group: list[str], created: str) -> str | None:
@@ -2999,11 +3000,10 @@ def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
             "attr": {"order": order_id} | ({"channel": made["id"]} if made else {}),
             "topic": f"page-{page_shown['slug']}",
             "id": f"page-{page_shown['slug']}-{laid}",
-            "text": f"the page {page_shown['slug']} is new or changed for him",
             "body": json.dumps({"page": page_shown["slug"], "glance": glance, "changed_for_him": layout["changed_for_him"]}, indent=1) + "\n",
         }
         try:
-            milestone_at(watcher, record, words, {"channel_id": made["id"]} if made else {})
+            milestone(watcher, record, words)
         except (slack.SlackError, state.DriveError) as error:
             return failed(watcher, f"page {page_shown['slug']}", f"post sending him the page {page_shown['slug']}", error, moment)
         applet.announce(watcher.name, page_shown["slug"], laid, layout)
@@ -3011,16 +3011,8 @@ def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return []
 
 
-def milestone_at(watcher: Watcher, record: dict, words: str, place: dict) -> str:
-    """milestone's post at a place of its own, such as a channel's root."""
-    from drive import talk, tools
-
-    [seq] = tools.sent(watcher.name, LANE, [record])
-    return talk.watch_line(watcher.name, {"text": f"{words} ({{record:{seq}|its facts}}).", "record": seq} | place)
-
-
 def limit_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Tell him once for this Mac each Claude usage limit a session here hit that has not reset, as the usage-limit log every drive here shares records it, by his words on the stop "nothing restarts them or tells him": a milestone he wants to know, which the watch posts itself through milestone, with no model; it posts under that log's lock and marks the hit told there once the post went out, so no other drive's watch tells him again, and a post that fails is tried again next pass."""
+    """Tell him once for this Mac each Claude usage limit a session here hit that has not reset, as the usage-limit log every drive here shares records it, by his words on the stop "nothing restarts them or tells him": a milestone he wants to know, which the drive posts through milestone; it posts under that log's lock and marks the hit told there once the post went out, so no other drive's watch tells him again, and a post that fails is tried again next pass."""
     log = state.root() / state.USAGE_LIMIT_LOG
     if not log.exists():
         return []
@@ -3035,7 +3027,7 @@ def limit_lines(watcher: Watcher, moment: datetime) -> list[str]:
             " and the watch restarts each agent and lane it stopped"
         )
         try:
-            milestone(watcher, {"kind": "report", "attr": {}, "topic": f"usage-limit-{hit['until']}", "text": f"Claude Code hit its {hit['limit']} limit on this Mac", "body": hit["notice"] + "\n"}, words)
+            milestone(watcher, {"kind": "report", "attr": {}, "topic": f"usage-limit-{hit['until']}", "body": hit["notice"] + "\n"}, words)
         except (slack.SlackError, state.DriveError) as error:
             return failed(watcher, "limit notice", "post telling him of Claude's usage limit on this Mac", error, moment)
         kept.write(json.dumps({"told": hit["until"], "drive": watcher.name}) + "\n")
@@ -4519,7 +4511,7 @@ def budget_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines = []
     for mine in over:
         try:
-            milestone(watcher, {"kind": "report", "attr": {}, "topic": f"budget-{mine}-{moment.date().isoformat()}", "text": f"{mine} spent its daily budget", "body": spend.his_line(mine) + "\n"}, spend.his_line(mine))
+            milestone(watcher, {"kind": "report", "attr": {}, "topic": f"budget-{mine}-{moment.date().isoformat()}", "body": spend.his_line(mine) + "\n"}, spend.his_line(mine))
         except (slack.SlackError, state.DriveError) as error:
             lines += failed(watcher, f"budget {mine}", f"line to him that {mine} spent its daily budget", error, moment)
             continue

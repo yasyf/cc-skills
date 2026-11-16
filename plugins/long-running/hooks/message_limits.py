@@ -1218,7 +1218,7 @@ def mechanical(payload: dict) -> dict:
 
 
 def hook_output(payload: dict) -> dict:
-    """What the say hook prints for a call, empty when it lets the call through unjudged: a deny with the rule it stands for, a warning, and what Jev weighs a post by beside his words, the post the drive's watch makes of a proved order's live line read by the same checks, by talk.hook_refusal; a post too large for Jev's requests goes out as settled.unheard_post lets it, and a check that fails lets the post out unchecked with a warning, since a gate that cannot finish fails open."""
+    """What the say hook prints for a call, empty when it lets the call through unjudged: a deny with the rule it stands for, a warning, and what Jev weighs a post by beside his words; a post too large for Jev's requests goes out as settled.unheard_post lets it, and a check that fails lets the post out unchecked with a warning, since a gate that cannot finish fails open."""
     if own_communicator(payload):
         return mechanical(payload)
     try:

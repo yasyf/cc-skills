@@ -1792,10 +1792,10 @@ SAFEGUARDED_LINE = (
 
 
 def safeguards_posts(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
-    """Each record the watch sends, and each line it says to him through say, on a stop a model's safeguards made."""
+    """Each record the watch sends, and the seq of each report the drive posts to him by talk.report_line, on a stop a model's safeguards made."""
     posted: list[dict] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: posted.extend(records) or [str(seq) for seq, _ in enumerate(records, 9)])
-    monkeypatch.setattr(talk, "watch_line", lambda name, post: posted.append(post) or "posted")
+    monkeypatch.setattr(talk, "report_line", lambda name, seq: posted.append({"record": seq}) or "posted")
     return posted
 
 

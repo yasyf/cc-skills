@@ -6243,12 +6243,12 @@ def unasked_tooling(order: dict) -> bool:
 
 
 def watch_posts_itself(order: dict) -> bool:
-    """Whether the drive's watch posts the live line of the close report an order keeps itself, through say, with no handler: a close report drive job prove or the watch's DONE at a merge kept on an order with no reporter, which hears its own note, an incident's included; a drive tooling order a session opened closes on its proof with no line, by unasked_tooling."""
+    """Whether the drive's watch posts the live line of the close report an order keeps itself, through talk.report_line, with no report-post of its own: a close report drive job prove or the watch's DONE at a merge kept on an order with no reporter, which hears its own note, an incident's included; a drive tooling order a session opened closes on its proof with no line, by unasked_tooling."""
     return not order["reporters"] and not unasked_tooling(order)
 
 
 def watch_posting(data: dict) -> set[str]:
-    """The seq of each close report the watch sent and posts itself, which an order keeps until its post closes it or a refusal leaves it to a handler, so the relay starts no handler on it meanwhile."""
+    """The seq of each close report the watch sent and posts itself, which an order keeps until its post closes it or a failed post leaves it to the relay's report-post, so the relay starts no report-post on it meanwhile."""
     return {order["close_report"]["seq"] for order in data["orders"].values() if order["close_report"] and "seq" in order["close_report"]}
 
 
