@@ -3200,7 +3200,7 @@ def ask_source(name: str, shown: dict) -> Path:
     rebuilt = state.rebuilt_ask(name, waits)
     if not rebuilt.exists():
         rebuilt.write_text(limits.rebuilt(shown["card"], rebuilt.parent, jobs))
-    with state.edit(name) as data:
+    def source_kept(data: dict) -> None:
         if job := data["jobs"].get(job_id := state.waits_job(data, waits)):
             job["questions"] = [
                 question
@@ -3209,6 +3209,8 @@ def ask_source(name: str, shown: dict) -> Path:
             ]
             job["questions"].append(state.new_question(str(rebuilt), title, shown["asked"], card=url, holds=limits.redrawn(rebuilt.read_text()).holds) | {"waits": waits})
             state.join_card(data, job_id, url)
+
+    state.update(name, None, source_kept)
     return rebuilt
 
 
