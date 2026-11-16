@@ -849,7 +849,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "roles": {role: {"session": session, "cwd": cwd, "started": stamp()}},
         "subcoordinators": {},
         "handlers": {},
-        "slack": {"page": None, "watch": [], "swept": None, "waiting": {}},
+        "slack": {"page": None, "watch": [], "swept": None, "waiting": {}, "digest": None},
         "owner": {"heard": None, "away": None, "absence": None},
         "orders": {},
         "jobs": {},
@@ -1352,6 +1352,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data["slack"].pop("channel", None)
     data["slack"].setdefault("swept", None)
     data["slack"].setdefault("waiting", {})
+    data["slack"].setdefault("digest", None)
     for kept in data["slack"]["waiting"].values():
         kept.setdefault("pinned", False)
     for job in data["jobs"].values():

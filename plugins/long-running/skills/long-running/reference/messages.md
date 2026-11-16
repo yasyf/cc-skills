@@ -653,6 +653,12 @@ far other posts push it up. It counts the open cards whose project posts there, 
 on the dashboard, then links the first five, those fixing a bug hurting someone now first. Once
 nothing waits there it reads "No open cards".
 
+**The daily digest.** You never write it either: once a Pacific day the watch posts one table in his
+DM linking each question card of his asked more than 24 hours before, each card keeping its buttons
+where it sits. It is the only place an old card is asked again, by his words "you keep bringing me
+old questions": no order's thread line names a card that day's digest lists, and the next day's
+digest lists it again while it stands.
+
 ## When it goes out
 
 - His message gets its ack inside 5 to 10 seconds, whatever else is running; no handler brief,

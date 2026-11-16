@@ -51,6 +51,7 @@ DUE_AHEAD = timedelta(minutes=5)
 CLAIM_REPLIES = timedelta(minutes=5)
 HANDOFF_FACT = "handoff"
 WAITED_FACT = "card waiting"
+DIGEST_AGE = timedelta(hours=24)
 FREED_AGAIN = timedelta(minutes=30)
 BUILT_BASE = "{built}, the change yours builds on, its PR held on his answer: cut your branch from that head, so your PR stacks on it"
 LIVE_EVERY = timedelta(minutes=5)
@@ -2230,6 +2231,30 @@ def send_answer(name: str, job_id: str, message_id: str, kept: dict) -> orca.Orc
     return None
 
 
+def digest_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Once a Pacific day, post in his DM one digest of each question card of his asked more than DIGEST_AGE before, as one table linking each card, which keeps its buttons where it sits and takes his answer there: the only place an old card is asked again, by his words "you keep bringing me old questions", so the news line of its order no longer names it, by waited_cards, and tomorrow's digest lists it again while it stands; kept on the drive by its day, link and waits ids, and a post that fails goes again on the next pass, said from its third failure in a row."""
+    if watcher.project or watcher.cards is None:
+        return []
+    from drive import talk
+
+    day = moment.astimezone(view.ZONE).date().isoformat()
+    if (state.load(watcher.name)["slack"]["digest"] or {}).get("day") == day:
+        return []
+    old = sorted((shown for shown in watcher.cards["questions"] if shown["card"].get("waits") and moment - state.parse_time(shown["asked"]) > DIGEST_AGE), key=lambda shown: shown["asked"])
+    folded = {"day": day, "message": None, "waits": [shown["card"]["waits"] for shown in old]}
+    if old:
+        rows = "\n".join(f"| {when(shown['asked'])} | {{card:{shown['card']['waits']}}} |" for shown in old)
+        words = f"*Asked over a day ago and still waiting on you: {len(old)} questions.* Each card takes your answer where it sits.\n\n| Asked | Question |\n| --- | --- |\n{rows}"
+        try:
+            folded["message"] = talk.posted(watcher.name, {"text": words, "request_key": f"digest:{day}"})["permalink"]
+        except (slack.SlackError, state.DriveError) as error:
+            return failed(watcher, "digest", "post of the daily digest of his old questions", error, moment)
+        watcher.failures.pop("digest", None)
+    with state.edit(watcher.name) as saved:
+        saved["slack"]["digest"] = folded
+    return [f"DIGEST {day}: {len(old)} of his question cards asked more than a day ago, linked in {folded['message']}"] if old else []
+
+
 def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Keep the one post in his DM and in each operator channel that says what waits on him there, in the words talk.waiting_posts gives it, which stands in for asking any card again: posted once a card first waits on him there and edited in place whenever its words change, and pinned to its conversation once, so it stays in that conversation's pinned list; each kept with its words and whether it is pinned in the drive across watch restarts, so a post kept before pinning began is pinned on the next pass. A post, edit or pin that fails goes again on the next pass and is said from its third failure in a row."""
     if watcher.project or watcher.cards is None:
@@ -2591,13 +2616,14 @@ def subjects(data: dict, group: list[str], registered: dict[str, list[str]]) -> 
 
 
 def waited_cards(data: dict, cards: dict | None, jobs: dict[str, dict], prs: dict[str, dict], moment: datetime) -> dict[str, str]:
-    """Each card of his on these jobs and PRs still open past CARD_WAIT, by its news fact, with what a line says of it: a job's open question drawn on a card, holding what its `Holds:` line names, and his open card carrying a PR that asks his Approve, by view.card_for in cc-slack's store, timed from when that card was asked, as the dashboard's queue times it, holding that PR's landing, a PR no open card carries, or with his cards unread, having none, so its order's next line tells him once that it still waits and what it holds, by his words 6cd6aa2 "stuff I assume is done is jsut sitting around for a week"."""
+    """Each card of his on these jobs and PRs still open past CARD_WAIT, by its news fact, with what a line says of it: a job's open question drawn on a card, holding what its `Holds:` line names, unless today's digest_lines post lists it, and his open card carrying a PR that asks his Approve, by view.card_for in cc-slack's store, timed from when that card was asked, as the dashboard's queue times it, holding that PR's landing, a PR no open card carries, or with his cards unread, having none, so its order's next line tells him once that it still waits and what it holds, by his words 6cd6aa2 "stuff I assume is done is jsut sitting around for a week"."""
+    digested = (data["slack"]["digest"] or {}).get("waits", [])
     asked = {
         drawn: f'{job_id}\'s card {drawn}, "{cut(question["title"] or "", 120)}", asked {when(question["asked"])}, holding '
         + ("every change of its job, its question kept with no Holds: line" if question["holds"] is None else question["holds"] or "nothing, its Holds: line reading none")
         for job_id, job in jobs.items()
         for question in view.open_questions(job)
-        if (drawn := question["card"]) and moment - state.parse_time(question["asked"]) > view.CARD_WAIT
+        if (drawn := question["card"]) and moment - state.parse_time(question["asked"]) > view.CARD_WAIT and question["waits"] not in digested
     }
     tapped = {
         pr["url"]: f'his card on {key}, "{cut(pr["title"], 120)}", asking his Approve since {when(shown["asked"])}, holding {key} from landing'
@@ -5244,6 +5270,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     carry_held,
                     compact_lines,
                     waiting_post_lines,
+                    digest_lines,
                     page_lines,
                     down_lines,
                 )
