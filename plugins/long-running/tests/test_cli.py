@@ -5594,6 +5594,24 @@ def test_his_asks_are_kept_in_his_words_on_the_parts_delivering_them_and_a_later
     assert (whole["words"], whole["parts"]) == ("Drive tooling: one thing", ["Whole message"])
 
 
+def test_an_ask_keeps_the_lane_delivering_it_its_check_and_its_due_time_and_a_later_call_sets_them_leaving_his_words(run: Run, meta: str) -> None:
+    run(
+        "order", "add", "--title", "Quiet bot", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: less chatty on trivia",
+        "--lane", "oncall-reply-judgment", "--accept", "a trivia thread gets no reply", "--due", "2026-11-17T01:00:00+00:00",
+    )
+    (added,) = state.load("demo")["orders"]["o1"]["asks"].values()
+    assert (added["lane"], added["accept"], state.parse_time(added["due"])) == ("oncall-reply-judgment", "a trivia thread gets no reply", state.parse_time("2026-11-17T01:00:00+00:00"))
+    code, out = run("order", "ask", "o1", "--words", "and post the incident channel to #outage", "--link", "terminal", "--lane", "oncall-comms-rethink")
+    ask_id = out.split()[0]
+    assert (code, state.load("demo")["orders"]["o1"]["asks"][ask_id]["lane"], "accept" in state.load("demo")["orders"]["o1"]["asks"][ask_id]) == (0, "oncall-comms-rethink", False)
+    assert run("order", "ask", "o1", "--ask", ask_id, "--accept", "#outage shows the channel link")[0] == 0
+    kept = state.load("demo")["orders"]["o1"]["asks"][ask_id]
+    assert (kept["words"], kept["lane"], kept["accept"]) == ("and post the incident channel to #outage", "oncall-comms-rethink", "#outage shows the channel link")
+    assert run("order", "ask", "o1", "--ask", ask_id, "--words", "other words")[0] != 0
+    assert run("order", "ask", "o1", "--ask", ask_id)[0] != 0
+    assert run("order", "ask", "o1", "--lane", "x")[0] != 0
+
+
 def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_counting_as_the_designs_part(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

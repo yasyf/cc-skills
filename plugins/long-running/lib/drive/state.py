@@ -4334,11 +4334,24 @@ def whole_order(text: str) -> str:
 ASK_PART = "ask {ask}"
 
 
-def add_ask(data: dict, order_id: str, words: str, link: str | None, parts: list[str], moment: str) -> str:
-    """Keep one thing he asked for on its order, in his words, with the permalink of the message that asked it and the parts that deliver it: its id, drive-wide, which a release's --asks names. The hearing session splits his message into asks, and code only stores them, by his rethink step 5."""
+def add_ask(data: dict, order_id: str, words: str, link: str | None, parts: list[str], moment: str, terms: dict) -> str:
+    """Keep one thing he asked for on its order, in his words, with the permalink of the message that asked it, the parts that deliver it and its terms, by ask_terms: its id, drive-wide, which a release's --asks names. The hearing session splits his message into asks, and code only stores them, by his rethink step 5."""
     ask_id = next_id({held: None for order in data["orders"].values() for held in order["asks"]}, "a")
-    data["orders"][order_id]["asks"][ask_id] = {"words": words, "link": link, "at": moment, "parts": parts}
+    data["orders"][order_id]["asks"][ask_id] = {"words": words, "link": link, "at": moment, "parts": parts} | terms
     return ask_id
+
+
+ASK_TERMS = ("lane", "accept", "due")
+
+
+def ask_terms(lane: str | None, accept: str | None, due: str | None) -> dict:
+    """The terms an ask is kept on, by his pick df5f5ca "Migrate to drive orders": the lane that delivers it, such as a teammate session outside the drive's jobs, the check that proves it delivered, and when it is due, by parse_due; each one not given left off, so a later call sets it."""
+    return {key: value for key, value in (("lane", lane), ("accept", accept), ("due", due and stamp(parse_due(due)))) if value}
+
+
+def ask_terms_line(ask: dict) -> str:
+    """An ask's terms as the end of its line: lane, check and due, each it holds."""
+    return "".join(f"; {key} {ask[key]}" for key in ASK_TERMS if ask.get(key))
 
 
 def find_ask(data: dict, ask_id: str) -> tuple[str, dict] | None:
