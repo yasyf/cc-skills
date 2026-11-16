@@ -20,6 +20,7 @@ WORKER_ITEMS = 18
 WORKERS_PER_PASS = 4
 POOLS = ("local", "remote")
 READS_PER_PASS = 12
+TIME_MOVES = timedelta(minutes=5)
 CUT_SHAPE = {"cut_items": 6, "cut_minutes": 30, "train_minutes": 60, "promotion_minutes": 30, "ci_minutes": 20, "start_moves": 10, "cut_steps": ""}
 CUT_STEPS = "start one cut on {env} of the items' PR heads through the release provider, then run the items' cases once staging serves it"
 STALL_AFTER = timedelta(minutes=10)
@@ -93,7 +94,7 @@ def scheduled(data: dict, moment: datetime) -> None:
         if not STAGE.queued(data, job):
             continue
         times = tuple(map(state.stamp, plan[job_id])) if job_id in plan else (None, None)
-        if (job.get("starts_at"), job.get("ends_at")) != times:
+        if moved(job.get("starts_at"), times[0]) or moved(job.get("ends_at"), times[1]):
             job.update(starts_at=times[0], ends_at=times[1])
         if job_id in plan and state.class_rank(data, job) != state.CLASSES.index("process"):
             asks.setdefault(job["order"], []).append(plan[job_id])
@@ -108,6 +109,11 @@ def scheduled(data: dict, moment: datetime) -> None:
             held["what"] = what
         else:
             owing.add(data, order_id, owing.STEP, what, moment + owing.BLOCKED_DUE, {"start": order_id}, "its staging start", moment, voice=True)
+
+
+def moved(kept: str | None, planned: str | None) -> bool:
+    """Whether a planned time moved enough to write: set or cleared, or by TIME_MOVES or more, so a plan drifting with the clock while the env is free writes nothing each pass."""
+    return (kept is None) != (planned is None) or bool(kept and planned and abs(state.parse_time(kept) - state.parse_time(planned)) >= TIME_MOVES)
 
 
 def wait_eta(data: dict, wait: str, moment: datetime) -> tuple[str, datetime | None]:
@@ -126,8 +132,11 @@ def wait_eta(data: dict, wait: str, moment: datetime) -> tuple[str, datetime | N
 
 def untimed(data: dict, job_id: str, moment: datetime) -> str:
     """Why a queued item has no planned start, never bare: each wait it holds and, where a row knows, when that ends."""
+    job = data["jobs"][job_id]
+    if not (waits := STAGE.blocking(data, job_id)):
+        return f"claimed by worker {worker}, which runs it" if (worker := claimed_by(data, job)) else f"not ready to pull while {job_id} is {job['state']}"
     said = []
-    for wait in STAGE.blocking(data, job_id) or [data["jobs"][job_id]["state"]]:
+    for wait in waits:
         what, ends = wait_eta(data, wait, moment)
         said.append(f"after {what}, about {when(state.stamp(ends))}" if ends else f"waits on {what}, no estimate")
     return "; ".join(said)
