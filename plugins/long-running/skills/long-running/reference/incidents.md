@@ -131,6 +131,9 @@ cc-notes investigation: premise, timeline, findings and root cause.
   - When a build passes both, the rollback starts inside its clock. When none does, the job
     returns that evidence, and `drive incident stop <o>` starts the stop. In the monorepo the
     rollback is the `release` skill's. For a tool this Mac runs, the job installs that release.
+    A running watch moves to a new long-running install at most once per 15 minutes, so a fix to
+    the drive's own code reaches it at once only through
+    `sudo -n /usr/local/libexec/claude-restart service com.yasyf.long-running.watch.<drive>`.
   - **cause**, the diagnosis job, owns the record and sends the fix job each suspect it confirms.
     It gates neither the rollback nor the fix.
 - **stop**, with apply authority, when no build lacks the failing path. It is the incident's
