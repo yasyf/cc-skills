@@ -87,7 +87,7 @@ def claim_main(name: str, job_id: str) -> str:
     if not (repo := state.load(name)["jobs"][job_id]["repo"]):
         return ""
     failing = install.default_failures(repo)
-    return state.update(name, None, lambda data: state.claim_mains(data, repo, job_id, failing, None, state.stamp(state.now())))
+    return state.write(name, lambda data: state.claim_mains(data, repo, job_id, failing, None, state.stamp(state.now())))
 
 
 def lane_held(*flags: str) -> dict:
@@ -391,7 +391,7 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
                 if (now := data["prs"][key]["tap"]) and now["at"] == tap["at"]:
                     now["picks"][wait]["seq"] = seq
 
-    state.update(name, None, answer_picks_write)
+    state.write(name, answer_picks_write)
     superseded.follow(name, [(job_id, question) for job_id, question in view.drawn_on(state.load(name), *seqs) if (question["closed"] or {}).get("seq") in seqs.values()])
     return failed
 
@@ -420,7 +420,7 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
                 data["prs"][key]["lander"]["dequeue"] = dict(claim)
         return units, kills, dequeues
 
-    units, kills, dequeues = state.update(name, None, stop_landings)
+    units, kills, dequeues = state.write(name, stop_landings)
     signalled: set[tuple[str, ...]] = set()
     spawned: dict[tuple[str, ...], int] = {}
 
@@ -451,9 +451,9 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
             spawned[unit] = unqueue(name, list(unit), why)
     finally:
         if kills:
-            state.update(name, None, own)
+            state.write(name, own)
         elif dequeues:
-            state.update(name, tuple(("prs", key, "lander") for unit in dequeues for key in unit), own)
+            state.write(name, own)
     return [key for unit in units.values() for key in unit]
 
 
@@ -524,9 +524,9 @@ def undequeued(name: str, keys: list[str], why: str) -> str:
         for key in keys:
             data["prs"][key]["lander"].pop("dequeue")
         lane = state.heard_lane(data, data["prs"][keys[-1]]["order"])
-        state.after_save(name, lambda: state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=lane) or [])
+        state.after(lambda: state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=lane) or [])
 
-    state.update(name, None, dropped)
+    state.write(name, dropped)
     return outcome
 
 
@@ -667,7 +667,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
                         if edited["prs"][key]["exempt"] == state.CI_ONLY:
                             edited["prs"][key].update(exempt=None, wants_tap=True)
 
-                state.update(name, None, reached)
+                state.write(name, reached)
             if misfiled:
                 outcome = f"not landed: {'; '.join(misfiled.values())}"
             elif untested:
@@ -704,7 +704,7 @@ def record(name: str, keys: list[str], outcome: str, below: list[str], asked: di
             data["prs"][key]["review_asked"] = head
         noted(name, data, keys, outcome, below)
 
-    state.update(name, None, recorded)
+    state.write(name, recorded)
     return outcome
 
 
@@ -722,7 +722,7 @@ def noted(name: str, data: dict, keys: list[str], outcome: str, below: list[str]
         repo, number = key.split("#")
         events.append({"repo": repo, "number": int(number), "change": outcome, "lane": state.heard_lane(data, pr["order"])})
     if events:
-        state.after_save(name, lambda: [state.append_event(name, "landing", **event) for event in events] and [])
+        state.after(lambda: [state.append_event(name, "landing", **event) for event in events] and [])
 
 
 class Halted(SystemExit):
@@ -846,7 +846,7 @@ def merged(name: str, key: str, method: str, flags: list[str], past: str = "") -
         urgent = hotfix(data, data["prs"][key])
         return urgent
 
-    urgent = state.update(name, None, merged_write)
+    urgent = state.write(name, merged_write)
     if landed["state"] != "merged":
         return f"not landed: GitHub reads it {landed['state']} after {' '.join(MERGE)} said it merged, so nothing was installed"
     sha = landed["merged_sha"]
