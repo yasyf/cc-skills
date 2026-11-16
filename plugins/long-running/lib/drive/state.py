@@ -795,13 +795,13 @@ class Keeping(NamedTuple):
 
 
 class Owed(NamedTuple):
-    """The effect a write owing messages on a job's outbox leaves once per job, by owe_reply: deliver everything the outbox holds as committed, by deliver_owed, those a dead process left included, so one delivery and one ack serve every message the job owes."""
+    """The effect a write owing messages on a job's outbox leaves once per job, by owe_reply: deliver everything the outbox holds as committed, its row read alone, by deliver_owed, those a dead process left included, so one delivery and one ack serve every message the job owes."""
 
     name: str
     job_id: str
 
     def __call__(self) -> list[str]:
-        return deliver_owed(self.name, self.job_id, owed(self.name, self.job_id))
+        return deliver_owed(self.name, self.job_id, (saved_row(self.name, "jobs", self.job_id) or {}).get("outbox", []))
 
 
 def keep_reply_saved(name: str, job_id: str, message: dict) -> None:
