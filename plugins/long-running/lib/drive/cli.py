@@ -1574,7 +1574,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
-    unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, known := state.load(name), args.reading) or brief.scope_refusal(args.release, known, args.goal or "") or brief.uncarried_refusal(args.release, known) or brief.away_refusal("start", args.release, known, state.now()))
+    unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, known := state.load(name), args.reading) or brief.uncarried_refusal(args.release, known) or brief.away_refusal("start", args.release, known, state.now()))
     if args.release and not unreleased:
         for line in brief.release_notes([args.release], state.load(name)):
             print(f"drive job add: {line}", file=sys.stderr)
@@ -2363,7 +2363,7 @@ def release_scope(data: dict, asked: limits.Question, text: str, recorded: list[
         f"its release leaves out {target}, which no failing test and no ruling of his excludes: a release ships every target his latest ruling on it does not exclude, read fresh from"
         f" his words, never from an earlier plan or a reader's choice. Ship {target}, or draw `{target} fails: <the failing test>` on the card, or write"
         f' `{target} left out by his <id>: "<his words>"` quoting {newest} ({settled.SCOPE_WORDS})'
-        for target in dict.fromkeys(target for flags in starts for target in settled.unexcused(settled.shipped(flags), cwd, f"{drawn}\n{cited}", [latest] if latest else []))
+        for target in dict.fromkeys(target for flags in starts for target in settled.unexcused(settled.carried_targets(settled.shipped(flags), cwd), cwd, f"{drawn}\n{cited}", [latest] if latest else []))
     ]
 
 
@@ -4417,7 +4417,7 @@ def job_held(args: argparse.Namespace) -> int:
     find(data["jobs"], job_id, "job")
     if args.release:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
-        refused = hold and brief.hold_refusal(args.release, data, hold) or args.release_verb in brief.RELEASE_STARTS and brief.scope_refusal(args.release, data, data["jobs"][job_id]["goal"]) or args.release_verb and brief.away_refusal(args.release_verb, args.release, data, state.now())
+        refused = hold and brief.hold_refusal(args.release, data, hold) or args.release_verb and brief.away_refusal(args.release_verb, args.release, data, state.now())
         return emit(args, refused or f"no hold of his refuses {args.release}", {"id": job_id, "release": refused})
     if args.cluster:
         refused = brief.cluster_job_refusal({"cluster": args.cluster, "cronJob": args.cronjob, "reason": args.reason}, data, state.now())

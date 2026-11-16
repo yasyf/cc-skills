@@ -320,21 +320,20 @@ def recorded_job(record: dict, data: dict) -> dict | None:
     return max(ordered, key=lambda job: state.parse_time(job["created"]), default=None)
 
 
-def scope_refusal(release: str, data: dict, said: str) -> str | None:
-    """Why a production `ci release start` of the whole platform may not start, by the target list it passes: it leaves out a target, by settled.unexcused, that said, the goal or brief of the job starting it, neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting the answer of his its --order names, his ruling on this release; none for a rehearsal(), a hotfix or a start his words name target by target, by his words settled.SCOPE_WORDS."""
+def scope_refusal(release: str, record: dict, data: dict, said: str) -> str | None:
+    """Why a production release of the whole platform may go on no further, by the targets its build carries as go/ci's record lists them, its picks and each target go/ci pulled in, never the flags it started with: it leaves out a target, by settled.unexcused, that said, the goal and brief of the job that started it, neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting the answer of his its --order names, his ruling on this release; none for a rehearsal() or a release his words name target by target, by his words settled.SCOPE_WORDS."""
     if rehearsal(release):
         return None
     cwd = data["roles"]["coordinator"]["cwd"]
-    starts = [flags for flags in started(release) if flags.get("targets") and not flags.get("hotfix")]
     rulings = []
-    for answer_id in dict.fromkeys(order for flags in starts for order in flags.get("order", ())):
+    if order := record.get("order"):
         with contextlib.suppress(state.DriveError):
-            rulings.append({"answer": answer_id, "words": settled.his(settled.shown(answer_id, cwd)["body"])})
-    if not (dropped := list(dict.fromkeys(target for flags in starts for target in settled.unexcused(settled.shipped(flags), cwd, said, rulings)))):
+            rulings.append({"answer": order, "words": settled.his(settled.shown(order, cwd)["body"])})
+    if not (dropped := settled.unexcused({*(record.get("picks") or ()), *(record.get("targets") or ())}, cwd, said, rulings)):
         return None
     return (
-        f"refused: `{cut(release, 200)}` leaves out {', '.join(dropped)}, and a release ships every target his latest ruling on it does not exclude, read fresh from his words,"
-        f" never from an earlier plan or a reader's choice: add each to its targets, or record in the job's goal `<target> fails: <the failing test>`, or"
+        f"refused: release {record.get('name')} ({record.get('build')}) carries no {', '.join(dropped)}, and a release ships every target his latest ruling on it does not exclude, read fresh from his words,"
+        f" never from an earlier plan or a reader's choice: start it again carrying each, or record in its job's goal `<target> fails: <the failing test>`, or"
         f' `<target> left out by his <its --order answer>: "<his words leaving it out>"` ({settled.SCOPE_WORDS})'
     )
 

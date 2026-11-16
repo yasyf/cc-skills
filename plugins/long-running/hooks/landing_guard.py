@@ -104,6 +104,7 @@ COORDINATOR_WORK = (
     ("make",),
 )
 RELEASE_CUTS = frozenset({"start", "hotfix", "resume", "approve", "rollback", "rerun", "api"})
+SCOPED_FOLLOWS = frozenset({"approve", "resume"})
 READS_ONLY = frozenset({"--plan", "--dry-run", "--help", "-h"})
 RELEASE_PIPELINE = "release"
 RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/(\d+))?(?:/|$)")
@@ -512,9 +513,10 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     record = (named := brief.followed(words)) and brief.release_record(named, data["roles"]["coordinator"]["cwd"])
     job = record and brief.recorded_job(record, data)
     release = release_of(words, briefed, data["jobs"].values(), job and job["brief_flags"]["release"])
+    said = "\n".join([briefed, *([job["goal"], Path(job["brief"]).read_text() if job.get("brief") else ""] if job else [])])
     try:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
-        return hold and brief.hold_refusal(release, data, hold) or verb in brief.RELEASE_STARTS and brief.scope_refusal(release, data, briefed) or brief.away_refusal(verb, release, data, state.now())
+        return hold and brief.hold_refusal(release, data, hold) or record and verb in SCOPED_FOLLOWS and brief.scope_refusal(release, record, data, said) or brief.away_refusal(verb, release, data, state.now())
     except state.DriveError as error:
         return HOLD_UNREAD.format(command=" ".join(words), error=error)
 

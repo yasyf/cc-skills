@@ -1308,12 +1308,18 @@ def left_out(release: dict, cwd: str) -> list[str]:
     return [target for target in platform_targets(cwd) if not set(parts[target]) & ships]
 
 
-def unexcused(release: dict, cwd: str, said: str, rulings: list[dict]) -> list[str]:
-    """Each target a start of the whole platform leaves out, by left_out(), that said neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting one of rulings, each an answer of his as {answer, words}, by his words SCOPE_WORDS; none for a start shipping half the platform's targets or fewer, a release his words name target by target, such as SandSQL's own."""
-    whole, dropped = platform_targets(cwd), left_out(release, cwd)
+def unexcused(carried: set[str], cwd: str, said: str, rulings: list[dict]) -> list[str]:
+    """Each target of the whole platform, by platform_targets(), a release carrying the targets in carried leaves out, that said neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting one of rulings, each an answer of his as {answer, words}, by his words SCOPE_WORDS; none for a release carrying half the platform's targets or fewer, one his words name target by target, such as SandSQL's own."""
+    whole = platform_targets(cwd)
+    dropped = [target for target in whole if target not in carried]
     if (len(whole) - len(dropped)) * 2 <= len(whole):
         return []
     return [target for target in dropped if not excused(target, said, rulings)]
+
+
+def carried_targets(release: dict, cwd: str) -> set[str]:
+    """The targets a start's flags name whose components it ships, by left_out(): what a card's start carries before go/ci pulls anything in."""
+    return set(platform_targets(cwd)) - set(left_out(release, cwd))
 
 
 def excused(target: str, said: str, rulings: list[dict]) -> bool:
