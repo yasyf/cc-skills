@@ -174,7 +174,7 @@ def test_a_communicator_holds_each_channel_drive_channels_made_from_its_next_cal
     made = {"him-drive-demo": {"id": "G0DRIVE", "name": "him-drive-demo"}, "him-drive-demo-tooling": {"id": "G0TOOLS", "name": "him-drive-demo-tooling"}}
     monkeypatch.setattr(slack, "cc_slack", lambda verb, channel: made[channel])
     monkeypatch.setattr(slack, "operator_channels", lambda: list(made.values()))
-    run("channels")
+    run("channels", "--make")
     context = rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"})
     assert context.splitlines()[1] == "Hold with slack_watch: his DM D123, #him-drive-demo G0DRIVE, #him-drive-demo-tooling G0TOOLS"
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None

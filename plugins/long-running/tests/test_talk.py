@@ -170,7 +170,9 @@ def test_drive_channels_moves_each_open_card_of_his_dm_to_its_projects_channel_o
     monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: sent.append(argv) or (made[argv[1]] if argv[0] == "operator-channel" else {"permalink": moved}))
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [asked, unfiled], "pr_cards": [pr_card], "closed": []})
 
-    assert run("channels")[1].splitlines()[-1] == "3 open card(s) of his DM moved to their project's channel"
+    assert run("channels")[1].splitlines() == ["no channel yet for the drive: --make makes it", "no channel yet for Drive tooling: --make makes it"]
+    assert sent == []
+    assert run("channels", "--make", "--move-cards")[1].splitlines()[-1] == "3 open card(s) of his DM moved to their project's channel"
     assert [argv for argv in sent if argv[0] == "move-card"] == [
         ("move-card", "--url", CARD_URL, "--channel", "C777"),
         ("move-card", "--url", unfiled["url"], "--channel", "C888"),

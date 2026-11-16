@@ -213,7 +213,7 @@ def channel_opened(name: str, data: dict) -> str:
     try:
         open_channel(name, None)
     except slack.SlackError as error:
-        return f"the drive's own channel was not made: {error}; drive channels makes it\n"
+        return f"the drive's own channel was not made: {error}; drive channels --make makes it\n"
     return ""
 
 
@@ -275,7 +275,7 @@ def communicator_started(name: str, seat: str) -> str:
         return f"the communicator for {seat} is bound, session {data['communicators'][seat]['session']}, and holds its channel"
     if seat not in data["slack"]["channels"]:
         if "" not in data["slack"]["channels"]:
-            return f"the communicator for {seat} did not start: the drive keeps no channel; drive channels makes them"
+            return f"the communicator for {seat} did not start: the drive keeps no channel; drive channels --make makes them"
         open_channel(name, seat)
         data = state.load(name)
     key = f"communicator {seat}"
@@ -6436,11 +6436,16 @@ def channels(args: argparse.Namespace) -> int:
 
     name = state.resolve(args.drive)
     data = state.load(name)
-    made = [open_channel(name, project) for project in dict.fromkeys([None, *data["subcoordinators"], TOOLING_FILING[0]]) if (slack.channel_project(project) or "") not in data["slack"]["channels"]]
+    missing = [project for project in dict.fromkeys([None, *data["subcoordinators"], TOOLING_FILING[0]]) if (slack.channel_project(project) or "") not in data["slack"]["channels"]]
+    if not (args.make or args.move_cards):
+        kept = [f"#{made['name']} {made['id']} {seat or 'the drive'}" for seat, made in data["slack"]["channels"].items()]
+        unmade = [f"no channel yet for {project or 'the drive'}: --make makes it" for project in missing]
+        return emit(args, "\n".join([*kept, *unmade]), {"channels": data["slack"]["channels"], "missing": missing})
+    made = [open_channel(name, project) for project in missing] if args.make else []
     data = state.load(name)
     found, dm, moved = view.cards(name), slack.dm(), []
     try:
-        for card in [*found["questions"], *found["pr_cards"]]:
+        for card in [*found["questions"], *found["pr_cards"]] if args.move_cards else []:
             stack = [key for url in card.get("prs", []) if (key := state.pr_key(url)) in data["prs"]]
             channel = talk.channel_for(name, data, talk.project(data, {"card": card["card"]}, stack, None))
             if channel != dm and state.slack_message(card["url"])[0] == dm:
@@ -6454,7 +6459,7 @@ def channels(args: argparse.Namespace) -> int:
 
                 state.update(name, None, cards_joined)
         view.refresh_cards(name)
-    lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), f"{len(moved)} open card(s) of his DM moved to their project's channel"]
+    lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), *([f"{len(moved)} open card(s) of his DM moved to their project's channel"] if args.move_cards else [])]
     return emit(args, "\n".join(lines), {"channels": made, "moved": [{"from": card["url"], "to": url} for card, _, url in moved]})
 
 
@@ -8248,7 +8253,9 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
     verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY, else each section, list item, row, fenced block and paragraph carrying it")
     verb.set_defaults(run=manual)
-    verb = verbs.add_parser("channels", parents=both, help="make as him the drive's private channel <handle>-drive-<drive> and the private channel <handle>-drive-<drive>-<project> of each sub-coordinator's project and of the drive's tooling, which cc-slack reads as it reads his DM, keeping each id in the drive, one he has kept; say then makes each other project's channel the first time it posts about it. Then move each open card of his DM whose project has a channel to that channel's root, a card of no project to the drive's tooling channel, its DM card edited to Moved to and a link")
+    verb = verbs.add_parser("channels", parents=both, help="list the drive's private channels, each #name, id and seat, and each the drive has not made yet; bare, it changes nothing")
+    verb.add_argument("--make", action="store_true", help="make as him the drive's private channel <handle>-drive-<drive> and the private channel <handle>-drive-<drive>-<project> of each sub-coordinator's project and of the drive's tooling, which cc-slack reads as it reads his DM, keeping each id in the drive, one he has kept; say then makes each other project's channel the first time it posts about it")
+    verb.add_argument("--move-cards", action="store_true", help="move each open card of his DM whose project has a channel to that channel's root, a card of no project to the drive's tooling channel, its DM card edited to Moved to and a link")
     verb.set_defaults(run=channels)
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")
