@@ -39,6 +39,7 @@ RECLAIM_SECONDS = 300
 WAKE_SECONDS = 90
 MAIL_LIMIT = 100
 MARK_BATCHES = 20
+DRAIN_LIMIT = 50000
 FENCED = "consumer_fenced"
 RUN_NOT_FOUND = "run_not_found"
 UNREACHABLE = "remote_runtime_unavailable"
@@ -884,23 +885,31 @@ def mail(after: int | None) -> list[dict]:
     return sorted((message for message in messages if message["to_handle"].startswith("run:") and (after is None or message["sequence"] > after)), key=lambda message: message["sequence"])
 
 
-def mark_read(drive: str, run: str) -> None:
-    """Mark the Run's unread mail read with consuming checks, once the watch took that mail by mail, whose read ignores the read flag, so nothing the drive reads is lost: as the drive's own terminal, or, for a Run Orca fences because that terminal does not hold it, as binder_terminal once binder binds the Run there, as an answer goes; at most MARK_BATCHES batches, the next pass marking the rest, and none for a Run Orca no longer keeps."""
+def mark_read(drive: str, run: str) -> int | None:
+    """Mark the Run's unread mail read with consuming checks, once the watch took that mail by mail, whose read ignores the read flag, so nothing the drive reads is lost: as the drive's own terminal, or, for a Run Orca fences because that terminal does not hold it, as binder_terminal once binder binds the Run there, as an answer goes; at most MARK_BATCHES batches, the next pass marking the rest, and none for a Run Orca no longer keeps: how many messages it marked, or None for that gone Run."""
     try:
-        marked(run)
+        return marked(run)
     except OrcaError as error:
         if error.code == RUN_NOT_FOUND:
-            return
+            return None
         if error.code != FENCED:
             raise
         with binder(drive, run) as terminal:
-            marked(run, terminal)
+            return marked(run, terminal)
 
 
-def marked(run: str, caller: str | None = None) -> None:
+def marked(run: str, caller: str | None = None) -> int:
+    count = 0
     for _ in range(MARK_BATCHES):
-        if not call("check", "--run", run, caller=caller)["messages"]:
-            return
+        if not (batch := call("check", "--run", run, caller=caller)["messages"]):
+            break
+        count += len(batch)
+    return count
+
+
+def unread_runs() -> list[str]:
+    """Each Run whose mail Orca still shows unread among the newest DRAIN_LIMIT messages of its whole mailbox, read without binding or consuming as mail reads it."""
+    return sorted({message["to_handle"].removeprefix("run:") for message in call("inbox", "--limit", str(DRAIN_LIMIT))["messages"] if message["to_handle"].startswith("run:") and message.get("delivered_at") is None})
 
 
 def mailbox(job: dict, dispatch: str) -> list[dict]:

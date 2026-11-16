@@ -4002,6 +4002,25 @@ def bound(args: argparse.Namespace) -> int:
     return done.returncode
 
 
+def drain_read(args: argparse.Namespace) -> int:
+    """Mark read the unread mail of every Run Orca's mailbox still shows unread, by orca.mark_read, which binds a Run the drive's terminal does not hold to its binder terminal under the binding lock, so mail the watch took long ago on a Run no new mail reaches stops holding Orca's database and the Run retires: how many messages it marked on how many Runs, how many Runs Orca no longer keeps, and each Run whose mark Orca refused, with its reason."""
+    name = state.resolve(args.drive)
+    orca.speak_as_drive(name)
+    runs, marked, gone, refused = orca.unread_runs(), 0, 0, []
+    for run in runs:
+        try:
+            count = orca.mark_read(name, run)
+        except orca.OrcaError as error:
+            refused.append(f"{run}: {error}")
+            continue
+        if count is None:
+            gone += 1
+        else:
+            marked += count
+    said = "\n".join([f"marked {marked} messages read on {len(runs) - gone - len(refused)} of {len(runs)} Runs with unread mail; {gone} Runs Orca no longer keeps; {len(refused)} refused", *refused])
+    return emit(args, said, {"runs": len(runs), "marked": marked, "gone": gone, "refused": refused})
+
+
 def started_job(data: dict, job_id: str) -> dict:
     job = remote_job(data, job_id)
     if not job.get("dispatch"):
@@ -7236,6 +7255,8 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=pr_wake)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
+    verb = verbs.add_parser("drain-read", parents=both, help="mark read the unread mail of every Run Orca still shows unread, binding a Run the drive's terminal does not hold to its binder terminal, so a Run no new mail reaches retires")
+    verb.set_defaults(run=drain_read)
     verb = verbs.add_parser("bound", parents=both, help="run one command on a lane's Run as the drive's own terminal, which coordinates the Run from its run-create, or, when Orca fences it there, as the drive's binder terminal once it binds the Run, under the drive's binding lock, a worker-start only until Orca takes its request")
     verb.add_argument("lane_run", metavar="run")
     verb.add_argument("command", nargs=argparse.REMAINDER, help="after --, the command and its arguments")

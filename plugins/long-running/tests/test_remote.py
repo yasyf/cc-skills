@@ -5932,6 +5932,21 @@ def test_lane_mail_becomes_job_events_and_records_the_question_and_marks_its_run
     assert marked_read == [RUN]
 
 
+def test_drain_read_marks_every_run_with_unread_mail_and_counts_the_gone_and_the_refused(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    unread = [{"to_handle": f"run:{run_id}", "delivered_at": None} for run_id in ("run_a", "run_b", "run_a", "run_gone", "run_bad")]
+    shown = [*unread, {"to_handle": "run:run_read", "delivered_at": "2026-11-16T04:18:56Z"}, {"to_handle": "dispatch:ctx_1", "delivered_at": None}]
+    monkeypatch.setattr(orca, "call", lambda *args, caller=None: {"messages": shown} if args[0] == "inbox" else pytest.fail(f"no other call: {args}"))
+    counts = {"run_a": 3, "run_b": 1, "run_gone": None}
+
+    def mark_read(drive: str, run_id: str) -> int | None:
+        if run_id == "run_bad":
+            raise orca.OrcaError("Orca's runtime is unavailable", "runtime_unavailable")
+        return counts[run_id]
+
+    monkeypatch.setattr(orca, "mark_read", mark_read)
+    assert run("drain-read") == (0, "marked 4 messages read on 2 of 4 Runs with unread mail; 1 Runs Orca no longer keeps; 1 refused\nrun_bad: Orca's runtime is unavailable")
+
+
 def test_marking_lane_mail_read_checks_the_run_until_it_returns_none_as_the_binder_when_fenced_and_skips_a_gone_run(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     replies = {
         (RUN, None): [orca.OrcaError("This caller is bound to Run run_other", orca.FENCED)],
