@@ -3588,6 +3588,11 @@ def unreached(job_id: str, job: dict, data: dict, answer: dict, locked: str | No
     )
     if locked:
         return f"{held}; drive job resume {job_id} is refused now: {locked}, so {orca.moved_here(job_id)}"
+    if state.returned_done(job):
+        return (
+            f"{held}; {job_id} returned DONE, so drive job resume refuses it: it goes to {state.holding_lane(data, data['orders'][job['order']])}, the session holding order {job['order']},"
+            f" which acts on any work it asks, and `drive job set {job_id} --heard` drops it"
+        )
     if job.get("where") == "remote" and job.get("dispatch") or job.get("where") == "local" and job.get("agent") and not superseded.fresh_builder(data, job_id, job, answer["words"], "his words"):
         return f"{held}, and drive job resume {job_id} delivers it now"
     return f"{held}; {superseded.delivery(data, job_id, job, answer['words'])[1]}"

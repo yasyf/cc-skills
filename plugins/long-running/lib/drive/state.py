@@ -2915,6 +2915,8 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         for order_id in open_incidents(data, [order_id for order_id, order in data["orders"].items() if order["proof_by"] == job_id]):
             data["orders"][order_id].update(proof=None, proof_by=None)
     job.update(state=taken, updated=moment, returned=moment, watch_said=[])
+    if taken == "done":
+        job["undelivered"] = [kept for kept in job["undelivered"] if kept["sender"] == HIM]
     if taken != "waiting" or not re.match(r"ASK\b", line):
         job["said"] = line
     post_staging_proof(data, job_id, line, report)
@@ -3716,6 +3718,11 @@ def unlanded_done(data: dict, job_id: str) -> list[str]:
     if job["kind"] not in CHANGE_KINDS or job["state"] != "done" or not re.match(r"DONE\b", said := job["said"] or "") or MERGED_LINE.match(said):
         return []
     return [key for key, pr in data["prs"].items() if pr["job"] == job_id and pr["state"] in github.UNLANDED]
+
+
+def returned_done(job: dict) -> bool:
+    """Whether the job's agent returned DONE, the job done or holding that DONE until its PRs merge by hold_done, so drive job resume refuses it and a text it holds goes to the session holding its order."""
+    return job["state"] == "done" or job["state"] == "waiting" and bool(re.match(r"WAITING .* to merge: DONE\b", job["said"] or ""))
 
 
 def hold_done(job: dict, held: list[str]) -> None:

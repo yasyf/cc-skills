@@ -2921,6 +2921,22 @@ def test_a_text_held_on_an_agent_on_this_mac_names_its_resume_and_none_is_said_o
     ]
 
 
+def test_a_text_held_on_a_builder_that_returned_done_drops_but_his_words_and_one_held_while_its_done_waits_on_its_prs_names_the_orders_holder_never_resume(demo: str) -> None:
+    meta = {"seq": "735797", "words": "release your claim on it", "at": state.stamp(T0), "said": None, "request": "req-meta", "sender": "meta"}
+    his = {"seq": "735800", "words": "ship the narrower fix", "at": state.stamp(T0), "said": None, "request": "req-his", "sender": state.HIM}
+    with edit(demo) as data:
+        data["jobs"]["j1"].update(agent="agent-j1", where="local", session="session-under-test", undelivered=[meta, his])
+        state.take_result(data, "j1", "DONE shipped the narrower fix")
+        assert [kept["seq"] for kept in data["jobs"]["j1"]["undelivered"]] == ["735800"]
+        data["jobs"]["j1"].update(state="waiting", said="WAITING https://github.com/acme/widgets/pull/1 to merge: DONE shipped the narrower fix", undelivered=[meta])
+        lane = state.holding_lane(data, data["orders"]["o1"])
+    assert watch.undelivered_lines(watcher(demo), T0 + timedelta(minutes=10)) == [
+        f'ANSWER undelivered j1: "release your claim on it", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that'
+        " takes messages, hands it to the next worker of one that returned and launches a builder never started with it; j1 returned DONE, so drive job resume refuses it:"
+        f" it goes to {lane}, the session holding order o1, which acts on any work it asks, and `drive job set j1 --heard` drops it [o1 j1]"
+    ]
+
+
 def held_tap(demo: str, tapped: datetime) -> None:
     words = "drift only in a window you pick"
     closed = state.new_close("answered", words, CARD, seq="699075", at=state.stamp(tapped))
