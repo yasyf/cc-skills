@@ -75,6 +75,7 @@ from drive import (
     state,
     superseded,
     talk,
+    tools,
     train,
     view,
     watch,
@@ -12519,3 +12520,15 @@ def test_a_pr_waiting_only_on_a_staging_run_its_tester_runs_gets_no_wake_until_t
     assert stage.testing(state.load(demo), KEY, NO_CARDS) is False
     watch.stage_lines(watching, T0 + timedelta(minutes=200))
     assert [key for key, _ in woken] == [KEY]
+
+
+def test_a_retired_seat_communicator_is_told_its_seat_is_retired_and_how_to_reach_him(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[tuple[str, list[dict]]] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["1"])
+    monkeypatch.setattr(watch.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "", ""))
+    with state.edit(demo) as data:
+        data["slack"]["channels"]["Priority o9"] = {"id": "C9", "name": "prio-o9"}
+        data["communicators"]["Priority o9"] = {"session": "seat-session", "started": state.stamp()}
+    watch.retire_communicator(demo, "Priority o9")
+    assert sent == [(watch.LANE, [{"kind": "note", "to": [f"{state.communicator_lane('Priority o9')}@{demo}"], "text": watch.RETIRED_SEAT}])]
+    assert "Priority o9" not in state.load(demo, ("communicators",))["communicators"]

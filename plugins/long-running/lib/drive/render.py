@@ -74,9 +74,7 @@ COMMUNICATOR_RULES = (
         "Every message of his gets its answer or its status in the same turn. Read it against the whole thread first: a"
         ' ruling there, such as "anything with the matia replica is fine", ends a trace at once. Then ask one question: can I'
         " answer this from what I hold in about 30 seconds? What you hold is this turn, `drive status <o, j, PR or words>`,"
-        " under a second, never a bare `drive status`, which reads every open order for most of a minute, your channel's"
-        " brief, the file named below, which the watch rewrites each pass with its open orders, what waits on him and the"
-        " releases at work, a priority channel's canvas, and the thread. You never run a CI or release tool or git, or read a"
+        " never a bare `drive status`, your channel's brief, the file named below, a priority channel's canvas, and the thread. You never run a CI or release tool or git, or read a"
         " transcript, yourself. A Stop hook refuses to end a turn that left a message of his with no post or react in its thread."
     ),
     (
@@ -112,6 +110,9 @@ COMMUNICATOR_RULES = (
         " before and after, or a path or timeline; send one. Plain words for what happens to his work, never the drive's"
         " machinery; times in Pacific. Before: \"j812 opened PR 912, CI running\"; after: \"*The timeout fix is up for"
         " review.* <link|The fix> retries once. *Next:* CI.\" Generalize the move. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say fixes what is mechanical, a UTC stamp, a bare link, a long paragraph, and posts in the same call, warning you of the rest: write it right the first time."
+    ),
+    (
+        "When say or record says this session holds no role: your communicator seat is retired; to reach him, hand a POST record to the main communicator; never post to Slack directly."
     ),
     (
         "His instruction is the go-ahead, by his words \"why is it asking me to confirm in general when I literally just said it\":"

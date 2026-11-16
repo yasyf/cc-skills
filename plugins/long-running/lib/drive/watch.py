@@ -142,6 +142,7 @@ BOX_SWEEP = timedelta(minutes=10)
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 COMMUNICATOR_IDLE = timedelta(hours=2)
+RETIRED_SEAT = "Your communicator seat is retired; to reach him, hand a POST record to the main communicator; never post to Slack directly."
 ENV_ALERT_EVERY = timedelta(minutes=1)
 ENV_ALERT_READ = 20
 REPLY_READ = 100
@@ -3280,9 +3281,12 @@ def communicators_idle(watcher: Watcher, moment: datetime) -> list[str]:
 
 def retire_communicator(name: str, seat: str) -> str:
     """Take a seat's communicator down: its cci alias and session, by seat_ended, its binding and launched terminal on the drive, and the drive's communicator's rules, so its next call holds the channel again; the line saying so."""
+    from drive import tools
+
     data = state.load(name)
     session = data["communicators"][seat]["session"]
     alias = state.alias(name, "communicator", seat)
+    tools.sent(name, LANE, [{"kind": "note", "to": [f"{state.communicator_lane(seat)}@{name}"], "text": RETIRED_SEAT}])
     seat_ended(alias, session)
 
     def retire_communicator_write(saved: dict):
