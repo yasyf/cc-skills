@@ -5506,8 +5506,10 @@ class Reservation(NamedTuple):
     members: tuple[Row, ...]
 
 
-def reserve(data: dict, members: tuple[Row, ...]) -> Reservation:
-    """Reserve, inside a write's change, each field members name, as (collection, key, field) of a record that exists, for one launch this process makes once the write commits, the field holding a token record beside the record's other fields: the token, every member, so a child adopts the launch whole or not at all, this process as its starter, by born, no child yet, and reserved; the Reservation, whose token the launch hands its child as --reserved <token>, and which settle and cancel take. A member stays held while its holder lives, by holder, so no second launch starts beside it."""
+def reserve(data: dict, members: tuple[Row, ...]) -> Reservation | None:
+    """Reserve, inside a write's change, each field members name, as (collection, key, field) of a record that exists, for one launch this process makes once the write commits, the field holding a token record beside the record's other fields: the token, every member, so a child adopts the launch whole or not at all, this process as its starter, by born, no child yet, and reserved; the Reservation, whose token the launch hands its child as --reserved <token>, and which settle and cancel take. Every member is checked before any is changed: while any is held, by holder, it reserves none and gives None, so no second launch starts beside a live or adopted one, while a member whose holder is gone, cancelled, ended or its starter dead unadopted, is taken again."""
+    if any(holder(data[collection][key].get(field)) is not None for collection, key, field in members):
+        return None
     token = uuid.uuid4().hex
     for collection, key, field in members:
         data[collection][key][field] = {"token": token, "members": [list(member) for member in members], "starter": born(os.getpid()), "child": None, "state": "reserved"}
