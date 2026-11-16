@@ -681,7 +681,9 @@ def branch_checks(repo: str, base: str) -> dict[tuple[str, str], dict]:
 def base_failures(repo: str, run: str) -> list[str]:
     """Each test the default branch failed where a PR's workflow run, by its link, merged the PR's head: at the base its failed jobs' logs checked out, or the newest commit below it the workflow ran on, as below a `[skip ci]` autobump no workflow runs on, each of the workflow's checks read there by branch_checks, so a test main already failed where the PR was tested is never the PR's; none when no log names a merge or main's checks there passed or still run."""
     jq = '.jobs[] | select(.conclusion == "failure") | {id, workflow_name}'
-    jobs = [json.loads(line) for line in github.read(f"{repo}'s run {run} failed jobs", ["gh", "api", f"repos/{repo}/actions/runs/{run.rpartition('/')[2]}/jobs?filter=latest&per_page=100", "--jq", jq]).splitlines()]
+    number = run.rpartition("/")[2]
+    listed = github.kept(repo, f"run-{number}.failed-jobs", lambda: str(github.read(f"{repo}'s run {run} failed jobs", ["gh", "api", f"repos/{repo}/actions/runs/{number}/jobs?filter=latest&per_page=100", "--jq", jq])))
+    jobs = [json.loads(line) for line in listed.splitlines()]
     if not (tested := next((found for job in jobs if (found := TESTED.search(github.job_log(repo, job["id"])))), None)):
         return []
     main = [check for (workflow, _), check in branch_checks(repo, tested["base"]).items() if workflow == jobs[0]["workflow_name"] and check["conclusion"] in github.FAILED]

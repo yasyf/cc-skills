@@ -1038,16 +1038,19 @@ def main_failures(repo: str, workflow: int, created: str) -> list[str] | None:
     return run_failures(repo, run["id"]) or None
 
 
-@cache
 def run_failures(repo: str, run: int) -> list[str]:
-    """Each test a completed workflow run failed, as pytest's short test summary names it in the log of each of its jobs that failed; read once a process, since a finished run never changes."""
-    jobs = github.read(f"{repo}'s run {run} jobs", ["gh", "api", f"repos/{repo}/actions/runs/{run}/jobs?filter=latest&per_page=100", "--jq", '.jobs[] | select(.conclusion == "failure") | .id']).split()
-    return sorted({found["test"] for job in jobs for found in FAILED_TEST.finditer(github.read(f"{repo}'s job {job} log", ["gh", "api", f"repos/{repo}/actions/jobs/{job}/logs"]))})
+    """Each test a completed workflow run failed, as pytest's short test summary names it in the log of each of its jobs that failed; kept by github.kept across watch passes, since a finished run never changes."""
+
+    def failed() -> str:
+        jobs = github.read(f"{repo}'s run {run} jobs", ["gh", "api", f"repos/{repo}/actions/runs/{run}/jobs?filter=latest&per_page=100", "--jq", '.jobs[] | select(.conclusion == "failure") | .id']).split()
+        return json.dumps(sorted({found["test"] for job in jobs for found in FAILED_TEST.finditer(github.job_log(repo, int(job)))}))
+
+    return json.loads(github.kept(repo, f"run-{run}.failures", failed))
 
 
 def merged_at(repo: str, sha: str) -> str:
-    """When a merge commit landed, as its committer date reads, which GitHub sets as it merges."""
-    return github.read(f"{repo}'s commit {sha[:12]}", ["gh", "api", f"repos/{repo}/commits/{sha}", "--jq", ".commit.committer.date"], max_age="1h").strip()
+    """When a merge commit landed, as its committer date reads, which GitHub sets as it merges and never changes, so it is kept by github.kept."""
+    return github.kept(repo, f"{sha}.merged-at", lambda: str(github.read(f"{repo}'s commit {sha[:12]}", ["gh", "api", f"repos/{repo}/commits/{sha}", "--jq", ".commit.committer.date"]).strip()))
 
 
 def merges_of(data: dict, job_id: str) -> dict[str, str]:
@@ -1431,14 +1434,7 @@ def prove(name: str, job_id: str, timeout: int, again: bool = False) -> str:
             while True:
                 dashboard.await_newest(name, clock() + timeout)
                 versions, path = newest_builds(plugins)
-                try:
-                    done = proof_run(name, job["repro"], path, timeout)
-                except subprocess.TimeoutExpired as expired:
-                    if (wait := github.floor_lifts_in(expired.stderr or "")) is None:
-                        raise
-                    print(f"drive job prove: {job['repro']} reached its deadline waiting for ccx's GitHub rate-limit floor to lift: running it again in {round(wait)} s, once it has", file=sys.stderr, flush=True)
-                    sleep(wait)
-                    continue
+                done = proof_run(name, job["repro"], path, timeout)
                 code, output = done.returncode, done.stdout + done.stderr
                 if not code:
                     break

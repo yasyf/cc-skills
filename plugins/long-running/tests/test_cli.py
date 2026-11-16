@@ -5085,26 +5085,17 @@ def test_a_proof_link_opens_only_as_a_post_in_his_slack_workspace_cc_slack_reads
     assert read_link("https://app.datadoghq.com/logs?query=service%3Aapi").startswith("the drive reads no app.datadoghq.com link")
 
 
-def test_a_github_proof_link_refused_under_ccxs_rate_limit_floor_waits_for_the_reset_it_names_then_reads_what_github_answers(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_github_proof_link_refused_under_ccxs_rate_limit_floor_says_the_refusal_at_once_and_waits_for_no_reset(monkeypatch: pytest.MonkeyPatch) -> None:
     floor = github.GithubError(
         "ccx: GitHub rate limit floor: user core has 749 of 5000 left, under the floor of 1000, until 10:52AM (2026-11-13T10:52:51-08:00); top callers: zsh 188"
     )
-    answers = iter([floor, floor, "", floor, github.GithubError("HTTP 404")])
-    slept: list[float] = []
 
-    def answered(cmd: list[str], **_: object) -> str:
-        if isinstance(answer := next(answers), Exception):
-            raise answer
-        return answer
+    def refused(cmd: list[str], **_: object) -> str:
+        raise floor
 
-    monkeypatch.setattr(github, "run", answered)
-    own_time(monkeypatch, github, time=lambda: datetime(2026, 11, 13, 18, 50, 51, tzinfo=UTC).timestamp(), sleep=slept.append)
-    assert read_link(PR) is None
-    assert read_link("https://github.com/yasyf/cc-skills/pull/404") == "could not read https://github.com/yasyf/cc-skills/pull/404 from GitHub: HTTP 404"
-    assert slept == [121, 121, 121]
-    assert f"waiting 121 s for ccx's GitHub rate-limit floor to lift before reading {PR} again: could not read {PR} from GitHub: {floor}" in capsys.readouterr().err
+    monkeypatch.setattr(github, "run", refused)
+    own_time(monkeypatch, github, sleep=lambda seconds: pytest.fail(f"slept {seconds} s for the floor"))
+    assert read_link(PR) == f"could not read {PR} from GitHub: {floor}"
 
 
 def test_github_proof_pages_reuse_success_by_api_across_uncached_readers_until_expiry(

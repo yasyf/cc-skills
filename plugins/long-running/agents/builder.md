@@ -523,6 +523,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   GitHub's webhook to this Mac and returns within a second of the next delivery for it, then reads
   it once more. Each wait prints `--after <offset>`: pass it to the next wait so a delivery between
   the two is not missed.
+- The GitHub quota is never a reason to wait. When ccx refuses a read under its rate-limit floor,
+  read the same state at once through one batched `gh api graphql` query, which spends its own
+  budget; back off only on GitHub's own 403 or 429, and never report a quota reset as a blocker.
 - A long build, test, deploy or wait runs in the background. A `Remote lane:` builder starts it
   with `run_in_background: true`, sends Orca nothing and ends its turn; its notice wakes it, as his
   answer to an `ASK` does.

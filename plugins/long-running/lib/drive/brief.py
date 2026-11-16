@@ -1343,7 +1343,7 @@ def github_page(link: str, api: str) -> None:
         opened = db.execute("SELECT opened_at FROM pages WHERE api = ?", (api,)).fetchone()
         if opened and time.time() - opened[0] < OPENED_AGE:
             return
-        github.read_past_floor(link, ["gh", "api", api, "--silent"])
+        github.read(link, ["gh", "api", api, "--silent"])
         now = time.time()
         db.execute("INSERT OR REPLACE INTO pages VALUES (?, ?)", (api, now))
         db.execute("DELETE FROM pages WHERE opened_at <= ?", (now - OPENED_AGE,))

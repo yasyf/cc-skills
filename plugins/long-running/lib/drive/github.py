@@ -12,7 +12,6 @@ from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, closing
-from datetime import datetime
 from fnmatch import fnmatchcase
 from itertools import groupby, takewhile
 from pathlib import Path
@@ -99,25 +98,6 @@ def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True, time
         return run(cmd, timeout=timeout, max_age=max_age, text=text)
     except GithubError as error:
         raise GithubError(f"could not read {what} from GitHub: {error}") from None
-
-
-def read_past_floor(what: str, cmd: list[str], max_age: str = "0s") -> str:
-    """Run a gh read, waiting out ccx's rate-limit floor: a read it refuses there sleeps until the reset the refusal names and runs again, since the floor says nothing of what GitHub would answer; each wait is said on stderr with the refusal whole, which floor_lifts_in reads. An answer up to max_age old, from ccx's shared cache, stands for a fresh read."""
-    while True:
-        try:
-            return read(what, cmd, max_age=max_age)
-        except GithubError as error:
-            if (wait := floor_lifts_in(str(error))) is None:
-                raise
-            print(f"{CALLER}: waiting {round(wait)} s for ccx's GitHub rate-limit floor to lift before reading {what} again: {error}", file=sys.stderr, flush=True)
-            time.sleep(wait)
-
-
-def floor_lifts_in(said: str) -> float | None:
-    """Seconds from now to a second past the reset the last ccx rate-limit floor refusal in what a command said names, or None when it names none."""
-    if not (resets := FLOOR.findall(said)):
-        return None
-    return max(datetime.fromisoformat(resets[-1]).timestamp() - time.time(), 0) + 1
 
 
 def close(url: str, comment: str | None = None) -> None:
@@ -269,19 +249,24 @@ def job_log(repo: str, job: int) -> str:
 
 
 def finished_job_read(repo: str, job: int, what: str, path: str) -> str:
-    """A read of a finished GitHub Actions job, its record or its log, made once and kept under the drive's state root for JOB_READ_DAYS, since a finished job never changes and every watch pass judging a red check re-read it on the owner's core quota; kept reads older than that go as a new one is kept."""
+    """A read of a finished GitHub Actions job, its record or its log, kept by kept, since a finished job never changes."""
+    return kept(repo, f"{job}.{what}", lambda: str(read(f"{repo}'s job {job} {what}", ["gh", "api", f"repos/{repo}/actions/jobs/{job}{path}"])))
+
+
+def kept(repo: str, name: str, answer: Callable[[], str]) -> str:
+    """What answer gives for a GitHub read that never changes once made, such as a finished job's log or the tests a finished run failed, made once and kept under the drive's state root for JOB_READ_DAYS, since every watch pass judging a red check re-read it on the owner's core quota; kept reads older than that go as a new one is kept."""
     from drive import state
 
-    kept = state.root() / JOB_READS / repo.replace("/", "__") / f"{job}.{what}"
-    if kept.exists():
-        return kept.read_text()
-    answer = read(f"{repo}'s job {job} {what}", ["gh", "api", f"repos/{repo}/actions/jobs/{job}{path}"])
-    kept.parent.mkdir(parents=True, exist_ok=True)
-    for old in kept.parent.parent.glob("*/*"):
+    path = state.root() / JOB_READS / repo.replace("/", "__") / name
+    if path.exists():
+        return path.read_text()
+    text = answer()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for old in path.parent.parent.glob("*/*"):
         if time.time() - old.stat().st_mtime > JOB_READ_DAYS * 86400:
             old.unlink(missing_ok=True)
-    kept.write_text(answer)
-    return answer
+    path.write_text(text)
+    return text
 
 
 def failed_at_checkout(repo: str, job: int) -> bool:
