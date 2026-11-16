@@ -1444,7 +1444,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
-    unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, known := state.load(name)) or brief.away_refusal("start", args.release, known, state.now()))
+    unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, known := state.load(name)) or brief.uncarried_refusal(args.release, known) or brief.away_refusal("start", args.release, known, state.now()))
     if args.release and not unreleased:
         for line in brief.release_notes([args.release], state.load(name)):
             print(f"drive job add: {line}", file=sys.stderr)

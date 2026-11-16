@@ -1639,6 +1639,36 @@ def test_the_release_gate_reads_every_release_note_however_many_one_jev_request_
     assert sorted(note["id"] for asked in jev.asked for note in asked["state"]["notes"].values()) == sorted(note["id"][:7] for note in [*newer, SANDSQL_NOTE])
 
 
+def test_the_release_gate_refuses_a_start_whose_commit_lacks_a_merged_pr_the_card_his_answer_answers_names_and_names_its_merge_to_start_from(
+    demo: str, run: Run, tmp_path: Path, recorded: Answers, pr_reads: dict[str, dict]
+) -> None:
+    older = cloned(tmp_path, "demo", {"monitors.ts": "the old monitor rows"})
+    merge = cloned(tmp_path, "demo", {"monitors.ts": "the tuned monitor rows"})
+    cloned(tmp_path, "demo", {"other.rs": "a later change"})
+    repo = github.checkout_repo(state.load("demo")["roles"]["coordinator"]["cwd"])
+    answered_cut(run, demo, [CUT_PICK, CUT_TAP], ANSWERED_CUT.replace("Holds: none: no option changes code any job builds", f"Holds: https://github.com/{repo}/pull/7; #8"))
+    recorded.shown = {answer["id"][:7]: answer for answer in (CUT_PICK, CUT_TAP, RELEASE_PICK)}
+    pr_reads |= {f"{repo}#7": {"state": "MERGED", "mergeCommit": merge, "base_pr": None}, f"{repo}#8": {"state": "OPEN", "mergeCommit": None, "base_pr": None}}
+    data = state.load(demo)
+    asked = f'refused: `--order 7ab1e20` names his answer to the card asking "{CUT_PICK["title"]}", which names #7, and'
+    then = f": start it from a commit holding each merged pull request that card names, such as `--from {merge}`, the newest of their merge commits, or name each in `--landed`"
+    starts = {
+        "tools/ci release start --order 7ab1e20": f"{asked} this start names no `--from` or `--commit`, so go/ci picks the commit it ships, which may lack one{then}",
+        f"tools/ci release start --from {older} --order 7ab1e20": f"{asked} at `{older}` it lacks #7 ({merge[:12]}){then}",
+        f"tools/ci release start --manual --stack datadog/plat-usw2-prod --commit {older} --order 7ab1e20": f"{asked} at `{older}` it lacks #7 ({merge[:12]}){then}",
+        f"tools/ci release start --from {merge} --order 7ab1e20": None,
+        "tools/ci release start --landed 7 --order 7ab1e20": None,
+        f"tools/ci release start --from {older} --rollback --order 7ab1e20": None,
+        "tools/ci release start --hotfix 101 --only api --without tnt-usw2-acme --order 5d17d9c": None,
+        f"tools/ci release start sand --from {older} --order 5d0c4a1": None,
+    }
+    assert {start: brief.uncarried_refusal(start, data) for start in starts} == starts
+    del pr_reads[f"{repo}#8"]
+    assert brief.uncarried_refusal(f"tools/ci release start --from {merge} --order 7ab1e20", data) == (
+        "refused: whether this release's commit holds each merged pull request the card his `--order` answer answers names could not be read: GitHub did not read #8; run it again"
+    )
+
+
 RELEASE_HOLD = {
     "id": "15c4de1" + "0" * 33,
     "title": "Are releases frozen now that a teammate set a freeze in #releases?",
