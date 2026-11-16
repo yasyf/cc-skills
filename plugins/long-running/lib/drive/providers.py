@@ -110,10 +110,27 @@ class ReleaseProvider(Provider):
         return {"components": [], "touched": [], "dev": [], "releases": [], "staged": [], "tested": True}
 
     def live(self) -> list[dict]:
+        """Each cluster of every service and the commit it serves, one row each with its `target`, `env`, `cluster` and `commit`."""
         return []
 
     def place(self, env: str) -> Place:
         return Place(None, True, ())
+
+    def start(self, words: list[str]) -> dict[str, tuple[str, ...]] | None:
+        """What a release start or hotfix the shell words run ships and from where, each flag's values by name, `targets`, `env`, `without`, `only`, `exclude`, `from`, `order`, `hotfix` and the rest, as the release tool reads them; None for any other command."""
+        return None
+
+    def parts(self) -> dict[str, tuple[str, ...]]:
+        """Each release target's components."""
+        return {}
+
+    def freeze(self, components: list[str], why: str, until: str) -> str:
+        """Freeze releases of components until the stamp until, for why; the freeze's id."""
+        raise ProviderError("this repository sets no release freeze")
+
+    def unfreeze(self, freeze: str) -> str:
+        """The command that lifts the freeze with id freeze."""
+        return ""
 
 
 class StagingProvider(Provider):
@@ -125,6 +142,10 @@ class StagingProvider(Provider):
         return ""
 
     def unread(self, error: str) -> str:
+        return ""
+
+    def exception_steps(self) -> str:
+        """The steps a staging test takes for components staging has no copy of."""
         return ""
 
 
@@ -151,6 +172,10 @@ class MacBoxProvider(Provider):
         raise ProviderError("this repository proves no build on a Mac box")
 
     def case_steps(self, tested: str, live: str) -> str:
+        return ""
+
+    def rebuild_steps(self, tested: str) -> str:
+        """The steps that run the cases of the PRs tested again on a box built at their own head, for PRs changing what a box builds."""
         return ""
 
 
