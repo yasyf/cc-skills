@@ -7,8 +7,8 @@ from pathlib import Path
 
 import landing_guard
 import pytest
-from conftest import QUEUE_REASON, LEAD, SESSION, SHORT_ASK, Answers, HomeRelease
-from drive import agents, brief, github, land, limits, render, settled, shell, stage, state, view
+from conftest import QUEUE_REASON, LEAD, SESSION, Answers, HomeRelease
+from drive import agents, brief, github, land, render, settled, shell, stage, state, view
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -320,6 +320,12 @@ def test_a_sprite_lanes_release_verb_is_refused_while_the_coordinators_mac_does_
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, stdout="", stderr="drive: no run"))
     assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) == landing_guard.RELEASE_UNASKED.format(release=RESUME, error="drive: no run")
+
+
+def test_a_sprite_lane_whose_folder_has_no_origin_head_is_refused_rather_than_judged_by_no_provider(monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:
+    monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    monkeypatch.setattr(landing_guard.providers, "default_head", lambda clone: (_ for _ in ()).throw(landing_guard.providers.ProviderError(f"{clone} has no origin/HEAD")))
+    assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) == landing_guard.PROVIDERS_UNREAD.format(command=RESUME, error="/work has no origin/HEAD")
 
 
 @pytest.mark.parametrize(

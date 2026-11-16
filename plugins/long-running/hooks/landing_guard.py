@@ -590,10 +590,12 @@ def job_reason(words: list[str], shell: Shell) -> str | None:
 
 
 def release_guard(shell: Shell, drives: list[str]) -> providers.ReleaseProvider:
-    """The ReleaseProvider of the repository at the session's folder, whatever folder the command `cd`s to, or of the session's drive when that folder is no clone or its repository releases nothing, as a meta job's checkout of a tool repository."""
+    """The ReleaseProvider of the repository at the session's folder, whatever folder the command `cd`s to, or of the session's drive when that folder is no clone or its repository releases nothing, as a meta job's checkout of a tool repository; a Sprite lane, which holds no drive to fall back to, raises ProviderError when its folder has no origin/HEAD, so no release write or cluster Job passes it unjudged."""
     try:
         providers.default_head(Path(shell.cwd))
     except providers.ProviderError:
+        if os.environ.get(state.REMOTE_LANE_ENV):
+            raise
         found = providers.ReleaseProvider(Path(), Path(), {})
     else:
         found = providers.at(Path(shell.cwd)).release
