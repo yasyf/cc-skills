@@ -3,12 +3,13 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import time
 import uuid
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Self
+from typing import NoReturn, Self
 
 from drive import install, limits, procs, reads, render, slack, state, superseded, view
 from drive.brief import BRIEF_JOB, carried, heavier, releases
@@ -73,6 +74,8 @@ ORCA = "orca@skills"
 START_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "start.md"
 SESSION_ENV = "<session env>"
 SESSION_SETTINGS_HOLE = "<session settings>"
+ADVISOR_FLAG = "--advisor"
+ADVISOR_PROBE_SECONDS = 60
 DOUBLE_QUOTED = re.compile(r'[\\"$`]')
 STUCK = re.compile(r"\b(j\d+)\b[^.;\n]*?\b(?:stuck|silent|stalled|hung)\b", re.IGNORECASE)
 UNOWNED = re.compile(
@@ -746,6 +749,42 @@ def register(name: str, role: str, project: str | None, worktree: str, session: 
         return reads.run(words, Path(worktree)).strip()
     except reads.ReadError as error:
         raise state.DriveError(f"cci did not register session {session} as the {role}'s, so nothing keeps it running or hearing its records: {error}") from None
+
+
+def advisor_refusal(command: list[str]) -> str | None:
+    """What Claude Code prints refusing the command's `--advisor` at launch, by a `claude -p` on the same model and advisor running only /advisor, which makes no model call; None when it takes the advisor."""
+    model, advisor = (command[command.index(flag) + 1] for flag in ("--model", ADVISOR_FLAG))
+    try:
+        probe = subprocess.run(
+            ["claude", "-p", "--model", model, ADVISOR_FLAG, advisor, "--no-session-persistence", "/advisor"],
+            capture_output=True,
+            text=True,
+            timeout=ADVISOR_PROBE_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return f"claude -p {ADVISOR_FLAG} {advisor} gave no answer in {ADVISOR_PROBE_SECONDS} seconds"
+    return f"{probe.stderr}{probe.stdout}".strip() if probe.returncode else None
+
+
+def advised(name: str, lane: str, command: list[str]) -> NoReturn:
+    """Exec the root session's claude command with its advisor once Claude Code takes it, else without the advisor, saying so in the terminal and to the meta session once a day per seat, since Claude Code exits at launch on an advisor it refuses, such as Fable before the account's one-time usage-credits consent, and cci would start it again on every exit."""
+    from drive import tools
+
+    if refused := advisor_refusal(command):
+        at = command.index(ADVISOR_FLAG)
+        advisor = command[at + 1]
+        command = [*command[:at], *command[at + 2 :]]
+        text = (
+            f"drive advised: the {lane} session of drive {name} started without its {advisor} advisor, since Claude Code refused"
+            f" {ADVISOR_FLAG} {advisor}: {refused}. Run /model {advisor} once in any session and accept the usage-credits consent, then restart the seat on his word."
+        )
+        print(f"\n{'!' * 72}\n{text}\n{'!' * 72}\n", file=sys.stderr, flush=True)
+        try:
+            tools.sent(name, lane, [{"kind": "defect", "to": [f"meta@{name}"], "text": text, "id": f"advisor-refused-{name}-{lane}-{datetime.now(UTC).date()}"}])
+        except state.DriveError as error:
+            print(f"drive advised: the meta session was not told: {error}", file=sys.stderr, flush=True)
+    os.execvp(command[0], command)
 
 
 def handed(briefs: list[str]) -> str:

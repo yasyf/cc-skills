@@ -5875,6 +5875,10 @@ def reload_plugins(args: argparse.Namespace) -> int:
     return install.reload_main(args.drive, args.seat, args.force)
 
 
+def advised(args: argparse.Namespace) -> int:
+    agents.advised(args.drive, args.lane, args.command)
+
+
 def migrate_drives(args: argparse.Namespace) -> int:
     for name in state.names():
         state.migrate(name)
@@ -7326,6 +7330,14 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--seat", help="the one seat of --drive whose reload this process types, as the process an install starts does")
     verb.add_argument("--force", action="store_true", help="with --seat, type it even when the seat already reloaded onto the newest plugin install, as a bare drive reload does")
     verb.set_defaults(run=reload_plugins)
+    verb = verbs.add_parser(
+        "advised",
+        help="start a root session's claude command, as its Start or resume line runs it, with its advisor once Claude Code takes it, else without it, saying so in its terminal and to the meta session",
+    )
+    verb.add_argument("--drive", required=True, help="the drive the session holds a seat of")
+    verb.add_argument("--lane", required=True, help="the seat's cci lane, which a refusal's defect record is sent from")
+    verb.add_argument("command", nargs=argparse.REMAINDER, help="the claude command, its --model and --advisor included, with what cci appends to it")
+    verb.set_defaults(run=advised)
     verb = verbs.add_parser("migrate", help="make each one-time change an older install still owes to every drive on this Mac, as `drive install` does before it reloads sessions")
     verb.set_defaults(run=migrate_drives)
 

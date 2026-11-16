@@ -4,6 +4,7 @@ import io
 import json
 import re
 import shlex
+import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from itertools import takewhile
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LANE_SPEC, REAL_REGISTER
-from drive import agents, cli, orca, reads, state
+from drive import agents, cli, orca, reads, state, tools
 
 SKILL = cli.PAGES.parent
 PLUGIN = SKILL.parents[1]
@@ -143,8 +144,15 @@ def session_starts(text: str) -> list[str]:
 def test_each_session_start_the_pages_quote_leaves_its_env_and_one_settings_to_drive_manual() -> None:
     starts = [line for page in PAGES for line in session_starts(page.read_text())]
     assert len(starts) == 4
-    holed = f'--command "{agents.SESSION_ENV} claude '
-    assert [line for line in starts if holed not in line or line.count("--settings") != 1 or f"--settings {agents.SESSION_SETTINGS_HOLE} " not in line] == []
+    holed = re.compile(rf'--command "{re.escape(agents.SESSION_ENV)} (?:drive advised --drive <drive> --lane \S+ )?claude ')
+    assert [line for line in starts if not holed.search(line) or line.count("--settings") != 1 or f"--settings {agents.SESSION_SETTINGS_HOLE} " not in line] == []
+
+
+def test_only_the_top_coordinator_runs_fable_and_every_other_root_runs_opus_with_a_fable_advisor() -> None:
+    starts = {line.split()[3]: line for line in session_starts(agents.START_PAGE.read_text())}
+    assert "--model claude-fable-5-2 " in starts["<drive>-coordinator"] and "--advisor" not in starts["<drive>-coordinator"]
+    for alias, lane in (("<drive>-communicator", "communicator"), ("<drive>-meta", "meta"), ("<drive>-<lane>", "<lane>")):
+        assert f"drive advised --drive <drive> --lane {lane} claude -n {alias} --model claude-opus-5-5 --advisor fable " in starts[alias]
 
 
 def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_valid_settings(capsys: pytest.CaptureFixture[str]) -> None:
@@ -155,7 +163,7 @@ def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_
     for line in starts:
         script = shlex.split(line)
         session = shlex.split(script[script.index("--command") + 1])
-        claude = session.index("claude")
+        claude = next(at for at, word in enumerate(session) if at and "=" not in word)
         assert session[0] == "env"
         assert dict(word.split("=", 1) for word in session[1:claude]) == lane["env"] | agents.SESSION_SETTINGS["env"]
         assert session.count("--settings") == 1
@@ -204,3 +212,48 @@ def test_drive_start_registers_the_session_it_binds_by_its_line_in_start_or_resu
     monkeypatch.setattr(reads, "run", refuse)
     with pytest.raises(state.DriveError, match="cci did not register session iris-1 as the coordinator's, so nothing keeps it running or hearing its records: "):
         REAL_REGISTER("demo", "coordinator", "Iris", "/w/demo", "iris-1")
+
+
+ROOT_COMMAND = ["claude", "-n", "demo-meta", "--model", "claude-opus-5-5", "--advisor", "fable", "--effort", "xhigh", "--resume", "meta-1", "resume prompt"]
+
+
+class Execed(Exception):
+    pass
+
+
+def advised_launch(monkeypatch: pytest.MonkeyPatch, probe: subprocess.CompletedProcess[str]) -> tuple[list[list[str]], list[tuple[str, str, list[dict]]], list[list[str]]]:
+    probed: list[list[str]] = []
+    posted: list[tuple[str, str, list[dict]]] = []
+    execed: list[list[str]] = []
+    monkeypatch.setattr(agents.subprocess, "run", lambda argv, **_: probed.append(argv) or probe)
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.append((name, lane, posts)) or ["7"])
+
+    def execvp(program: str, argv: list[str]) -> None:
+        execed.append(argv)
+        raise Execed(program)
+
+    monkeypatch.setattr(agents.os, "execvp", execvp)
+    with pytest.raises(Execed):
+        agents.advised("demo", "meta", ROOT_COMMAND)
+    return probed, posted, execed
+
+
+def test_drive_advised_execs_the_root_command_whole_once_claude_takes_its_advisor(monkeypatch: pytest.MonkeyPatch) -> None:
+    probed, posted, execed = advised_launch(monkeypatch, subprocess.CompletedProcess([], 0, "Advisor: Fable 5.2\n", ""))
+    assert probed == [["claude", "-p", "--model", "claude-opus-5-5", "--advisor", "fable", "--no-session-persistence", "/advisor"]]
+    assert (posted, execed) == ([], [ROOT_COMMAND])
+
+
+def test_drive_advised_starts_the_root_without_its_advisor_and_tells_the_meta_session_when_claude_refuses_it(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    refusal = "Error: Fable needs your consent to bill usage credits: run /model fable"
+    _, posted, execed = advised_launch(monkeypatch, subprocess.CompletedProcess([], 1, "", refusal))
+    assert execed == [[word for word in ROOT_COMMAND if word not in ("--advisor", "fable")]]
+    [(name, lane, [record])] = posted
+    assert (name, lane, record["kind"], record["to"]) == ("demo", "meta", "defect", ["meta@demo"])
+    assert record["id"].startswith("advisor-refused-demo-meta-") and refusal in record["text"]
+    assert refusal in capsys.readouterr().err
+
+
+def test_drive_advised_parses_the_root_command_cci_appends_to_whole() -> None:
+    args = cli.parser.__wrapped__().parse_args(["advised", "--drive", "demo", "--lane", "meta", *ROOT_COMMAND])
+    assert (args.drive, args.lane, args.command) == ("demo", "meta", ROOT_COMMAND)
