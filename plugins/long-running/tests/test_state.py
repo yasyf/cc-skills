@@ -1549,6 +1549,37 @@ def test_a_drive_saved_with_codex_proofs_copied_away_from_their_evidence_keeps_e
     )
 
 
+def test_a_drive_saved_with_a_release_follower_failed_by_proving_its_done_on_a_merged_prs_part_a_newer_prover_holds_puts_it_back_on_that_done_once_and_never_proves_it_again(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["unowed_fails_undone"]
+    created, work, owned, staging = "2026-11-15T10:00:00-08:00", "Duck route writes the slow-statement log", "ship the dashboard", "staging test of #56775 before it lands"
+    merged, done = "https://github.com/Forge-AI/monorepo/pull/56775", "DONE https://buildkite.com/forge/release/builds/16698 applied sandsql/plat-usw2-staging at `2026-11-15T16:40:09Z`"
+    failed = "BLOCKED j2: repro/j2.sh exits 1 on long-running 1.0.1244: FAIL sandsql/plat-usw2-staging: serves 3ded868a2f0d, not c5dca80ed9be"
+    proof = {"pid": 1, "at": created, "said": done, "version": "1.0.1244", "result": failed}
+    released = {"release": "tools/ci release start sandsql --emergency --env plat-usw2-staging --from c5dca80ed9be --order 23eefb9"}
+    data["orders"] = {
+        "o1": state.new_order("duck route logs", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {work: state.new_part(), staging: state.new_part()}, created) | {"kind": "build", "jobs": ["j1", "j2", "j3"]},
+        "o2": state.new_order("ship the dashboard", "slack:D123/1794600000.000200", ("D123", "1794600000.000200"), {owned: state.new_part()}, created) | {"kind": "build", "jobs": ["j4"]},
+    }
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", f"build {work}", [work], created) | {"state": "done", "said": f"DONE {merged} merged: Forge-AI/monorepo#56775 at 4a8aa7725584", "prs": [merged]},
+        "j2": state.new_job("o1", "builder", "release c5dca80ed9be, the head of Forge-AI/monorepo#56775, to staging's SandSQL alone", [staging, work], created)
+        | {"state": "failed", "said": failed, "proof": proof, "brief_flags": released, "builds_nothing": True},
+        "j3": state.new_job("o1", "builder", "prove Forge-AI/monorepo#56775 live", [work], created) | {"state": "running", "builds_nothing": True},
+        "j4": state.new_job("o2", "builder", owned, [owned], created) | {"state": "failed", "said": failed.replace("j2", "j4"), "proof": proof | {"result": failed.replace("j2", "j4")}},
+    }
+    data["prs"] = {state.pr_key(merged): state.new_pr(merged, "j1", "o1") | {"state": "merged", "merged_sha": "4a8aa7725584"}}
+    state.create(data)
+    data = state.load("demo")
+    jobs = data["jobs"]
+    assert ([(jobs[job_id]["state"], jobs[job_id]["said"], jobs[job_id]["proof"]["result"]) for job_id in ("j2", "j4")], data["unowed_fails_undone"]) == (
+        [("done", done, failed), ("failed", failed.replace("j2", "j4"), failed.replace("j2", "j4"))],
+        True,
+    )
+    assert (state.owed_work(data, "j2"), install.watch_proves(data, "j2"), install.prover_of(data, state.pr_key(merged))) == ([], False, "j3")
+
+
 STAGING, PROOF = "staging test of #42 before it lands", "https://buildkite.com/forge/release/builds/16121"
 
 
