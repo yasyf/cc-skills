@@ -327,13 +327,16 @@ def switched_on(options: dict[str, list[str]], name: str) -> bool:
     return name in options and options[name][-1].lower() not in FALSE_WORDS
 
 
-def queue_landings(cwd: str) -> tuple[Landing, ...]:
-    """The landings the merge queue of the repository at cwd's default branch runs, each naming every PR of its stack; none for a folder that is no clone, while providers that fail to load raise."""
-    try:
-        providers.default_head(Path(cwd))
-    except providers.ProviderError:
-        return ()
-    repo = providers.at(Path(cwd)).repo
+def queue_landings(shell: Shell) -> tuple[Landing, ...]:
+    """The landings the merge queue of the session's drive runs, read from the drive's own checkout whatever folder the judged command names, so a `stack-enqueue` written under `$(drive --root)` is judged (734096); with no drive bound, the repository at the folder's default branch, none for a folder that is no clone, while providers that fail to load raise."""
+    if named := state.session_drives(shell.session) or list(filter(None, [os.environ.get(state.DRIVE_ENV)])):
+        repo = providers.of(state.load(named[0])).repo
+    else:
+        try:
+            providers.default_head(Path(shell.cwd))
+        except providers.ProviderError:
+            return ()
+        repo = providers.at(Path(shell.cwd)).repo
     if (queue := repo.queue()) is None:
         return ()
     return tuple(Landing(path, valued, every_pr=True, repo=repo.name, reads=reads) for path, valued, reads in queue.commands)
@@ -685,7 +688,7 @@ def run_through(nodes: list, shell: Shell) -> Generator[tuple[list[str], list[st
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
-    reasons = (landing_reason(*found, run_in) if (found := landing_of(words, LANDINGS) or (queue_judged(words, run_in) and landing_of(words, queue_landings(run_in.cwd)))) else cut_reason(words, run_in) or job_reason(words, run_in) for _, words, run_in in commands(script, shell))
+    reasons = (landing_reason(*found, run_in) if (found := landing_of(words, LANDINGS) or (queue_judged(words, run_in) and landing_of(words, queue_landings(run_in)))) else cut_reason(words, run_in) or job_reason(words, run_in) for _, words, run_in in commands(script, shell))
     return next(filter(None, reasons), None)
 
 

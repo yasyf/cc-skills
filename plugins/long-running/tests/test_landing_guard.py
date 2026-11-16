@@ -679,12 +679,20 @@ def test_the_release_guard_reads_the_drives_own_checkout_never_a_removed_lane_wo
 
 
 @pytest.mark.parametrize("folder", ["drive-durable-agents/$/lib", "worktrees/j7843-reslice"], ids=["an unexpanded $(drive --root)", "a removed worktree"])
-def test_a_folder_parsed_from_a_judged_commands_words_that_is_no_directory_judges_no_queue_landing_and_never_crashes_the_guard_as_734096_did(
-    tmp_path: Path, folder: str
+def test_a_merge_queue_landing_named_under_a_folder_that_is_no_directory_is_judged_by_the_drives_own_queue_and_with_no_drive_judges_none_never_crashing_as_734096_did(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folder: str
 ) -> None:
+    from conftest import HomeRepo
     from drive import providers
 
     missing = tmp_path / folder
+    shell = landing_guard.Shell(str(missing), {}, "s1", True, True)
+    monkeypatch.delenv(state.DRIVE_ENV, raising=False)
+    monkeypatch.setattr(state, "session_drives", lambda session: [])
     with pytest.raises(providers.ProviderError):
         providers.default_head(missing)
-    assert landing_guard.queue_landings(str(missing)) == ()
+    assert landing_guard.queue_landings(shell) == ()
+    monkeypatch.setenv(state.DRIVE_ENV, demo)
+    monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None, {}, repo=HomeRepo(Path(), Path(), {})))
+    found = landing_guard.landing_of(["stack-enqueue", "57562"], landing_guard.queue_landings(shell))
+    assert found is not None and found[1] == ["57562"]
