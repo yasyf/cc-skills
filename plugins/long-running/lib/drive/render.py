@@ -663,8 +663,8 @@ def first_line_rule(drive: dict, seat: str, order_id: str) -> str:
     return (
         f"Within 2 minutes of binding, before any research, send him your first line on {order_id}: a POST report record to your"
         f" communicator, posted in the thread his order came from, linking {channel}, saying what you are doing and your plan, in your own"
-        f" words. Then keep {order_id}'s lines in that channel: post its next update at the channel's root and run"
-        f" drive order set {order_id} --thread <that post's permalink>."
+        f" words. Right after it, never waiting for news, move {order_id}'s lines to that channel: post where it stands, the next step"
+        f" and who holds it at the channel's root, and run drive order set {order_id} --thread <that post's permalink>."
     )
 
 
