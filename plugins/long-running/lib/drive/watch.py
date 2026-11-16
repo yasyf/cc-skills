@@ -3329,7 +3329,7 @@ def communicators_wanted(watcher: Watcher, data: dict, replies: list[dict], mome
 
 
 def communicators_idle(watcher: Watcher, moment: datetime) -> list[str]:
-    """Retire each seat's communicator that has held its channel COMMUNICATOR_IDLE with no message of his owed there, since its start or the last one, its seat's priority order closed included, by retire_communicator, so the drive's communicator holds that channel again until his next message there starts one anew; the line of each."""
+    """Retire each seat's communicator whose Claude Code process has exited, by orca.live_pid, and that has held its channel COMMUNICATOR_IDLE with no message of his owed there, since its start or the last one, its seat's priority order closed included, by retire_communicator, so the drive's communicator holds that channel again until his next message there starts one anew; the line of each. A seat whose session still runs keeps its binding, since that session still hears the seat's channel and its say and record would be refused with no seat to post as."""
     if watcher.project:
         return []
     data = state.load(watcher.name, ("orders", "communicators"))
@@ -3337,7 +3337,8 @@ def communicators_idle(watcher: Watcher, moment: datetime) -> list[str]:
     return [
         retire_communicator(watcher.name, seat)
         for seat, bound in data["communicators"].items()
-        if seat.startswith(state.priority_seat("")) and seat not in held or moment - state.parse_time(bound.get("heard") or bound["started"]) > COMMUNICATOR_IDLE
+        if (seat.startswith(state.priority_seat("")) and seat not in held or moment - state.parse_time(bound.get("heard") or bound["started"]) > COMMUNICATOR_IDLE)
+        and orca.live_pid(bound["session"]) is None
     ]
 
 

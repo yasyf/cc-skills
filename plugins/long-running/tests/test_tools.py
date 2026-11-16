@@ -858,6 +858,26 @@ def test_a_seats_communicator_holds_its_channel_alone_and_its_records_and_its_su
     ]
 
 
+def test_a_seats_communicator_idle_past_its_limit_keeps_its_seat_while_its_session_runs_so_its_record_goes_out_as_iris_f0e4a11fs_was_refused(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, live_sessions: dict[str, int | None]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    with edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-talk")
+    run("start", demo, "--role", "communicator", "--project", "Iris")
+    later = state.parse_time(state.load(demo, ("communicators",))["communicators"]["Iris"]["started"]) + watch.COMMUNICATOR_IDLE + timedelta(minutes=5)
+    assert watch.communicators_idle(watch.Watcher(demo, offset=state.events_end(demo)), later) == []
+    posted: list[str] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(argv[argv.index("--lane") + 1]) or subprocess.CompletedProcess(argv, 0, '{"seq": 1}\n', ""))
+    tools.run("record", demo, {"records": [{"kind": "owner", "text": "a new order", "about": "his work"}]})
+    assert posted == ["iris-communicator"]
+    live_sessions["iris-talk"] = None
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: ["2"])
+    assert len(watch.communicators_idle(watch.Watcher(demo, offset=state.events_end(demo)), later)) == 1
+    assert "Iris" not in state.load(demo, ("communicators",))["communicators"]
+
+
 def test_a_record_to_an_unfinished_jobs_id_goes_out_and_is_held_on_that_job_with_its_seq_and_sender_and_a_finished_jobs_is_refused(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
