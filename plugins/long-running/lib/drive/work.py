@@ -75,27 +75,53 @@ def planned(data: dict, moment: datetime) -> dict[str, tuple[datetime, datetime]
 
 
 def scheduled(data: dict, moment: datetime) -> None:
-    """Keep each queued stage-test item's planned start and end on its row, and owe its ask's thread the start once, and again only when it moves by start_moves or more, by his question whether batching got lost: one step on the item's order, due BLOCKED_DUE on, telling the start and end; an item no row times keeps none."""
+    """Keep each queued stage-test item's planned start and end on its row, writing only what moved, and owe each ask's thread its staging start once, by his question whether batching got lost: one step per order, the earliest start and the latest end across its items, told by the thread's voice, by his one-voice ruling, again only when either moves by start_moves or more; an item no row times keeps none, and a process order owes none."""
     from drive import owing
 
     plan, moves = planned(data, moment), timedelta(minutes=cut_shape(data)["start_moves"])
+    asks: dict[str, list[tuple[datetime, datetime]]] = {}
     for job_id, job in data["jobs"].items():
         if not STAGE.queued(data, job):
             continue
-        if job_id not in plan:
-            job.update(starts_at=None, ends_at=None)
+        times = tuple(map(state.stamp, plan[job_id])) if job_id in plan else (None, None)
+        if (job.get("starts_at"), job.get("ends_at")) != times:
+            job.update(starts_at=times[0], ends_at=times[1])
+        if job_id in plan and state.class_rank(data, job) != state.CLASSES.index("process"):
+            asks.setdefault(job["order"], []).append(plan[job_id])
+    for order_id, spans in asks.items():
+        order = data["orders"][order_id]
+        starts, ends = min(start for start, _ in spans), max(end for _, end in spans)
+        if (said := order.get("start_said")) and abs(state.parse_time(said[0]) - starts) < moves and abs(state.parse_time(said[1]) - ends) < moves:
             continue
-        starts, ends = plan[job_id]
-        job.update(starts_at=state.stamp(starts), ends_at=state.stamp(ends))
-        if job.get("start_said") and abs(state.parse_time(job["start_said"]) - starts) < moves or state.class_rank(data, job) == state.CLASSES.index("process"):
-            continue
-        job["start_said"] = state.stamp(starts)
-        order = data["orders"][job["order"]]
-        what = f"tell his thread the staging test of {', '.join(state.tested_prs(data, job))} starts about {when(job['starts_at'])} and should end by {when(job['ends_at'])}"
-        if held := owing.open_on(order, owing.STEP, {"start": job_id}):
+        order["start_said"] = [state.stamp(starts), state.stamp(ends)]
+        what = f"tell his thread its staging test starts about {when(order['start_said'][0])} and should end by {when(order['start_said'][1])}"
+        if held := owing.open_on(order, owing.STEP, {"start": order_id}):
             held["what"] = what
         else:
-            owing.add(data, job["order"], owing.STEP, what, moment + owing.BLOCKED_DUE, {"start": job_id}, f"{job_id}'s staging start", moment, job_id)
+            owing.add(data, order_id, owing.STEP, what, moment + owing.BLOCKED_DUE, {"start": order_id}, "its staging start", moment, voice=True)
+
+
+def wait_eta(data: dict, wait: str, moment: datetime) -> tuple[str, datetime | None]:
+    """What a queued item waits on, in words, and when that should end if a row knows: a PR's checks still running at ci_minutes on, a job holding a staging lease at its end, a release on the train at the next cut's free_at plus train_minutes, a job's clock at its due; None when no row times it."""
+    if wait in data["prs"] and data["prs"][wait]["checks"] == "pending":
+        return f"#{wait.split('#')[1]}'s checks", moment + timedelta(minutes=cut_shape(data)["ci_minutes"])
+    if job := data["jobs"].get(wait):
+        if held := next((slot["holder"] for slot in data["slots"].values() if slot["holder"] and slot["holder"]["job"] == wait), None):
+            return wait, state.parse_time(held["until"])
+        if job.get("train"):
+            return wait, free_at(data, moment) + timedelta(minutes=cut_shape(data)["train_minutes"])
+        if job.get("due"):
+            return wait, state.parse_time(job["due"])
+    return wait, None
+
+
+def untimed(data: dict, job_id: str, moment: datetime) -> str:
+    """Why a queued item has no planned start, never bare: each wait it holds and, where a row knows, when that ends."""
+    said = []
+    for wait in STAGE.blocking(data, job_id) or [data["jobs"][job_id]["state"]]:
+        what, ends = wait_eta(data, wait, moment)
+        said.append(f"after {what}, about {when(state.stamp(ends))}" if ends else f"waits on {what}, no estimate")
+    return "; ".join(said)
 
 
 def enabled(data: dict, kind: str) -> bool:

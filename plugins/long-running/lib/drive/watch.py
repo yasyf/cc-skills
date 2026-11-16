@@ -184,6 +184,7 @@ RELEASE_COVERS = {"migrations": "Migrations", "replaces": "Replaces", "deletes":
 RELEASE_MEANWHILE = "The release waits at this approve step until you tap; nothing it holds back applies meanwhile."
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^[A-Z]+ (?:\S+ )?(?:j\d+ )?(?P<named>o\d+)\b")
 MOVED_LINE = re.compile(r"MOVED (?:o\d+, )*o\d+ from (?P<lane>\S+) to ")
+VOICED_LINE = re.compile(r"^DUE (?P<order>o\d+) voiced ")
 
 
 @dataclass
@@ -3481,7 +3482,7 @@ def owing_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 said = f"{item['kind']} \"{item['what']}\" was due {when(was)}, from {item['source']}"
                 count = owing.miss(item, moment)
                 if count < owing.COORDINATOR_MISS:
-                    lines.append(f"DUE {order_id} owed {item['id']}: {said}; do it now, or name a new due with drive owed due {item['id']} --by <time>, or end it with drive owed done {item['id']} --because \"<why>\"")
+                    lines.append(f"DUE {order_id} {'voiced' if item['voice'] else 'owed'} {item['id']}: {said}; do it now, or name a new due with drive owed due {item['id']} --by <time>, or end it with drive owed done {item['id']} --because \"<why>\"")
                 elif count == owing.COORDINATOR_MISS:
                     lines.append(f"DUE {item['id']} of {order_id} missed twice: {said}, and the session holding {order_id} did not act on the first miss; see it done or hand it on")
                 elif count == owing.HIS_MISS:
@@ -6655,6 +6656,10 @@ def line_lane(line: str, data: dict) -> str | None:
     """The lane of the one session that acts on a line, whichever watch made it: the lane a MOVED line's orders left; for a line whose header names a job, as JOB, LANE, STUCK, DUE, FREE and ANSWER lines do, the session state.job_lane names, the one the Agent hook and the job verbs let start and message its worker; for any other line naming an order, by its header or a PR's trailing ids, the session state.holding_lane names; None for a line naming neither."""
     if moved := MOVED_LINE.match(line):
         return moved["lane"]
+    if (voiced := VOICED_LINE.match(line)) and voiced["order"] in data["orders"]:
+        from drive import talk
+
+        return talk.voice_lane(data, data["orders"][voiced["order"]])
     if (named := NAMED_JOB.match(line)) and (job := data["jobs"].get(named["job"])):
         return state.job_lane(data, job)
     found = ABOUT.search(line)

@@ -5288,8 +5288,16 @@ def slot_queue(args: argparse.Namespace) -> int:
     return emit(args, "\n".join(lines) or "no staging env is held", {"slots": shown})
 
 
-def timed(job: dict) -> str:
-    return f", starts about {render.when(job['starts_at'])}, ends by {render.when(job['ends_at'])}" if job.get("starts_at") else ", no start time until what it waits on ends"
+def timed(data: dict, job_id: str) -> str:
+    job = data["jobs"][job_id]
+    return f", starts about {render.when(job['starts_at'])}, ends by {render.when(job['ends_at'])}" if job.get("starts_at") else f", {work.untimed(data, job_id, state.now())}"
+
+
+def staging_times(data: dict) -> list[str]:
+    """`drive status`'s staging section: the cut or release on each env with its start and end, then each queued stage-test item of an order shown with its planned start and end, or what it waits on and when that should end."""
+    lines = [f"{env}: {'cut' if held.get('work') else 'release'} of {', '.join(state.slot_members(slot))} from {render.when(held['since'])} to {render.when(held['until'])}" for env, slot in data["slots"].items() if (held := slot["holder"])]
+    kind = work.KIND[work.STAGE_TEST]
+    return lines + [f"{job_id} ({job['order']}){timed(data, job_id)}" for job_id, job in data["jobs"].items() if job["order"] in data["orders"] and kind.queued(data, job)]
 
 
 def queue_items(data: dict, env: str) -> list[str]:
@@ -5298,7 +5306,7 @@ def queue_items(data: dict, env: str) -> list[str]:
     if env != work.env(data):
         return []
     items = sorted((job_id for job_id, job in data["jobs"].items() if kind.queued(data, job)), key=lambda job_id: work.rank(data, job_id))
-    return [f"  q{place}. {job_id} in the queue, {'ready to pull' if kind.ready(data, job_id) else 'waiting on ' + (', '.join(kind.blocking(data, job_id)) or data['jobs'][job_id]['state'])}{timed(data['jobs'][job_id])}" for place, job_id in enumerate(items, 1)]
+    return [f"  q{place}. {job_id} in the queue, {'ready to pull' if kind.ready(data, job_id) else 'waiting on ' + (', '.join(kind.blocking(data, job_id)) or data['jobs'][job_id]['state'])}{timed(data, job_id)}" for place, job_id in enumerate(items, 1)]
 
 
 def job_held(args: argparse.Namespace) -> int:
@@ -7155,6 +7163,9 @@ def status(args: argparse.Namespace) -> int:
     if owes := owing.status_lines(shown or data, state.now()):
         text += "\nOwed:\n" + "\n".join(owes)
         payload["owed"] = owes
+    if staged := staging_times(shown or data):
+        text += "\nStaging:\n" + "\n".join(staged)
+        payload["staging"] = staged
     if shown is not None and any(state.RELEASE_WAIT.fullmatch(wait) for owner in [*payload["jobs"].values(), *payload["prs"].values()] for wait in owner["waits"]):
         payload["release_freezes"] = brief.releases(name, data)
         text += f"\nRelease freezes: {payload['release_freezes']}"

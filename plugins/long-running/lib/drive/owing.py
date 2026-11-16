@@ -28,6 +28,7 @@ def items(order: dict) -> list[dict]:
     for item in owed:
         item.setdefault("class", state.order_class(order))
         item.setdefault("job", None)
+        item.setdefault("voice", False)
     return owed
 
 
@@ -48,8 +49,8 @@ def next_id(data: dict) -> str:
     return f"w{max(taken, default=0) + 1}"
 
 
-def add(data: dict, order_id: str, kind: str, what: str, due: datetime | None, done_when: dict, source: str, moment: datetime, job: str | None = None) -> str:
-    """Owe one thing on the order: what it is, when he should have it, named by the session that owes it, and the condition on the drive's rows that ends it, in the class of the order's ask; its id."""
+def add(data: dict, order_id: str, kind: str, what: str, due: datetime | None, done_when: dict, source: str, moment: datetime, job: str | None = None, voice: bool = False) -> str:
+    """Owe one thing on the order: what it is, when he should have it, named by the session that owes it, and the condition on the drive's rows that ends it, in the class of the order's ask, its misses going to the thread's voice rather than the order's holder when voice; its id."""
     item_id = next_id(data)
     order = data["orders"][order_id]
     items(order).append(
@@ -66,6 +67,7 @@ def add(data: dict, order_id: str, kind: str, what: str, due: datetime | None, d
             "closed": None,
             "class": state.order_class(order),
             "job": job,
+            "voice": voice,
         }
     )
     return item_id

@@ -3220,3 +3220,28 @@ def test_the_queue_plans_each_items_cut_start_and_end_from_the_lease_end_packing
         "q3": (free + timedelta(minutes=30), free + timedelta(minutes=60)),
         "q4": (free + timedelta(minutes=30), free + timedelta(minutes=60)),
     }
+
+
+def test_each_ask_owes_one_voiced_staging_start_step_carrying_its_earliest_start_and_latest_end_reopened_only_when_either_moves_start_moves(monkeypatch: pytest.MonkeyPatch) -> None:
+    moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
+    data = train_drive("q1", "q2", "q3", q1={"order": "o2"}, q2={"order": "o2"})
+    data["orders"]["o2"] = {"incident": False, "priority": None, "state": "open", "class": None, "owed": []}
+    plan = {"q1": (moment, moment + timedelta(minutes=30)), "q2": (moment + timedelta(minutes=30), moment + timedelta(minutes=60)), "q3": (moment, moment + timedelta(minutes=30))}
+    monkeypatch.setattr(work, "cut_shape", lambda data: work.CUT_SHAPE)
+    monkeypatch.setattr(work, "planned", lambda data, moment: plan)
+    monkeypatch.setattr(work.STAGE, "queued", lambda data, job: True)
+    work.scheduled(data, moment)
+    [step] = data["orders"]["o2"]["owed"]
+    assert (step["done_when"], step["voice"], data["orders"]["o2"]["start_said"], data["orders"]["o1"]["owed"], data["jobs"]["q2"]["starts_at"]) == (
+        {"start": "o2"},
+        True,
+        [state.stamp(moment), state.stamp(moment + timedelta(minutes=60))],
+        [],
+        state.stamp(moment + timedelta(minutes=30)),
+    )
+    plan["q2"] = (moment + timedelta(minutes=35), moment + timedelta(minutes=65))
+    work.scheduled(data, moment)
+    assert data["orders"]["o2"]["start_said"][1] == state.stamp(moment + timedelta(minutes=60))
+    plan["q2"] = (moment + timedelta(minutes=45), moment + timedelta(minutes=75))
+    work.scheduled(data, moment)
+    assert (len(data["orders"]["o2"]["owed"]), data["orders"]["o2"]["start_said"][1]) == (1, state.stamp(moment + timedelta(minutes=75)))
