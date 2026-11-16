@@ -108,8 +108,13 @@ class ReleaseProvider(Provider):
     whole: str | None = None
     rehearsal_envs: frozenset[str] = frozenset()
 
-    def prebuild(self, commit: str) -> None:
+    def prebuild(self, commit: str) -> str | None:
+        """Kick off the builds a later release at commit adopts, so a production start there builds nothing its staging start already built, returning the link of the build it started; None when the repository prebuilds nothing."""
         return None
+
+    def gives_way(self, words: list[str]) -> bool:
+        """Whether a release start, as its words, is the staging release a production release runs first, which goes through every staging freeze and every staging slot a test holds."""
+        return False
 
     def targets(self) -> list[str]:
         return []
@@ -254,6 +259,10 @@ class BuildProvider(Provider):
     def finditer(self, text: str) -> list[re.Match]:
         """Each build link text holds, by build_url; none when the repository names no build links."""
         return list(self.build_url.finditer(text)) if self.build_url else []
+
+    def read(self, build: re.Match) -> dict:
+        """The build a link matched by build_url names, as the CI reads it now: its state, its jobs and the environment it started with; a reads.ReadError when it does not read back."""
+        return {}
 
     def builds(self, links: list[str], fields: str) -> dict[str, dict | None]:
         """Each build by its link, as one read of the repository's CI answers its GraphQL fields, None for a build it answers none for."""
