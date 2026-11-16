@@ -256,7 +256,7 @@ INCIDENT_SCOPE_WORDS = "Of only llm-gateway or api or whatever the thing we need
 
 
 def incident_scope(command: str, flags: dict[str, tuple[str, ...]], data: dict) -> str | None:
-    """Why a hotfix of an open incident's fix may not start: it names no `--only`, so the release tool picks every component and partner the fix's commit reaches, or one its `--only` names that none of the PRs it hotfixes reaches, by the release provider's components read, by his words INCIDENT_SCOPE_WORDS; None for any other start, and for one naming only components its PRs reach, which of them his words name being the session's reading; a components read that fails leaves its --only unchecked, since a gate fails open.
+    """Why a hotfix of an open incident's fix may not start: it names no `--only`, so the release tool picks every component and partner the fix's commit reaches, or one its `--only` names that none of the PRs it hotfixes reaches, by the release provider's components read, by his words INCIDENT_SCOPE_WORDS; None for any other start, and for one naming only components its PRs reach, which of them his words name being the session's reading; a components read that fails leaves its --only unchecked, since a gate fails open."""
     from drive import cli, github
 
     keys = [key for number in flags.get("hotfix", ()) if (key := f"{state.home(data)}#{number}") in data["prs"] and state.open_incidents(data, list(state.served_orders(data, data["prs"][key])))]
