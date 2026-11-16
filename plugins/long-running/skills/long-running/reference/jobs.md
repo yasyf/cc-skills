@@ -228,7 +228,7 @@ them, such as `WAITING staging:sandsql/plat-usw2-staging@044e8552b694`, never a 
 
 A codex job runs no agent. `drive job launch <j>` starts its codex-ask run on this Mac from the
 session's folder, `codex-ask --dispatch -s <the job's scratch>/codex --schema <the job's
-scratch>/codex-result.json` on the job's brief, with `-m <model>` on a job added with `--model`, the
+scratch>/codex-result.json --effort high` on the job's brief, with `-m <model>` on a job added with `--model`, the
 model his order names, and `--incident` on an incident, after the checks the Agent hooks run on
 every other job's brief, and records the run folder on the job in place of any agent an earlier
 lane left on it, so the watch never reads that agent's old turn as this run's result. Its brief carries each text the job
@@ -741,6 +741,9 @@ is the one exception, resumed for every event by [incidents.md](incidents.md), b
 users matter more there than tokens. Every session and lane the drive starts, its roots, handlers,
 watchdogs, builders and remote lanes included, compacts at 350,000 tokens, by his Nov 15 words "make
 the context cap 350k": `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the orca plugin's `lib/lane.json` sets it.
+Nothing the drive starts runs above `high` effort, its roots, agents, Orca and Sprite lanes and
+codex-ask runs alike, by his Nov 15 words "nothing should be running at xhigh": an Agent call, launch
+or `codex-ask` naming an effort names `high` or lower.
 
 A reproduction leaves one file. A job that reproduces a bug, of any kind, saves one pick-up-and-run
 file before it returns: the steps in order, the exact prompt and code, the build and versions, and

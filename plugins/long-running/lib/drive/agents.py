@@ -32,6 +32,8 @@ OUTAGE_WAITS = (1, 2, 4, 8)
 START_WINDOW = timedelta(minutes=5)
 BATCH_WINDOW = timedelta(minutes=1)
 RESUME_WINDOW = timedelta(minutes=30)
+EFFORT_CEILING = "high"
+ABOVE_CEILING = ("xhigh", "max")
 HANDLER_SKILLS = ("db-read", "iris-thread")
 SKILL_NAME = re.compile(r"^name:[ \t]*(\S+)", re.MULTILINE)
 RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
@@ -282,7 +284,7 @@ def his_words(prompt: str) -> str:
 
 
 def shaped(payload: dict) -> dict:
-    """The Agent call a drive session makes, in the one shape the drive runs it: a role's call without `name`, since a named agent joins the agent team and never wakes on events, a design job as the designer, the only definition that keeps it read only and its forks in his cards' shape, and Fable on the designer alone; and a lane whose order needs its definition's Opus or Fable without the Sonnet or Haiku passed for it."""
+    """The Agent call a drive session makes, in the one shape the drive runs it: a role's call without `name`, since a named agent joins the agent team and never wakes on events, a design job as the designer, the only definition that keeps it read only and its forks in his cards' shape, and Fable on the designer alone; a lane whose order needs its definition's Opus or Fable without the Sonnet or Haiku passed for it; and any effort above EFFORT_CEILING lowered to it, by his Nov 15 words "nothing should be running at xhigh"."""
     call = payload["tool_input"]
     if not (names := state.session_drives(payload.get("session_id") or "")):
         return call
@@ -296,6 +298,8 @@ def shaped(payload: dict) -> dict:
             made["subagent_type"] = DESIGNER
         if "fable" in (made.get("model") or "").lower() and made.get("subagent_type") != DESIGNER:
             del made["model"]
+    if made.get("effort") in ABOVE_CEILING:
+        made["effort"] = EFFORT_CEILING
     if job_id and heavier(data, job_id, text, made.get("model")):
         del made["model"]
     return made
@@ -518,9 +522,9 @@ def busy(session: str, records: list[tuple[int, dict]]) -> bool:
 
 
 def launched(out: str) -> str:
-    """The session `claude --bg` started, by the id it prints, `backgrounded · <id> · <name>`, which names the background job Claude Code writes for that session before it returns."""
-    printed = re.search(r"\b[0-9a-f]{8}\b", out)
-    if not (printed and (job := registry_record(install.config_dir() / "jobs" / printed[0] / "state.json"))):
+    """The session `claude --bg` started, by the id it prints, `backgrounded · <id> · <name>`, which names the background job Claude Code writes for that session before it returns, never the id of a note before it, as the one a resume of a session still listed prints naming the session it copies."""
+    printed = re.search(r"^backgrounded\W+([0-9a-f]{8})\b", out, re.MULTILINE)
+    if not (printed and (job := registry_record(install.config_dir() / "jobs" / printed[1] / "state.json"))):
         raise state.DriveError(f"claude --bg named no background job Claude Code keeps: {out.strip() or 'no output'}")
     return job["sessionId"]
 

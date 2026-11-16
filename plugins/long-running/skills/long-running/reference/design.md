@@ -19,7 +19,7 @@ On a drive tooling order a fork goes to him only when it is his high-level prefe
 builder builds that option.
 A visual design, how a page, card or post he sees lays out its information, is no designer's and no
 codex job's: its builder, briefed with the surface on `--native` and his user stories on
-`--interactions`, asks `codex-ask` for the layout inside its own run, keeps each fork codex finds as
+`--interactions`, asks `codex-ask --effort high` for the layout inside its own run, keeps each fork codex finds as
 his card with `drive job ask` and builds the recommended layout, by his words "get codex to design and
 stop doing the bare minimum", so no builder waits on a job holding its design.
 

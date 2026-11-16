@@ -160,15 +160,17 @@ def test_a_handler_whose_start_raised_what_the_drive_did_not_expect_leaves_nothi
     assert " in start_handler: 'answers'; its brief is kept in " in post[-1]
 
 
-def test_a_handler_is_keyed_at_launch_by_the_session_of_the_job_claude_bg_prints_and_a_launch_naming_no_job_claude_code_keeps_leaves_nothing_behind(
+def test_a_handler_is_keyed_at_launch_by_the_session_of_the_job_claude_bg_says_it_backgrounded_past_any_note_naming_another_and_a_launch_naming_no_job_claude_code_keeps_leaves_nothing_behind(
     communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = tmp_path / "claude"
     (config / "jobs" / "a81dc737").mkdir(parents=True)
     (config / "jobs" / "a81dc737" / "state.json").write_text(json.dumps({"sessionId": "a81dc737-4f1e-4883-b14e-3c520f1f2737", "state": "working", "tempo": "active"}))
+    (config / "jobs" / "47b7af8f").mkdir(parents=True)
+    (config / "jobs" / "47b7af8f" / "state.json").write_text(json.dumps({"sessionId": "47b7af8f-93c4-416c-b9f0-7bcc1c51ea18", "state": "done", "tempo": "idle"}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
     monkeypatch.setattr(agents, "launched", LAUNCHED)
-    printed = iter(["backgrounded · a81dc737 · demo handler 1a2b3c4d\n  claude agents             list sessions\n", "backgrounded · 0badf00d · demo handler 2b3c4d5e\n"])
+    printed = iter(["note: session 47b7af8f is already running in the background, so this started a copy as a81dc737. `claude attach 47b7af8f` opens the original.\nbackgrounded · a81dc737 · demo handler 1a2b3c4d\n  claude agents             list sessions\n", "backgrounded · 0badf00d · demo handler 2b3c4d5e\n"])
     posted: list[list[str]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: next(printed) if argv[:2] == ["claude", "--bg"] else posted.append(argv) or "")
     handler = start(run, tmp_path)
