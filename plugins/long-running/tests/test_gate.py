@@ -18,9 +18,9 @@ def test_a_gate_refuses_a_sessions_first_try_naming_every_finding_and_lets_its_r
 def test_a_gate_whose_store_cannot_be_read_lets_the_try_through_with_a_warning(capsys: pytest.CaptureFixture[str]) -> None:
     path = gate.store(None)
     path.parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text("{not json")
+    Path(path).write_text("a file where the store's folder goes")
     assert gate.gate(None, "page", ["no --users record"], "s1") is None
-    assert "could not be read or written" in capsys.readouterr().err
+    assert "could not be made" in capsys.readouterr().err
 
 
 def test_a_refusal_on_an_asked_or_incident_order_appends_a_blocked_event_and_a_process_order_none() -> None:
