@@ -5141,13 +5141,21 @@ def open_served(data: dict, job: dict) -> dict[str, list[str]]:
     }
 
 
+def merge_delivers(data: dict, keys: list[str], order_id: str, part: str) -> bool:
+    """Whether merging these PRs delivers a part, so the prover a merge adds carries it: a staging test part only when it tests one of them, since another PR's test waits on that PR; otherwise a part one of them names in its parts, or, when none names any, each work part of the job, as before PRs kept parts."""
+    if found := state.STAGING_PART.fullmatch(part):
+        return f"{state.MONOREPO}#{found['number']}" in keys
+    named = [pr for key in keys if (pr := data["prs"][key])["parts"]]
+    return not named or any(pr["order"] == order_id and part in pr["parts"] for pr in named)
+
+
 def unproved(data: dict, job_id: str) -> dict[str, list[str]]:
     """The parts the builder proving a merge outside yasyf/* live takes, each list under the open order holding it, its own first, as open_served reads them, every open part the job holds, own or carried, since its prover's passing proof alone delivers them: owed by a builder that at_merge takes DONE on now and by one that took that DONE before, alike, and by one whose PRs all merged, a yasyf/* one beside them, whose install's proof proves only that one, by its PRs outside yasyf/*, as released_prs reads them, while one of those parts is undelivered, each of them while one of those PRs has no prover, by prover_of, else those the prover of one of them does not hold yet; none otherwise, so a prover once added or found holds every part, and one that failed or stopped is said by its part's ORPHAN line, never given a second."""
     job = data["jobs"][job_id]
     if not (at_merge(data, job_id) or job["kind"] == "builder" and state.done_at_merge(job) and product(data, job_id) or merged_ready(data, job_id) and not product(data, job_id)):
         return {}
     keys = released_prs(data, job_id)
-    served = {order_id: parts for order_id, parts in open_served(data, job).items() if parts}
+    served = {order_id: kept for order_id, parts in open_served(data, job).items() if (kept := [part for part in parts if merge_delivers(data, keys, order_id, part)])}
     if all(state.delivered(data, order_id, part) for order_id, parts in served.items() for part in parts):
         return {}
     found = [prover_of(data, key) for key in keys]

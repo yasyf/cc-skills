@@ -2010,6 +2010,14 @@ def test_jobs_this_macs_load_holds_back_are_queued_with_a_place_and_never_keep_a
     assert started == [builders[-1]]
 
 
+def test_a_merge_prover_carries_only_the_parts_its_merged_prs_deliver_never_another_prs_staging_test() -> None:
+    merged = "Forge-AI/monorepo#56521"
+    data = {"prs": {merged: {"order": "o1482", "parts": []}, "Forge-AI/monorepo#7": {"order": "o1", "parts": ["the fix"]}}}
+    work = "Dream ledger votes keep no memory sentence or reason text in Postgres"
+    assert [part for part in (work, "staging test of #56306 before it lands", "staging test of #56521 before it lands") if watch.merge_delivers(data, [merged], "o1482", part)] == [work, "staging test of #56521 before it lands"]
+    assert (watch.merge_delivers(data, ["Forge-AI/monorepo#7"], "o1", "the fix"), watch.merge_delivers(data, ["Forge-AI/monorepo#7"], "o1", "another part")) == (True, False)
+
+
 def test_a_builder_that_builds_nothing_takes_no_slot_and_skips_the_load_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(place, "strained", lambda: "this Mac's 1-minute load is 49")
     job = {"kind": "builder", "order": "o1", "carries": {}, "parts": ["staging test of #42 before it lands"], "goal": "test #42 on staging", "priority": None, "builds_nothing": False}
