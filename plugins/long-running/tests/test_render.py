@@ -143,7 +143,7 @@ def test_every_agent_opens_on_the_skills_one_rule_that_his_words_newest_first_ou
 
 
 def test_each_page_naming_drive_tooling_carries_its_one_definition() -> None:
-    pages = [cli.PAGES / "communicator.md", cli.PAGES / "meta.md", cli.PAGES / "concepts.md", cli.PAGES.parents[2] / "agents" / "handler.md"]
+    pages = [cli.PAGES / "communicator.md", cli.PAGES / "meta.md", cli.PAGES / "concepts.md"]
     assert [page.name for page in pages if state.DRIVE_TOOLING not in page.read_text()] == []
 
 

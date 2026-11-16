@@ -949,7 +949,7 @@ def answer_question(name: str, ask: dict) -> dict:
         if asks:
             thread = view.card_thread(ask["url"])
             agents.handle(name, f"Message (his words): {ask['label']}\nLink: {ask['url']}\nThread: {state.slack_message(ask['url'])[0]} {thread}\nDrive: {name}\nScratch: {state.drive_dir(name) / 'scratch' / f'other-{thread}'}\nContext: his words in the Other box of the question card {ask['waits']}, which they answer nothing on")
-            return {"ok": False, "asks": True, "handed": True, "why": asks}
+            return {"ok": False, "asks": True, "routed": True, "why": asks}
     closed = state.new_close("answered", said, ask["url"], at=state.tap_time(item.get("id")), tap=ask.get("action_ts"))
     if undone and (drawn := view.drawn_on(data, ask["waits"], ask["url"])):
         if not (taken := answered_at(data, drawn, ask["url"])):
