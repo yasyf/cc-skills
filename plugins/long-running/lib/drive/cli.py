@@ -2838,7 +2838,7 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
     data = state.load(name)
     job = data["jobs"][job_id]
     _, where, lined = card_places(data, job)
-    link = talk.posted(name, {"card": card} | ({"thread_ts": where[1]} if where and not lined else {}))["permalink"]
+    link = talk.posted(name, {"card": card} | ({"thread_ts": where[1]} | ({"channel_id": where[0]} if where[0] != slack.dm() else {}) if where and not lined else {}))["permalink"]
     def post_ask_write(data: dict):
         live = state.kept_in(data["jobs"][job_id], file)
         doubled = [
