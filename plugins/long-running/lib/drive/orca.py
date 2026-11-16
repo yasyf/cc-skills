@@ -108,6 +108,10 @@ QUIET_SECONDS = 1800
 SPRITES_ORG = re.compile(r"^providers:[ \t]*\n(?:[ \t].*\n)*?([ \t]+)sprites:[ \t]*\n(?:\1[ \t]+.*\n)*?\1[ \t]+org:[ \t]*[\"']?([^\s\"']+)", re.MULTILINE)
 UNKEPT = "unkept.txt"
 TRANSCRIPTS = ".transcripts"
+FRESH_RESUME = (
+    "If the conversation above already holds your own earlier work on this job, it is your own Claude session, resumed from the transcript the drive kept of it on a fresh Sprite."
+    " This checkout is fresh, not the one you left: your work is where the handoff below says, on GitHub, so read it and its branches before you carry on."
+)
 RELAY_BYTES = 64 * 1024
 LAUNCH_REASON_CHARS = 2000
 LAUNCH_LOG = "launch.log"
@@ -717,13 +721,15 @@ def sprites_org(checkout: Path) -> str:
     return found[2]
 
 
-def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None, session: str | None) -> dict:
-    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief; its success line, with the Sprite's prepared server. Each run's whole output goes to the attempt's launch.log by launch_log, and a refusal names that file last."""
+def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None, session: str | None, transcript: Path | None = None) -> dict:
+    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, or on a fresh Sprite resuming the given session from the transcript given, which prepare places there first, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief; its success line, with the Sprite's prepared server. Each run's whole output goes to the attempt's launch.log by launch_log, and a refusal names that file last."""
     env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
     if workspace:
         env["WORKER_WORKSPACE"] = workspace
     if session:
         env["WORKER_SESSION"] = session
+    if transcript:
+        env["WORKER_TRANSCRIPT"] = str(transcript)
     local = route == state.LOCAL_ROUTE
     if local:
         repo = request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]
@@ -733,7 +739,7 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
     else:
         env["WORKER_TOOLS"] = SPRITE_TOOLS
     attempt = brief.with_suffix(".worker")
-    where = ON_MAC if local else f"on Sprite {workspace} in the checkout it holds" + (f", resuming Claude session {session}" if session else "") if workspace else "on a fresh Sprite"
+    where = ON_MAC if local else f"on Sprite {workspace} in the checkout it holds" + (f", resuming Claude session {session}" if session else "") if workspace else "on a fresh Sprite" + (f", resuming Claude session {session} from its transcript kept here" if transcript else "")
     state.said(lane, f"it launches the lane {where} with {LAUNCHER}, for at most {LAUNCH_SECONDS} s")
     try:
         done = grouped([tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)], cwd=checkout, env=env, timeout=LAUNCH_SECONDS)
@@ -1296,6 +1302,12 @@ def rebooted(drive: str, job_id: str, job: dict, dispatch: str) -> bool:
     kept = death_logs(drive, job_id, dispatch)
     ages = sections(kept.read_text()).get(AGES)
     return bool(ages) and kept.stat().st_mtime - float(ages.split()[0]) > state.parse_time(job["worker_started"]).timestamp()
+
+
+def kept_session(drive: str, job_id: str, dispatch: str) -> Path | None:
+    """The transcript keep_transcripts kept of the Claude session the worker on this dispatch ran, the newest kept file naming the dispatch Orca's preamble wrote into it, which a relaunch on a fresh Sprite resumes there; None when none was kept."""
+    held = [path for path in transcripts(drive, job_id, dispatch).glob("*/*.jsonl") if SESSION_ID.fullmatch(path.stem) and dispatch in path.read_text(errors="replace")]
+    return max(held, key=lambda path: path.stat().st_mtime, default=None)
 
 
 def transcripts(drive: str, job_id: str, dispatch: str) -> Path:

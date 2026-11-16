@@ -12,6 +12,7 @@ ref=${WORKER_REF:-}
 expect=${WORKER_EXPECT_BASE:-}
 continued=${WORKER_WORKSPACE:-}
 session=${WORKER_SESSION:-}
+transcript=${WORKER_TRANSCRIPT:-}
 tier=${WORKER_SERVICE_TIER:-}
 lane_spec=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/lane.json
 lane_env=$(jq -r '.env | to_entries | map("\(.key)=\(.value)") | join(" ")' "$lane_spec")
@@ -109,7 +110,7 @@ if [ "$route" = sprite ]; then
   fi
 else
   [ "$kind" = claude ] || die "the local route starts only claude, and codex runs $model_id; nothing launched"
-  [ -z "$ref$expect$session" ] || die "WORKER_REF, WORKER_EXPECT_BASE and WORKER_SESSION pick a Sprite's checkout or session; the local route takes WORKER_BASE_BRANCH, or WORKER_WORKSPACE to continue in a worktree; nothing launched"
+  [ -z "$ref$expect$session$transcript" ] || die "WORKER_REF, WORKER_EXPECT_BASE, WORKER_SESSION and WORKER_TRANSCRIPT pick a Sprite's checkout or session; the local route takes WORKER_BASE_BRANCH, or WORKER_WORKSPACE to continue in a worktree; nothing launched"
   [ -z "$continued" ] || [[ $continued == /* ]] ||
     die "WORKER_WORKSPACE on the local route is the absolute path of the worktree to continue in, not $continued; nothing launched"
   repo=${WORKER_REPO:-$(repo_value repo)} base=${WORKER_BASE_BRANCH:-$(repo_value baseBranch)}
@@ -346,7 +347,11 @@ if [ "$route" = sprite ]; then
     prepare+=(--settings "$(jq -c '.settings + .spriteSettings + {permissions: {deny: .deniedTools}}' "$lane_spec")")
   fi
   [ -z "$ref" ] || prepare+=(--ref "$ref")
-  [ -z "$session" ] || prepare+=(--resume "$session")
+  if [ -n "$transcript" ]; then
+    prepare+=(--resume-transcript "$transcript")
+  elif [ -n "$session" ]; then
+    prepare+=(--resume "$session")
+  fi
   [ -z "$tier" ] || prepare+=(--service-tier "$tier")
   [ -z "${WORKER_MCP_CONFIG:-}" ] || prepare+=(--mcp-config "$WORKER_MCP_CONFIG")
   [ ${#worker_env[@]} -eq 0 ] || for pair in "${worker_env[@]}"; do prepare+=(--env "$pair"); done
