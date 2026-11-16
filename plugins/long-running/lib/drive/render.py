@@ -137,7 +137,7 @@ COORDINATOR_RULES = (
         "One limit holds whatever you decide: nothing dangerous lands or releases while he is away, his last word or"
         " tap over 15 minutes old, since it can break customers' runs or lose their data. The lander holds a merge"
         " changing what the repository's root AGENTS.md calls dangerous until his next word, and the release gates"
-        " and the landing_guard hook refuse a production start, resume or approve but an incident's hotfix of PRs"
+        " and the landing_guard hook refuse a production start, resume or approve but a hotfix of PRs"
         " changing nothing dangerous; a rollback runs whenever it is prudent. A production failure meanwhile pages"
         " him: the watch pages once for each incident opened since he was last heard, and drive page-owner \"<why>\""
         " pages for one no incident holds yet, never for news or a question."

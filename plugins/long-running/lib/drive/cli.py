@@ -5746,11 +5746,12 @@ def answer(args: argparse.Namespace) -> int:
     if args.id is None:
         if not (args.title and args.words):
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question>" with --words, and --link where he said them, to record it in cc-notes first')
-        unsaid = "no --link names where he said them" if unlinked else settled.unsaid([args.words], args.link, found, data)
-        if unsaid:
-            print(f"drive answer: {unsaid}; recorded as the session's paraphrase of his words, labelled {settled.PARAPHRASE_LABEL}", file=sys.stderr)
+        if unsaid := settled.unsaid([args.words], args.link, found, data):
+            noted = settled.recorded(name, args.title, args.words, [*args.label, settled.PARAPHRASE_LABEL], " and ".join(args.link), cwd)
+            print(f"drive answer: {unsaid}; recorded as {noted[:7]}, the session's paraphrase, labelled {settled.PARAPHRASE_LABEL}, which settles no card, order or release, since only his own words do", file=sys.stderr)
+            return 0
         lifts = settled.lifting(question for job in data["jobs"].values() for question in job["questions"] if superseded.ended_at(args.link[0], question))
-        args.id = settled.recorded(name, args.title, args.words, [*args.label, *([settled.PARAPHRASE_LABEL] if unsaid else [])], " and ".join(args.link), cwd, lifts)
+        args.id = settled.recorded(name, args.title, args.words, args.label, " and ".join(args.link), cwd, lifts)
     drive = args.about == state.ABOUT_DRIVE or bool(ON_THE_DRIVE & {*(cited["tags"] if cited else args.label)})
     marking = args.approves or args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
     done: list[str] = []
@@ -5763,14 +5764,14 @@ def answer(args: argparse.Namespace) -> int:
                 " and mark them once you have read it"
             )
         if cited:
-            if unlinked:
-                unsaid = "no --link names where he said them"
-            elif args.words:
+            if settled.paraphrased(cited):
+                raise DriveError(f"{args.id} is a session's paraphrase, labelled {settled.PARAPHRASE_LABEL}, which settles no card, order or release: record his own words with --title, --words and --link")
+            if args.words:
                 unsaid = settled.unsaid([args.words], args.link, found, data)
             else:
                 args.words, unsaid = settled.his_at(cited["body"], args.link, found, data)
             if unsaid:
-                print(f"drive answer: {args.id}: {unsaid}; kept as the session's paraphrase of his words", file=sys.stderr)
+                raise DriveError(f"{args.id}: not kept, since only his own words settle a card, order or release: {unsaid}")
             args.words = args.words or settled.his(cited["body"])
         bound = superseded.binding(data, args.link[0], asked, cwd)
         with state.edit(name) as data:
@@ -8062,7 +8063,7 @@ def parser() -> argparse.ArgumentParser:
             " terminal; several for his messages in a row in one thread, or all at one channel's root, in the order he sent them, which --words joins with …"
             " and the answer keeps at the first; the first call checks --words against those messages joined and a named answer's words"
             " above its Notes: either against them or, where those words hold more than his, as each message sitting inside them, refused on an answer recorded already;"
-            " left out, the answer is kept at terminal as the session's paraphrase"
+            f" left out, it is terminal; words that are not his there are recorded as the session's paraphrase, labelled {settled.PARAPHRASE_LABEL}, which settles nothing"
         ),
     )
     verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card, order, part or PR his answer leaves as it is")

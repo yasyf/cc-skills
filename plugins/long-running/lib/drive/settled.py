@@ -468,6 +468,7 @@ HIS_ANSWER = (
     " session's terminal, cut with … where words are left out"
 )
 PARAPHRASE_LABEL = "from:paraphrase"
+PARAPHRASED = " the session's paraphrase, which he never said: "
 COMMON = {
     "about", "above", "after", "again", "being", "below", "between", "could", "doing", "during", "every", "first", "having", "later",
     "maybe", "might", "never", "other", "ought", "right", "should", "since", "still", "their", "there", "these", "thing", "things",
@@ -492,13 +493,16 @@ def recorded(name: str, title: str, words: str, labels: list[str], where: str, c
     """Record his answer on the drive in cc-notes, the question as its title as `titled` fits it, his words as its body with the whole question in its notes when its title is cut, and the drive's labels before these, superseding by it each answer of the drive's still standing under that same question, so his changed pick leaves one answer per question for ccn answer match to rank, and each answer of his the question's card asked him to lift, by `lifting` its unsettled mark, that `lift` reads his answer replacing, and return its id; a standing answer cc-notes holds already under that title in those words, as a tap, a handler or an earlier call recorded it, is that answer, so its id comes back and nothing is added. A refusal names his words, the question and the card or message where he gave them."""
     handle = titled(title)
     said = (plain(handle), plain(words))
-    if kept := next((answer for answer in listed("scope:durable", cwd) if (plain(answer["title"]), plain(his(answer["body"]))) == said), None):
+    paraphrase = PARAPHRASE_LABEL in labels
+    if not paraphrase and (kept := next((answer for answer in listed("scope:durable", cwd) if (plain(answer["title"]), plain(his(answer["body"]))) == said), None)):
         labelled(kept, labels, cwd)
         return kept["id"]
     body = words if handle == title else f"{words}{NOTES}{WHOLE}{title}"
     standing = [answer["id"] for answer in listed(f"drive:{name}", cwd) if state.same_question(answer["title"], handle)]
     add = ["ccn", "answer", "add", f"--title={handle}", "--body-file", "-", *(f"--label={label}" for label in ["scope:durable", f"drive:{name}", *kind(words), *labels]), "--json"]
     answer_id = json.loads(ccn(add, body, cwd, f'could not record in cc-notes his answer "{cut(words, 80)}" to "{cut(title, 120)}" on {where}'))["id"]
+    if paraphrase:
+        return answer_id
     for pick in standing:
         supersede(pick, answer_id, cwd)
     lift(answer_id, title, words, list(lifts), cwd)
@@ -767,15 +771,25 @@ def plain(text: str) -> str:
     return " ".join(UNWORDED.sub(" ", html.unescape(read(text))).casefold().split())
 
 
+def paraphrased(answer: dict) -> bool:
+    """Whether a recorded answer is a session's paraphrase, labelled PARAPHRASE_LABEL by `drive answer` when the words it was given are not his at a link, so no card, order or release gate reads it as his words."""
+    return PARAPHRASE_LABEL in answer.get("tags", ())
+
+
+def heard_only(answer: dict) -> dict:
+    """A recorded answer as every gate reads it: a paraphrased() one with all of its body under its notes, so his() reads no words of his in it."""
+    return {**answer, "body": f"{NOTES}{PARAPHRASED}{answer['body']}"} if paraphrased(answer) else answer
+
+
 def shown(answer_id: str, cwd: str) -> dict:
-    """One recorded answer of his, its title, body and labels, none when cc-notes prints no tags key, as it does for an answer with no labels."""
-    return {"tags": [], **json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))}
+    """One recorded answer of his, its title, body and labels, none when cc-notes prints no tags key, as it does for an answer with no labels; a paraphrased() one as heard_only() reads it."""
+    return heard_only({"tags": [], **json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))})
 
 
 def listed(label: str, cwd: str) -> list[dict]:
     """His recorded answers carrying the label, newest first, each with its body and the time it was recorded; never one a later answer superseded."""
     found = json.loads(ccn(["ccn", "answer", "list", "--label", label, "--limit", "0", "--full", "--json"], "", cwd, f"could not read his answers labelled {label}"))
-    return sorted(found, key=lambda answer: answer["created_at"], reverse=True)
+    return sorted((answer for answer in found if not paraphrased(answer)), key=lambda answer: answer["created_at"], reverse=True)
 
 
 def hold(cwd: str) -> dict | None:
@@ -807,7 +821,7 @@ def matched(texts: list[str], data: dict) -> list[dict]:
     found: dict[str, dict] = {}
     for text in texts:
         ranked = json.loads(ccn(match, read(text), data["roles"]["coordinator"]["cwd"], "could not check the question against his recorded answers"))
-        for answer in [answer for answer in ranked if APPROVAL not in answer["tags"] and his(answer["body"])][:CANDIDATES]:
+        for answer in [answer for answer in ranked if APPROVAL not in answer["tags"] and not paraphrased(answer) and his(answer["body"])][:CANDIDATES]:
             found.setdefault(answer["id"][:7], {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer)})
     return list(found.values())
 
@@ -853,7 +867,7 @@ def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozens
         words = read(line)
         match = ccn(["ccn", "answer", "match", "-", "--label", "scope:durable", *([] if floored else ["--nearest"]), "--limit", "-1", "--json"], words, cwd, failure)
         search = "[]" if floored else ccn(["ccn", "answer", "search", "--label", "scope:durable", "--limit", "0", "--json", "--", " ".join(words.split()[:LINE_WORDS])], "", cwd, failure)
-        matched, searched = ([answer for answer in json.loads(ranked) if APPROVAL not in answer["tags"] and his(answer["body"]) and answer["id"][:7] not in besides][:LINE_CANDIDATES] for ranked in (match, search))
+        matched, searched = ([answer for answer in json.loads(ranked) if APPROVAL not in answer["tags"] and not paraphrased(answer) and his(answer["body"]) and answer["id"][:7] not in besides][:LINE_CANDIDATES] for ranked in (match, search))
         found: dict[str, dict] = {}
         for answer in (answer for pair in zip_longest(matched, searched) for answer in pair if answer):
             found.setdefault(answer["id"][:7], {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer), "area": [tag for tag in answer["tags"] if not tag.startswith(("scope:", "kind:", "drive:"))]})

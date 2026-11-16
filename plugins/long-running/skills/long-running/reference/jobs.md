@@ -239,7 +239,9 @@ Waits a first line sets, and what ends them:
   reading neither word, and the job still returns `DONE`. `drive job report` refuses a `DONE` on the
   part with no `CASE` line. A `DONE` whose every case reads `not exercised` ran none and leaves the
   part as it stood. A newer tester at work, waiting or failed, or the tester's next other return,
-  reopens the part.
+  reopens the part. The `CASE` lines travel in that return alone: a tester posts no record per
+  case, and a brief that wants them before the return asks for one `handoff` record to the root,
+  opening `LAST-READ` and carrying every `CASE` line.
 - A staging test pausing until staging runs its soak commit, or an after-merge pass waiting for a
   build carrying its merge, returns one `WAITING staging:<target>/<env>@<commit>` per stack, such
   as `WAITING staging:db/<staging env>@044e8552b694`.
@@ -566,7 +568,7 @@ with no card or question first:
   present, meaning his word or tap in the last 15 minutes. Dangerous is what the repository's root
   AGENTS.md lists, such as a migration, a backfill or a delete of user data, because those can
   break customer runs or lose data with nobody watching. Until then the job returns `WAITING` on
-  his word with the release held. A rollback, an incident's hotfix that changes nothing dangerous
+  his word with the release held. A rollback, a hotfix that changes nothing dangerous
   and a release off production run without him.
 - While he holds every release, one starts on his word given after the hold, by
   [landing.md](landing.md#after-merge). A release he started himself stays running as he left it:

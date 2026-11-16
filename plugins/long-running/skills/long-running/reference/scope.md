@@ -79,7 +79,7 @@ Four limits hold whatever else is true. Name the one that stops you in your retu
 1. A dangerous change merges or releases only while he is present, meaning his word or tap in the
    last 15 minutes, because it can break customer runs or lose data with nobody watching. Dangerous
    is what the repository's root AGENTS.md lists, and a production release carrying one. A rollback,
-   and an incident's hotfix changing nothing dangerous, run without him.
+   and a hotfix changing nothing dangerous, run without him.
 2. Customer data is not read or touched on this Mac.
 3. No session, Orca, terminal host or process of unknown ownership is stopped, signalled, suspended
    or closed, because it may hold someone's live work.

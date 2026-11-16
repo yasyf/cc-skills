@@ -11558,12 +11558,11 @@ def test_j5263_an_answer_cc_notes_holds_and_the_drive_lacks_is_kept_by_its_id_wi
     answer = state.load("demo")["answers"][kept]
     assert ((answer["words"], answer["link"]), heard.checked) == ((WORDS, PICK), [(WORDS, [PICK])])
     cli.main(["answer", loose[:7]])
-    assert f"drive answer: {loose}: no --link names where he said them; kept as the session's paraphrase of his words" in capsys.readouterr().err
     answer = state.load("demo")["answers"][loose]
-    assert ((answer["words"], answer["link"]), heard.checked) == ((WORDS, settled.TERMINAL), [(WORDS, [PICK])])
+    assert ((answer["words"], answer["link"]), heard.checked) == ((WORDS, settled.TERMINAL), [(WORDS, [PICK]), (WORDS, [settled.TERMINAL])])
 
 
-def test_an_answer_an_agent_wrapped_in_its_own_words_is_kept_by_its_id_as_his_message_at_the_link_and_as_a_paraphrase_when_his_message_is_not_inside_it(
+def test_an_answer_an_agent_wrapped_in_its_own_words_is_kept_by_its_id_as_his_message_at_the_link_and_not_kept_when_his_message_is_not_inside_it(
     run: Run, designing: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_thread: Thread
 ) -> None:
     cards_asking(monkeypatch, PR)
@@ -11577,10 +11576,10 @@ def test_an_answer_an_agent_wrapped_in_its_own_words_is_kept_by_its_id_as_his_me
     ]
     assert cli.main(["answer", kept[:7], "--link", PICK]) == 2
     assert f"his answer {kept} " in capsys.readouterr().err
-    cli.main(["answer", unkept[:7], "--link", PICK])
-    assert f'drive answer: {unkept}: his words at {PICK} do not say "His words, verbatim: "Iris should propose topologies itself""' in capsys.readouterr().err
+    assert cli.main(["answer", unkept[:7], "--link", PICK]) == 2
+    assert f'{unkept}: not kept, since only his own words settle a card, order or release: his words at {PICK} do not say "His words, verbatim: "Iris should propose topologies itself""' in capsys.readouterr().err
     answers = state.load("demo")["answers"]
-    assert (answers[unkept]["words"], answers[kept]["words"], answers[kept]["link"]) == ('His words, verbatim: "Iris should propose topologies itself"', f"{WORDS}.", PICK)
+    assert (unkept in answers, answers[kept]["words"], answers[kept]["link"]) == (False, f"{WORDS}.", PICK)
 
 
 def test_j3986_his_ruling_kept_under_its_full_id_is_found_by_any_prefix_and_never_kept_twice(
@@ -11598,18 +11597,19 @@ def test_j3986_his_ruling_kept_under_its_full_id_is_found_by_any_prefix_and_neve
     assert list(state.load("demo")["answers"]) == [ruling]
 
 
-def test_an_answer_whose_words_are_not_his_at_the_permalink_or_that_names_none_is_recorded_as_the_sessions_paraphrase(
+def test_an_answer_whose_words_are_not_his_at_the_permalink_or_the_terminal_is_recorded_as_the_sessions_paraphrase_and_settles_nothing(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], heard: Heard, noted: list[tuple[str, str, str]]
 ) -> None:
     cards_asking(monkeypatch, PR)
     heard.refusal = "his words at the link do not say it"
-    cli.main(["answer", "--title", "Which topology?", "--words", "a drafted reading of his question", "--link", PICK])
-    assert f"drive answer: his words at the link do not say it; recorded as the session's paraphrase of his words, labelled {settled.PARAPHRASE_LABEL}" in capsys.readouterr().err
-    cli.main(["answer", "--title", "Which tree?", "--words", WORDS])
-    assert f"drive answer: no --link names where he said them; recorded as the session's paraphrase of his words, labelled {settled.PARAPHRASE_LABEL}" in capsys.readouterr().err
+    settles_nothing = f"the session's paraphrase, labelled {settled.PARAPHRASE_LABEL}, which settles no card, order or release, since only his own words do"
+    assert cli.main(["answer", "--title", "Which topology?", "--words", "a drafted reading of his question", "--link", PICK]) == 0
+    assert f"drive answer: his words at the link do not say it; recorded as 1c0ffee, {settles_nothing}" in capsys.readouterr().err
+    assert cli.main(["answer", "--title", "Which tree?", "--words", WORDS]) == 0
+    assert f"drive answer: his words at the link do not say it; recorded as 2c0ffee, {settles_nothing}" in capsys.readouterr().err
     assert noted == [("demo", "Which topology?", "a drafted reading of his question"), ("demo", "Which tree?", WORDS)]
-    assert heard.checked == [("a drafted reading of his question", [PICK])]
-    assert state.load("demo")["answers"][f"2c0ffee{'0' * 33}"]["link"] == settled.TERMINAL
+    assert heard.checked == [("a drafted reading of his question", [PICK]), (WORDS, [settled.TERMINAL])]
+    assert not {f"1c0ffee{'0' * 33}", f"2c0ffee{'0' * 33}"} & state.load("demo")["answers"].keys()
 
 
 @pytest.mark.parametrize(

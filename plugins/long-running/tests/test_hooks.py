@@ -1911,7 +1911,7 @@ def test_his_answer_pointing_at_releases_his_earlier_answers_in_its_thread_name_
     assert brief.approval_refusal("tools/ci release hotfix 56539 --order 9bce65a", data) is None
     assert jev.asked[-1]["state"]["earlier"] == {"42a0764": plan}
     assert brief.away_refusal("start", releases[2], data, state.now()).startswith(
-        "refused: he last wrote or tapped 15 minutes ago, and while he is not present a production release starts or resumes only as an incident's hotfix"
+        "refused: he last wrote or tapped 15 minutes ago, and while he is not present a production release starts or resumes only as a hotfix"
     )
 
 

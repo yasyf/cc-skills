@@ -334,7 +334,7 @@ it lands a PR when all of these hold at its current head.
   lose data, and he wants to be there. While he is away the lander records
   `not landed while he is away` and lands it at his next word, his Approve standing. A unit Trunk
   queued before he went quiet is dequeued, and the `landing_guard` hook refuses a hand merge. A
-  rollback, and an incident's hotfix changing nothing dangerous, run without him.
+  rollback, and a hotfix changing nothing dangerous, run without him.
 
 ### Exempt classes
 
@@ -629,12 +629,12 @@ session's confirmation or a card first. A change no words of his cover rides the
   the drive refused or never kept their `DONE` lands by `drive order set --drop-part` on its
   tester's part, the turn the defect goes to meta.
 - **The one wait.** A release carrying a dangerous change starts, resumes and is approved only
-  while he is present, by [the presence limit](#the-monorepo). A rollback runs at any hour. An
-  incident's hotfix of pull requests that change nothing dangerous, carrying no other change, runs
-  without him. So does a release whose every place is off production. Today
-  `drive job add --release` and the `landing_guard` hook also refuse any other production start,
-  resume or approve while he is away, and the job returns `WAITING his word` with the release
-  held.
+  while he is present, by [the presence limit](#the-monorepo). A rollback runs at any hour. A
+  hotfix of pull requests that change nothing dangerous, carrying no other change, runs
+  without him, on any order. So does a release whose every place is off production. A cut of the
+  default branch is held while he is away, because the gate cannot read what it carries past the
+  live commit, and so is every approve hold, which holds a migration, delete or replace: ship the
+  pull requests that change nothing dangerous as a hotfix, and the rest returns `WAITING his word`.
 - **The approve hold.** The job's agent reads each held migration, delete and replace against the
   code at the release's commit, then runs `<ci> release approve <id> --via <agent>`, naming in
   `--leave-out` each stack it cannot vouch for. It decides this itself and keeps the release

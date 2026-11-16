@@ -308,6 +308,8 @@ def unapproved(command: str, data: dict, cwd: str) -> str | None:
     answer_id = orders[-1]
     try:
         answer = settled.shown(answer_id, cwd)
+        if settled.paraphrased(answer):
+            return f"`--order {answer_id}` names a session's paraphrase, labelled {settled.PARAPHRASE_LABEL}, which he never said"
         if settled.INCIDENT in answer["tags"] or not (why := settled.unordered(answer, command, data)):
             return None
     except state.DriveError as error:
@@ -399,7 +401,7 @@ def uncarried(command: str, data: dict) -> str | None:
 
 
 def away_refusal(verb: str, release: str, data: dict, moment: datetime) -> str | None:
-    """Why a production release may not start, resume or pass its approve hold now, by a release verb or a `ci bk api` write to its build such as unblocking that hold: he is not present, by state.absence, and it is dangerous by the root AGENTS.md's rule, as every approve hold is, since it holds a migration, delete or replace, and every cut but harmless() ones, since a cut of the default branch carries changes nobody read; a release naming only places off production, by settled.off_production(), such as a staging or sandbox step, a rollback, a rerun or any other verb runs."""
+    """Why a production release may not start, resume or pass its approve hold now, by a release verb or a `ci bk api` write to its build such as unblocking that hold: he is not present, by state.absence, and it is dangerous by the root AGENTS.md's rule, as every approve hold is, since it holds a migration, delete or replace, and every cut but harmless() ones, since what a cut of the default branch carries is not read here; a release naming only places off production, by settled.off_production(), such as a staging or sandbox step, a rollback, a rerun or any other verb runs."""
     if verb not in PRESENT_CUTS or not (away := state.absence(data, moment)):
         return None
     if (releases := started(release)) and all(settled.off_production(settled.shipped(flags), data["roles"]["coordinator"]["cwd"]) for flags in releases):
@@ -407,19 +409,19 @@ def away_refusal(verb: str, release: str, data: dict, moment: datetime) -> str |
     if verb not in HOLD_PASSES and harmless(release, data):
         return None
     return (
-        f"refused: {away}, and while he is not present a production release starts or resumes only as an incident's hotfix of pull requests"
-        f" that change nothing dangerous, and passes no approve hold, by his words {state.PRESENCE_WORDS}: return WAITING his word with the release held; a rollback runs now"
+        f"refused: {away}, and while he is not present a production release starts or resumes only as a hotfix of pull requests"
+        f" that change nothing dangerous, and passes no approve hold, by his words {state.PRESENCE_WORDS}: what a cut of the default branch"
+        " carries past the live commit is not read here, so ship the pull requests that change nothing dangerous as a hotfix now, on any order,"
+        " and return WAITING his word for the rest; a rollback runs now"
     )
 
 
 def harmless(release: str, data: dict) -> bool:
-    """Whether a release may run while he is not present: one `ci release start` or `hotfix` of pull requests, which carries no other change, on an --order of his labelled incident, none of whose pull requests land.danger reads dangerous."""
+    """Whether a release may run while he is not present: one `ci release start` or `hotfix` of pull requests, which carries no other change, none of which land.danger reads dangerous, on any order, since his rule holds only what is dangerous."""
     from drive import land
 
     named = started(release)
-    if len(named) != 1 or not (pulls := named[0].get("hotfix")) or not (orders := named[0].get("order")):
-        return False
-    if settled.INCIDENT not in settled.shown(orders[-1], data["roles"]["coordinator"]["cwd"])["tags"]:
+    if len(named) != 1 or not (pulls := named[0].get("hotfix")):
         return False
     return not any(land.danger(data, f"{state.MONOREPO}#{number}") for number in pulls)
 
@@ -478,6 +480,8 @@ def hold_refusal(release: str, data: dict, hold: dict, reading: str | None = Non
             why = "it names no `--order`, and neither does a `Release:` line of its job's brief"
         elif (answer := settled.shown(orders[-1], cwd))["created_at"] <= hold["created_at"]:
             why = f'`--order {orders[-1]}` names his answer to "{cut(answer["title"], 200)}", recorded before the hold'
+        elif settled.paraphrased(answer):
+            why = f"`--order {orders[-1]}` names a session's paraphrase, labelled {settled.PARAPHRASE_LABEL}, which he never said"
         elif not (unordered := settled.unordered(answer, release, data)):
             return None
         else:

@@ -231,7 +231,7 @@ def test_a_sprite_lanes_release_verb_asks_the_coordinators_mac_whether_his_hold_
     assert len(sprite) == 2
 
 
-def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_ago_while_a_rollback_an_incidents_harmless_hotfix_and_a_staging_or_sandbox_start_run(
+def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_ago_while_a_rollback_a_harmless_hotfix_on_any_order_and_a_staging_or_sandbox_start_run(
     run: Run, demo: str, sprite: list[list[str]], recorded: Answers, no_calls: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
@@ -239,13 +239,14 @@ def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_
     with state.edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=20))
     refused = landing_guard.deny_reason(bash(RESUME, session_id="sprite"))
-    assert refused and refused.startswith("refused: he last wrote or tapped 20 minutes ago, and while he is not present a production release starts or resumes only as an incident's hotfix")
+    assert refused and refused.startswith("refused: he last wrote or tapped 20 minutes ago, and while he is not present a production release starts or resumes only as a hotfix")
     assert landing_guard.deny_reason(bash("tools/ci release rollback sandsql", session_id="sprite")) is None
     recorded.shown["8b2e4f7"] = {"id": "8b2e4f7", "title": "SandSQL writes fail", "body": "fix it", "tags": [settled.INCIDENT], "created_at": "2026-11-14T09:00:00Z"}
     monkeypatch.setattr(github, "files", {"Forge-AI/monorepo#56101": ["api/src/routes/health.ts"], "Forge-AI/monorepo#56102": ["api/migrations/1794-add-column.ts"]}.__getitem__)
     hotfix = "tools/ci release hotfix sandsql 56101 --order 8b2e4f7"
     data = state.load(demo)
     assert brief.away_refusal("start", hotfix, data, state.now()) is None
+    assert brief.away_refusal("start", hotfix.replace("8b2e4f7", "0a1b2c3"), data, state.now()) is None
     assert brief.away_refusal("resume", hotfix, data, state.now()) is None
     assert brief.away_refusal("approve", hotfix, data, state.now()) == refused
     assert brief.away_refusal("start", hotfix.replace("56101", "56102"), data, state.now()) == refused
