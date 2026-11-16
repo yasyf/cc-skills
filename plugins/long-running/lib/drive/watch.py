@@ -4137,9 +4137,11 @@ def owed(watcher: Watcher, data: dict, found: dict[str, dict], stalls: dict[str,
 
 def settle(name: str, thing: str, held: dict, done: dict) -> None:
     """Give back a stall's claim, keeping what its step did, on the row it was claimed on; a stall that moved meanwhile is a fresh row and keeps nothing."""
-    with state.edit(name) as data:
+    def settled_stall(data: dict) -> None:
         if (kept := data["stalls"].get(thing)) and kept["since"] == held["since"]:
             kept |= {"claim": None} | done
+
+    state.update(name, None, settled_stall)
 
 
 def claimed(claim: dict | None) -> bool:
