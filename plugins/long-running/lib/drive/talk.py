@@ -110,6 +110,7 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         post = post | {"asked": [*slack.messages(post.get("asked") or ""), *filter(None, [held.get("link")])]}
     elif order and cli.answers_order(known, order, post):
         close, post = True, {key: value for key, value in post.items() if key != "record"}
+    post = held_asked(known, post)
     if close:
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
     seq = report.get("seq")
@@ -591,6 +592,18 @@ def asked_already(name: str, data: dict, stack: list[str]) -> str | None:
     if found is None or len(links) != 1 or None in links or any(view.apart(data, key, found["pr_cards"]) for key in stack):
         return None
     return links.pop()
+
+
+def held_asked(known: dict, post: dict) -> dict:
+    """The post with the message of his its handler holds as asked, when it goes in that message's thread naming nothing it answers, so a line rewritten after a hold that dropped `asked` still records his message as answered."""
+    if post.get("asked") or post.get("edit") or post.get("record") or not (handler := state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
+        return post
+    if not (link := (known["handlers"][handler]["holds"] or {}).get("link")):
+        return post
+    _, ts, thread = state.slack_message(link)
+    if (thread or ts) != post.get("thread_ts"):
+        return post
+    return post | {"asked": [link]}
 
 
 def answered_ts(data: dict, post: dict) -> list[str]:
