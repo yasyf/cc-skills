@@ -3053,8 +3053,9 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if not any(ran_out(job, moment) and heard_job(watcher, data, job) for job in data["jobs"].values()):
         return []
-    lines = []
-    with state.edit(watcher.name) as data:
+
+    def ran_out_lines(data: dict) -> list[str]:
+        lines = []
         for job_id, job in data["jobs"].items():
             if not ran_out(job, moment) or not heard_job(watcher, data, job):
                 continue
@@ -3065,7 +3066,9 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     " and on a miss start a second job on its brief and set its clock (incidents: Clocks)" + "".join(words)
                 )
             job["due"] = None
-    return lines
+        return lines
+
+    return state.update(watcher.name, None, ran_out_lines)
 
 
 def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
