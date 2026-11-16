@@ -278,7 +278,7 @@ check's verdict, or from the order when none ran.
 - Every release a drive job starts, an incident's included, starts the regular way at the merged
   fix or the default branch's head a first check proved, a release start of its target from that commit, whose footers decide what ships with
   it, so it is not narrowed to leave out a partner they name. A hotfix of an open incident's PR is
-  the one narrowed start: it names with `--only` only the components its PR reaches that his words
+  the one narrowed start: it names with `--only` the components its PR reaches that his words
   name. The job it started on does not cancel it, however wide its plan reads: a job that
   would decline it at approve returns with it held for the coordinator, and the `landing_guard`
   hook refuses a drive job's release cancel. A fix cherry-picked onto the live commit on a
