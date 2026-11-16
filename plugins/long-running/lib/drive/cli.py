@@ -3813,7 +3813,12 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
         state.returned(name, told, job_id, "; ".join(started))
     shown = f"{where}\n{said}" if said else where
     unstarted = [f"no builder added: {why}" for why in removing.values()]
-    shown = "\n".join([shown, *replaced, *registered, *fixes, *withdrawn, *briefed, *started, *unstarted])
+    undelivered = [
+        f"{part} on {order_id} stays undelivered: this DONE keeps no full pass at #{state.STAGING_PART.fullmatch(part)['number']}'s current head, so the PR still waits on it"
+        for order_id, part in state.staging_parts(told, told["jobs"][job_id])
+        if re.match(r"DONE\b", line) and not state.delivered(told, order_id, part)
+    ]
+    shown = "\n".join([shown, *replaced, *registered, *fixes, *withdrawn, *briefed, *started, *unstarted, *undelivered])
     if not read_prs:
         state.detach(name, ["job", "check", job_id], watch.READS_LOG)
     return shown, {"id": job_id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added, "removed": removing}

@@ -114,6 +114,17 @@ def test_an_orca_lane_a_models_safeguards_stopped_is_never_resumed(demo: str, tm
     assert failed(monkeypatch, capsys, "lane-session", tmp_path / "lane.jsonl", (SAFEGUARDED,)) == (0, "")
 
 
+def test_a_queued_designer_starts_on_fable_with_no_advisor_since_an_opus_advisor_cannot_advise_a_fable_executor(communicator: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    settings, flags = agents.lane_session({state.DRIVE_ENV: "demo"}, agents.DESIGNER, Path("/code/monorepo"))
+    assert (agents.ADVISOR_FLAG in flags, settings["env"]["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"]) == (False, "1")
+    ran: list[list[str]] = []
+    monkeypatch.setattr(agents.reads, "run", lambda argv, cwd, env: ran.append(argv) or "")
+    monkeypatch.setattr(agents, "launched", lambda output: "session-1")
+    agents.start_job("demo", "j9", "agent-9", {"subagent_type": agents.DESIGNER, "prompt": "Read your brief first: /b.md"}, {"session": "s1"}, Path("/code/monorepo"))
+    [argv] = ran
+    assert (argv[argv.index("--model") + 1], agents.ADVISOR_FLAG in argv, argv[argv.index("--agent") + 1]) == ("fable", False, agents.DESIGNER)
+
+
 def test_a_lane_session_the_drive_starts_on_this_mac_runs_with_an_opus_advisor_at_high_effort_on_the_lane_rules_in_place_of_the_users_claude_md(communicator: str) -> None:
     settings, flags = agents.lane_session({state.DRIVE_ENV: "demo"}, agents.BUILDER, Path("/code/monorepo"))
     lane = json.loads(LANE_SPEC.read_text())

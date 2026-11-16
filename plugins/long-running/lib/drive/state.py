@@ -3783,9 +3783,27 @@ def post_staging_proof(data: dict, job_id: str, line: str, report: str, proven: 
     """Keep on each staging test part a builder or codex job holds the run of its cases the job's DONE reports for that part's PR, by part_run, beside the job as posted_by, replacing an older job's, and the first proof the run's CHECK: lines name as posted when the run is a full pass, by full_pass, so the PR waiting on that part lands on each Approve he gave, before the test or after it, while the job's DONE waits on the PR's merge, a pass it newly keeps, by keep_pass, dated when the job first returned it; a DONE whose run is no full pass takes the part's proof back, and so does the next return other than DONE of the job whose run it holds, as take_result takes back an order's proof_by, but a DONE that ran no case of the part, naming none or each not exercised, as the watch's at a merge, drive job prove's and a job's following a release another job started are, leaves the part as it was, by keep_pass; on a builder whose brief names user stories, by brief.staged_stories, only a DONE drive job prove took once its proof file proved them keeps a pass, or one read as proven, as unstaged reads it; and on each merged PR the job proves live the run of its after-merge staging pass any return reports, by keep_after_merge."""
     job = data["jobs"][job_id]
     if job["kind"] in CHANGE_KINDS:
-        for order_id, part in staging_parts(data, job):
+        held = staging_parts(data, job)
+        for order_id, part in held:
             keep_pass(data, order_id, part, job_id, line, report, job["returned"] or job["updated"], proven)
+        for order_id, part in head_runs(data, job_id, report, held):
+            deliver(data, job_id, order_id, [part])
+            keep_pass(data, order_id, part, job_id, "DONE", report, job["returned"] or job["updated"], proven)
         keep_after_merge(data, job_id, report, job["returned"] or job["updated"])
+
+
+def head_runs(data: dict, job_id: str, report: str, held: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Each open order's staging test part a job does not hold whose PR's current head its report names as `#<n> at <sha>` or `pull/<n> at <sha>` and runs a case of, so the job running a PR's current head takes that part and owns its run whatever part it was added on, its pass delivering the part as its tester's would, as j8195's rerun of #57109 at its new head did while j6934's run at the old head kept the part waiting (736526)."""
+    runs = []
+    for named in re.finditer(r"(?:/pull/(\d+)\b\S*|#(\d+)) at ([0-9a-f]{7,40})\b", report):
+        number = named[1] or named[2]
+        if not (pr := data["prs"].get(f"{home(data)}#{number}")) or not pr["head"] or not pr["head"].startswith(named[3]):
+            continue
+        part = STAGING_TEST.format(number=number)
+        if all(UNEXERCISED_CASE.match(verdict) for _, verdict in full_pass(data, job_id, report, part)[0]):
+            continue
+        runs += [(order_id, part) for order_id, order in data["orders"].items() if order["state"] not in CLOSED_ORDER_STATES and part in order["parts"] and (order_id, part) not in held]
+    return list(dict.fromkeys(runs))
 
 
 def keep_after_merge(data: dict, job_id: str, report: str, moment: str) -> None:

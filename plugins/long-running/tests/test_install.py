@@ -1551,14 +1551,18 @@ def test_a_jobs_own_done_citing_prs_other_jobs_opened_proves_only_itself_and_say
     assert ([key for key, _ in proof_events()], install.prover_of(data, "Forge-AI/monorepo#56696")) == (["j1"], None)
 
 
-def test_a_proof_runs_in_the_drives_checkout_never_the_folder_drive_job_prove_started_in(
+def test_a_proof_runs_in_the_drives_own_checkout_moved_to_its_default_branch_never_the_coordinators_folder_or_where_drive_job_prove_started_as_736521_needed(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     git = fake([BUILD], {BUILD})
     script = repairing(config, tmp_path, git, 0, {"state": "done", "said": "DONE checked it by hand"})
     script.write_text("#!/bin/sh\npwd -P\n")
     monkeypatch.chdir(state.drive_dir("demo"))
-    assert install.proof_run("demo", str(script), "/usr/bin:/bin", 60).stdout == f"{tmp_path.resolve()}\n"
+    (moved := tmp_path / "drive-demo").mkdir()
+    asked: list[tuple[str, str]] = []
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone: asked.append((drive, clone)) or moved)
+    assert install.proof_run("demo", str(script), "/usr/bin:/bin", 60).stdout == f"{moved.resolve()}\n"
+    assert asked == [("demo", state.saved("demo")["roles"]["coordinator"]["cwd"])]
 
 
 @pytest.mark.parametrize(("later", "owed"), [("done", False), ("failed", False), ("running", False), ("stopped", True)])

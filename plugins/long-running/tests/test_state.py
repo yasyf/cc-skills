@@ -2289,6 +2289,19 @@ def test_a_staging_tests_done_frees_a_pr_changing_only_tools_ci_and_go_ci_by_a_c
     assert done("https://buildkite.com/forge/release/builds/17535", commit(head)) is None
 
 
+def test_the_job_running_a_prs_current_head_owns_its_staging_parts_run_whatever_part_it_was_added_on_so_its_pass_delivers_it_as_j8195s_rerun_of_57109_needed(named_repo: None, state_root: Path) -> None:
+    data = staging_drive("j1", "j2")
+    url = "https://github.com/Forge-AI/monorepo/pull/42"
+    head = "c8eb478dc8badc08e564321520edf986be86d379"
+    data["prs"] = {"Forge-AI/monorepo#42": state.new_pr(url, "j1", "o1") | {"head": head}}
+    data["orders"]["o1"]["parts"]["the workflow start call"] = state.new_part()
+    data["jobs"]["j2"]["parts"] = ["the workflow start call"]
+    staging_return(data, "j1", "DONE #42 at 8402d79 fails case b", "CASE a rollback refused: pass\nCASE b a write lands: fail: the old row\n")
+    stale = staging_reads(data)
+    staging_return(data, "j2", f"WAITING {url} to merge: DONE #42 at c8eb478 passes", "CASE a rollback refused: pass\nCASE b a write lands: pass\n")
+    assert [stale, staging_reads(data), data["orders"]["o1"]["parts"][STAGING]["passed_head"]] == [(False, None, "j1"), (True, PROOF, "j2"), "c8eb478"]
+
+
 def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part_while_its_done_waits_on_that_pr_and_after_the_watch_takes_its_merge(named_repo: None, state_root: Path) -> None:
     data = staging_drive("j1")
     url = "https://github.com/Forge-AI/monorepo/pull/42"

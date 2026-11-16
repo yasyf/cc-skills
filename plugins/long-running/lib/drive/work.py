@@ -22,6 +22,7 @@ CUT_SHAPE = {"cut_items": 6, "cut_minutes": 30, "train_minutes": 60, "promotion_
 CUT_STEPS = "start one cut on {env} of the items' PR heads through the release provider, then run the items' cases once staging serves it"
 STALL_AFTER = timedelta(minutes=10)
 DONE_WHEN = "drive work pull --worker {worker} prints NONE or HOLD and every item it gave you is reported; return DONE ran <each item you reported>"
+ADDRESSED = " Where an item's brief or handoff names a lane its result goes to, such as `post the result there and to lane fable-fix`, post that lane the item's result as it says, beside its drive work done."
 
 
 def untaken(job: dict) -> bool:
@@ -419,7 +420,7 @@ class Build(Kind):
     name = BUILD
     group = 3
     compiles = True
-    told = None
+    told = ("ASK", "BLOCKED", "DONE", "BUILT")
     goal = "pull and build changes, a group on one stack at a time"
     loop = (
         "You are {worker}, the drive's build worker: you build a group of changes on one stack, each its own job, then pull the next group."
@@ -560,11 +561,15 @@ def pulled(name: str, worker_id: str) -> str:
 
 
 def told(data: dict, kind: Kind, job_id: str, line: str) -> bool:
-    """Whether an item's return goes to the session holding its order as a JOB line: every line of a kind whose told is None, a build's, read's or design's, whose holder acts on each as on its own job's; otherwise an ASK or BLOCKED, which someone must act on, and a DONE that leaves its order no other unfinished job, the done order its holder proves and tells him of, every other DONE staying on the item."""
+    """Whether an item's return goes to the session holding its order as a JOB line: every line of a kind whose told is None, a read's or design's, whose holder answers him or draws his card from it; a line its kind's told opens with, such as a build's ASK, BLOCKED, DONE or BUILT, never its PUSHED or READY, which the watch acts on as PR events; otherwise an ASK or BLOCKED, which someone must act on, a DONE whose CASE lines make no full pass or that has none, by state.passing, since a failed or unrun test reaches its holder every time, and a DONE that leaves its order no other unfinished job, the done order its holder proves and tells him of; only a passing DONE that changes nothing for anyone stays on the item."""
     if kind.told is None or line.startswith(kind.told):
         return True
+    if not line.startswith("DONE"):
+        return False
+    if not state.passing(state.case_lines(line)):
+        return True
     job = data["jobs"][job_id]
-    return line.startswith("DONE") and not any(
+    return not any(
         other_id != job_id and not worker(other := data["jobs"][other_id]) and other["state"] not in state.FINISHED_JOB_STATES for other_id in data["orders"][job["order"]]["jobs"]
     )
 
@@ -623,7 +628,7 @@ def add_worker(data: dict, kind: Kind, where: str, moment: datetime) -> str:
 def brief_flags(data: dict, worker_id: str) -> dict:
     """The brief lines drive work start gives a worker: its kind's loop as its handoff and when it is done."""
     kind = KIND[data["jobs"][worker_id].get("work_kind", STAGE_TEST)]
-    return {"handoff": kind.loop.format(worker=worker_id, env=env(data)), "done_when": DONE_WHEN.format(worker=worker_id)}
+    return {"handoff": kind.loop.format(worker=worker_id, env=env(data)) + ADDRESSED, "done_when": DONE_WHEN.format(worker=worker_id)}
 
 
 def start(name: str, worker_id: str) -> str:

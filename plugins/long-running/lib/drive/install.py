@@ -1593,12 +1593,12 @@ def waited(code: int | str, output: str) -> str | None:
 
 
 def proof_run(name: str, repro: str, path: str, timeout: int) -> subprocess.CompletedProcess:
-    """Run the proof file as subprocess.run would, in the folder the drive's coordinator runs in, the drive's checkout, read from its saved sessions by state.saved, never the folder drive job prove was started in, such as the drive's state folder, which no git repository holds, so a proof calling git, ccn or a repository tool by relative path runs as its builder ran it, its output read as text, PATH set to `path`, the one newest_builds builds, DRIVE_ENV naming the drive it proves, so each drive call in it that names no drive acts on that one whatever session or drives this Mac holds, and PROOF_DEADLINE_ENV the Unix second its deadline, `timeout` seconds from its start, falls at, so a proof that waits prints its WAIT line before it, but as a process group of its own, which reads.end ends at that deadline with SIGINT, the signal that unwinds a Python proof, one run with -I included, so it writes what it printed before it exits, and SIGKILL reads.STOP_GRACE seconds on; the TimeoutExpired raised then holds everything the group wrote."""
-    from drive import reads
+    """Run the proof file as subprocess.run would, in the drive's own checkout, by orca.checkout of the clone its coordinator runs in, moved to the head of its default branch, origin/dev for the monorepo, before the proof runs, never the coordinator's folder, whose head may be days old so its tools/ci refuses the default branch's release targets (736521), nor the folder drive job prove was started in, such as the drive's state folder, which no git repository holds, so a proof calling git, ccn or a repository tool by relative path runs as its builder ran it, its output read as text, PATH set to `path`, the one newest_builds builds, DRIVE_ENV naming the drive it proves, so each drive call in it that names no drive acts on that one whatever session or drives this Mac holds, and PROOF_DEADLINE_ENV the Unix second its deadline, `timeout` seconds from its start, falls at, so a proof that waits prints its WAIT line before it, but as a process group of its own, which reads.end ends at that deadline with SIGINT, the signal that unwinds a Python proof, one run with -I included, so it writes what it printed before it exits, and SIGKILL reads.STOP_GRACE seconds on; the TimeoutExpired raised then holds everything the group wrote."""
+    from drive import orca, reads
 
     with subprocess.Popen(
         [repro],
-        cwd=state.saved(name)["roles"]["coordinator"]["cwd"],
+        cwd=orca.checkout(name, state.saved(name)["roles"]["coordinator"]["cwd"]),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

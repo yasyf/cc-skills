@@ -49,6 +49,7 @@ SEAT = re.compile(r"^cci session register <drive>-(\S+) ")
 RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
 MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
+DESIGNER_MODEL = "fable"
 BUILDER = "long-running:builder"
 WATCHDOG = "long-running:watchdog"
 WATCHDOG_RUNS = (
@@ -642,7 +643,7 @@ def start_job(name: str, job_id: str, agent: str, call: dict, held: dict, cwd: P
     """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, on lane_session's settings and flags for its type, so it compacts, loads its rules and runs its effort as an Orca lane does, headless, advised by JOB_ADVISOR, and on only the plugins and servers its type needs; the session `claude --bg` names."""
     env = {state.JOB_ENV: f"{name}/{job_id}/{agent}/{held['session']}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
     settings, flags = lane_session(env, call["subagent_type"], cwd)
-    model = ["--model", call["model"]] if call.get("model") else []
+    model = ["--model", call["model"]] if call.get("model") else ["--model", DESIGNER_MODEL] if call["subagent_type"] == DESIGNER else []
     argv = ["claude", "--bg", "--agent", call["subagent_type"], *model, *flags, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} {job_id}", call["prompt"]]
     return launched(reads.run(argv, cwd, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
 
@@ -703,7 +704,9 @@ def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
 
 
 def lane_session(env: dict[str, str], role: str, checkout: Path) -> tuple[dict, tuple[str, ...]]:
-    """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: light's settings for role, the 350,000-token window of lib/lane.json, mcp_flags' servers for role, EFFORT_CEILING and JOB_ADVISOR as its advisor, by his pick for the drive's job workers, "use opus as the advisor for those", the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
+    """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: light's settings for role, the 350,000-token window of lib/lane.json, mcp_flags' servers for role, EFFORT_CEILING and JOB_ADVISOR as its advisor, by his pick for the drive's job workers, "use opus as the advisor for those", but a designer, the drive's one Fable job, which runs with no advisor, since an Opus advisor cannot advise a Fable executor, the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
+    if role == DESIGNER:
+        return light(session_settings(env | ADVISOR_OFF), role, checkout), (*LANE_RULES_ARGS, *STRICT_MCP, "--effort", EFFORT_CEILING)
     return light(session_settings(env), role, checkout), (*LANE_RULES_ARGS, *STRICT_MCP, "--effort", EFFORT_CEILING, ADVISOR_FLAG, JOB_ADVISOR)
 
 
