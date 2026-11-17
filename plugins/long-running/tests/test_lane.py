@@ -1685,3 +1685,16 @@ def test_a_card_settles_from_its_rows_when_his_approve_comes_by_verb_not_by_tap(
     store.update(DRIVE, "a", lambda lane: lane["prs"][0].update({"approved_head": "2eaba576e"}))
     assert approve.settle(DRIVE) == []
     assert store.load(DRIVE, "a")["cards"][0]["tapped"]["label"] == "settled from its rows"
+
+
+def test_a_worker_whose_job_reports_blocked_frees_its_slot_so_queued_work_is_staffed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import work
+
+    monkeypatch.setattr(owners, "config_dir", lambda: tmp_path / "claude")
+    monkeypatch.setattr(owners, "active_at", lambda owner: store.now())
+    for job, state in (("blocked1", "blocked"), ("working1", "working")):
+        (tmp_path / "claude" / "jobs" / job).mkdir(parents=True)
+        (tmp_path / "claude" / "jobs" / job / "state.json").write_text(json.dumps({"state": state}))
+    worker = {"session": "worker-session", "started": store.stamp()}
+    assert not work.alive(worker | {"job": "blocked1"})
+    assert work.alive(worker | {"job": "working1"})
