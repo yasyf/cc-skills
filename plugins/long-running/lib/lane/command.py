@@ -374,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
     holding.add_argument("--why")
     holding.add_argument("--by")
     holding.add_argument("--lift", action="store_true")
+    holding.add_argument("--paths", nargs="+", help="the files of the held change, when it is only part of the commit; default every file the commit touches")
     marking = verbs_parser.add_parser("known-red", help="mark a failing test known-red with the lane that owns its fix, so it holds back no install; with no --lane, clear it")
     marking.add_argument("test")
     marking.add_argument("--lane")
@@ -591,7 +592,7 @@ def run(args: argparse.Namespace) -> int:
         case "hold-install":
             if args.lift == bool(args.why):
                 raise store.Refused("give --why to hold, or --lift alone to lift")
-            print(supervisor.hold_install(args.drive, args.sha, args.why, args.by))
+            print(supervisor.hold_install(args.drive, args.sha, args.why, args.by, args.paths))
         case "known-red":
             print(supervisor.mark_red(args.drive, args.test, args.lane))
         case "preflight":

@@ -561,18 +561,17 @@ def held_by(drive: str, version: str) -> str | None:
     if not holds:
         return None
     tag = gh_json("api", f"repos/{HOME_REPO}/commits/long-running--v{version}")["sha"]
-    carried = [f"{sha[:9]} ({hold['why']}, by {hold['by']})" for sha, hold in holds.items() if still_carried(sha, tag)]
+    carried = [f"{sha[:9]} ({hold['why']}, by {hold['by']})" for sha, hold in holds.items() if still_carried(sha, tag, hold["paths"])]
     return f"{version} carries {', '.join(carried)}" if carried else None
 
 
-def still_carried(sha: str, tag: str) -> bool:
-    """Whether the tag carries the held commit's change: its history holds the commit, no commit after it says it reverts it, and the files it changed do not read at the tag as they read before it."""
+def still_carried(sha: str, tag: str, paths: list[str]) -> bool:
+    """Whether the tag carries the held change: its history holds the commit, no commit after it says it reverts it, and the hold's paths do not all read at the tag as they read before the commit."""
     since = gh_json("api", f"repos/{HOME_REPO}/compare/{sha}...{tag}")
     if since["status"] not in ("ahead", "identical") or any(f"This reverts commit {sha}" in commit["commit"]["message"] for commit in since["commits"]):
         return False
-    held = gh_json("api", f"repos/{HOME_REPO}/commits/{sha}")
-    before = held["parents"][0]["sha"]
-    return any(blob(path, before) != blob(path, tag) for path in (change["filename"] for change in held["files"]))
+    before = gh_json("api", f"repos/{HOME_REPO}/commits/{sha}")["parents"][0]["sha"]
+    return any(blob(path, before) != blob(path, tag) for path in paths)
 
 
 def blob(path: str, ref: str) -> str | None:
@@ -590,14 +589,15 @@ def installs_held(drive: str) -> dict[str, dict]:
     return json.loads(path.read_text()) if path.is_file() else {}
 
 
-def hold_install(drive: str, sha: str, why: str | None, by: str | None) -> str:
-    """Hold every install whose tag carries the commit until the hold is lifted, or lift it with no why."""
+def hold_install(drive: str, sha: str, why: str | None, by: str | None, paths: list[str] | None = None) -> str:
+    """Hold every install whose tag carries the commit's change, on the files it touches or the paths named, until those files read as before it or the hold is lifted; lift it with no why."""
     path = store.drive_dir(drive) / PREFLIGHT / HOLDS
     path.parent.mkdir(exist_ok=True)
     holds = installs_held(drive)
-    full = gh_json("api", f"repos/{HOME_REPO}/commits/{sha}")["sha"]
+    commit = gh_json("api", f"repos/{HOME_REPO}/commits/{sha}")
+    full = commit["sha"]
     if why:
-        holds[full] = {"why": why, "by": by or "unnamed", "at": store.stamp()}
+        holds[full] = {"why": why, "by": by or "unnamed", "at": store.stamp(), "paths": paths or [change["filename"] for change in commit["files"]]}
     else:
         holds.pop(full)
     path.write_text(json.dumps(holds, indent=1) + "\n")
@@ -610,7 +610,7 @@ def hold_install(drive: str, sha: str, why: str | None, by: str | None) -> str:
         if why and (install / "bin" / "lane").is_file() and held_by(drive, install.name):
             mark.write_text(f"broken\nheld: {full[:9]} ({why}), so no process points the drive's link at it\n")
     (store.drive_dir(drive) / "kick").touch()
-    return f"{full[:9]}: {'held: ' + why if why else 'lifted'}"
+    return f"{full[:9]}: {'held on ' + ', '.join(holds[full]['paths']) + ': ' + why if why else 'lifted'}"
 
 
 def known_red(drive: str) -> dict[str, str]:
