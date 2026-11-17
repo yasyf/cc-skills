@@ -13,6 +13,7 @@ EVERY = timedelta(minutes=15)
 AUDITS = "audits"
 MISSES = "misses.md"
 DEFECTS = "defects"
+OWNERS = ("lane-core", "lane-voice", "lane-land", "drive-redesign")
 PAGE = Path(__file__).with_name("audit.md")
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -64,6 +65,8 @@ def start(drive: str) -> str | None:
 
 def defect(drive: str, what: str, evidence: str, mechanism: str, owner: str) -> Path:
     """File one "fix the system" item for the code's owner, with its evidence and the class of mechanism that let it through, and deliver it to that owner's session at once, by the drive config's `defect_to` address for it, else its name, so no defect waits in a folder nobody reads."""
+    if owner not in OWNERS:
+        raise store.Refused(f"a defect's owner is the lane that owns the code it names, one of {', '.join(OWNERS)}, not {owner!r}")
     path = store.drive_dir(drive) / DEFECTS / f"{store.stamp()}-{secrets.token_hex(2)}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"kind": "fix the system", "what": what, "evidence": evidence, "mechanism": mechanism, "owner": owner, "at": store.stamp(), "state": "open"}, ensure_ascii=False) + "\n")
@@ -73,9 +76,16 @@ def defect(drive: str, what: str, evidence: str, mechanism: str, owner: str) -> 
 
 
 def fixed(drive: str, defect_id: str, commit: str) -> None:
+    closed(drive, defect_id, {"state": "fixed", "commit": commit})
+
+
+def closed(drive: str, defect_id: str, how: dict) -> None:
+    """Close one open defect: fixed by a commit, wrong by its owner's why, or gone by the auditor's why when its evidence no longer reproduces."""
     path = store.drive_dir(drive) / DEFECTS / f"{defect_id}.json"
     kept = json.loads(path.read_text())
-    path.write_text(json.dumps(kept | {"state": "fixed", "commit": commit, "fixed_at": store.stamp()}, ensure_ascii=False) + "\n")
+    if kept["state"] != "open":
+        raise store.Refused(f"defect {defect_id} is already {kept['state']}")
+    path.write_text(json.dumps(kept | how | {"closed_at": store.stamp()}, ensure_ascii=False) + "\n")
 
 
 def remind(drive: str, open_for: timedelta) -> list[str]:

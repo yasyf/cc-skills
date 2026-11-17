@@ -7,9 +7,9 @@ Read everything new since {since}:
 - the work queue in {lanes}/work: an item queued or taken past its bound, or failed with no re-plan, is dropped work;
 - how long each message of his waited: its Slack ts, when its lane heard it, and its owner's first post in his thread;
 - the supervisor's errors and failed steps: {lanes}/checks.jsonl and {lanes}/alerts.jsonl; landing results in {lanes}/landing and {lanes}/landings; staging cuts in {lanes}/cuts;
-- the earlier audits in {audits}, so you never file a defect already filed, and the open defects in {lanes}/defects: an open one is never filed again: the supervisor sends one open over 30 minutes back to its owner as overdue, so add what you find to it only by a new defect when its mechanism differs.
+- the earlier audits in {audits}, so you never file a defect already filed, and the open defects in {lanes}/defects: an open one is never filed again, and no defect ever lists other open defects, since the supervisor sends one open over 30 minutes back to its owner as overdue. Read each open one's evidence again now: when it no longer reproduces, close it with `{lane_bin} --drive {drive} defect-gone <id> --why "<what you read that shows it gone>"`, so the open list is the real list.
 
-Judge them against: the voice page {voice}, the owner page {owner}, his rulings ({lanes}/rulings.json and each lane's `rulings`, his words verbatim), the gold-standard post {gold}, and the misses below. The questions that matter, as a careful human colleague of his would ask them:
+Judge them against: the voice page {voice}, the owner page {owner}, his rulings ({lanes}/rulings.shared.json and each lane's `rulings`, his words verbatim), the gold-standard post {gold}, and the misses below. The questions that matter, as a careful human colleague of his would ask them:
 - Did each ask of his move forward since it arrived, and did he get an answer he can act on? An ask with no reply, no 👀, or a reply that answers a different question is a defect.
 - Is anything waiting on something nothing produces, or waiting on him for something he already decided?
 - Does any post re-ask a decided question, lack context, offer no buttons for a choice, paste a raw id, or contradict the PR rows?

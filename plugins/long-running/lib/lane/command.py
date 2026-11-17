@@ -212,6 +212,10 @@ def main(argv: list[str] | None = None) -> int:
     fixing = verbs_parser.add_parser("defect-fixed", help="close a defect the auditor filed, naming the commit that fixed it")
     fixing.add_argument("defect")
     fixing.add_argument("--commit", required=True)
+    for verb, meaning in (("defect-wrong", "close a defect its owner finds is not one, saying why"), ("defect-gone", "the auditor's verb: close a defect whose evidence no longer reproduces, saying what it read")):
+        closing = verbs_parser.add_parser(verb, help=meaning)
+        closing.add_argument("defect")
+        closing.add_argument("--why", required=True)
     missing = verbs_parser.add_parser("audit-miss", help="a defect he found that the audits missed, kept as a rubric line every later audit checks")
     missing.add_argument("line")
     carrying = verbs_parser.add_parser("carry", help="a model's judgement of whether his Approve carries to a PR's new head")
@@ -448,6 +452,9 @@ def run(args: argparse.Namespace) -> int:
         case "defect-fixed":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             audit.fixed(drive, args.defect, args.commit)
+        case "defect-wrong" | "defect-gone":
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            audit.closed(drive, args.defect, {"state": args.verb.removeprefix("defect-"), "why": args.why})
         case "audit-miss":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             audit.missed(drive, args.line)

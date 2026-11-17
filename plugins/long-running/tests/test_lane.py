@@ -1797,3 +1797,16 @@ def test_an_owner_worker_or_builder_cannot_merge_or_enqueue_a_pr_and_reads_of_th
     monkeypatch.delenv("LANE_WORKER")
     monkeypatch.delenv("LANE_DRIVE")
     assert command.merging("gh pr merge 57931 --squash") is None
+
+
+def test_a_defect_names_a_lane_that_owns_code_and_closes_once_as_fixed_wrong_or_gone(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import audit
+
+    monkeypatch.setattr(owners, "send", lambda to, text: None)
+    with pytest.raises(store.Refused, match="not 'supervisor'"):
+        audit.defect(DRIVE, "x", "y", "z", "supervisor")
+    found = audit.defect(DRIVE, "x", "y", "z", "lane-core")
+    audit.closed(DRIVE, found.stem, {"state": "gone", "why": "the pass at 05:40 reads clean"})
+    assert audit.open_defects(DRIVE) == []
+    with pytest.raises(store.Refused, match="already gone"):
+        audit.closed(DRIVE, found.stem, {"state": "wrong", "why": "x"})
