@@ -22,6 +22,7 @@ chmod +x "$scratch/cc-slack/bin/cc-slack"
 printf '{"version": 2, "plugins": {"cc-slack@cc-slack": [{"installPath": "%s"}]}}' "$scratch/cc-slack" > "$scratch/config/plugins/installed_plugins.json"
 python=(uv run --no-project python -I)
 "${python[@]}" "$scratch/${folder}tools/demo-drive" "$scratch/state"
+CLAUDE_CONFIG_DIR="$scratch/config" LONG_RUNNING_STATE="$scratch/state" "${python[@]}" "$plugin/bin/drive" migrate
 CLAUDE_CONFIG_DIR="$scratch/config" LONG_RUNNING_STATE="$scratch/state" "${python[@]}" "$plugin/bin/drive" status --drive demo > "$scratch/status.txt" 2>&1 \
   || { tail -20 "$scratch/status.txt"; echo "try-release: this tree's drive status cannot read the demo drive $pinned saved"; exit 1; }
 echo "try-release: this tree's drive status reads the demo drive $pinned saved"
