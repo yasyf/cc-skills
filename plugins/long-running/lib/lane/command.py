@@ -177,6 +177,9 @@ def main(argv: list[str] | None = None) -> int:
     judged = carrying.add_mutually_exclusive_group(required=True)
     judged.add_argument("--compatible")
     judged.add_argument("--incompatible")
+    paging = verbs_parser.add_parser("page", help="page him through Datadog On-Call: a live production failure only, what broke, for whom and its link")
+    paging.add_argument("--lane")
+    paging.add_argument("--why", required=True)
     verbs_parser.add_parser("github-events", help="handle GitHub's deliveries since the last, one process per drive at a time")
     working = verbs_parser.add_parser("work", help="the work queue: add an item, pull and take items as a worker, finish one, or list them")
     work_verbs = working.add_subparsers(dest="work_verb", required=True)
@@ -360,6 +363,10 @@ def run(args: argparse.Namespace) -> int:
         case "audit-miss":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             audit.missed(drive, args.line)
+        case "page":
+            from lane import incidents
+
+            print(incidents.page(*where(args), args.why))
         case "github-events":
             from lane import cli as lane_land
             from lane import events

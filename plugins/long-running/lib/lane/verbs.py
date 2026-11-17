@@ -106,7 +106,7 @@ def open_lane(drive: str, lane_id: str, title: str, words: str | None = None, ch
             if not park_words:
                 raise store.Refused("parking a lane takes his words: --park-words")
             park_in(lanes[parks], park_words, None)
-        elif len(store.active(lanes)) >= cap:
+        elif len(store.active(lanes)) >= cap and not incident:
             raise store.Refused(f"{len(store.active(lanes))} lanes are active, the cap is {cap}: name the lane this one parks with --parks, and his words for it")
         lane = store.new_lane(lane_id, title, words, channel, thread, link, ts)
         lane["prs"] = [pr_row(repo, number, None) for repo, number in prs]

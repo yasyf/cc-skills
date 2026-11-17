@@ -1511,3 +1511,18 @@ def test_a_wait_on_a_release_grant_or_item_nothing_produces_fires_as_unproduced(
     assert facts.unproduced(DRIVE, lane, {"kind": "work", "ref": "w-nothing"}, {}) == "no work item w-nothing exists"
     assert "not in line for release" in facts.unproduced(DRIVE, lane, {"kind": "queue_grant", "ref": "release"}, {}) or queue.free_for(DRIVE, "release", "a")
     assert facts.unproduced(DRIVE, lane, {"kind": "release", "ref": "r-1"}, {}) == "the release tool knows no release r-1"
+
+
+def test_an_alerting_monitor_no_lane_holds_opens_an_incident_lane_past_the_cap_with_a_diagnosis_item_and_pages_him_when_away(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import incidents, work
+
+    paged = []
+    monkeypatch.setattr(incidents, "alerting", lambda drive: [{"id": 345323874, "name": "next-app errors", "status": "Alert"}])
+    monkeypatch.setattr(incidents, "page", lambda drive, lane_id, why: paged.append((lane_id, why)) or "paged")
+    for lane_id in ("a", "b", "c"):
+        opened(lane_id)
+    opened_now = incidents.intake(DRIVE)
+    assert opened_now == ["incident-345323874"] and store.load(DRIVE, "incident-345323874")["incident"]["monitor"] == "345323874"
+    assert [item["subject"] for item in work.items(DRIVE)] == ["diagnose monitor 345323874"]
+    assert paged and paged[0][0] == "incident-345323874"
+    assert incidents.intake(DRIVE) == []

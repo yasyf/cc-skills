@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import ack, approve, audit, board, events, facts, page, queue, rank, say, store, verbs, voice, work
+from lane import ack, approve, audit, board, events, facts, incidents, page, queue, rank, say, store, verbs, voice, work
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -255,6 +255,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         alone(drive, errors, "no item of a gone worker went back to the queue", lambda: work.expire(drive))
         alone(drive, errors, "no worker started for the queue", lambda: work.staff(drive))
         alone(drive, errors, "no audit started", lambda: audit.start(drive))
+        alone(drive, errors, "no alert opened an incident lane", lambda: incidents.intake(drive))
         heartbeat(drive, store.now(), errors)
     return {"started": [start["lane"] for start in starts if start["token"]], "errors": errors}
 
@@ -277,6 +278,10 @@ def alerted(drive: str, paged: set[str]) -> None:
                 verbs.woken(lane, why)
 
     store.transact(drive, waking)
+    if incidents.away(drive):
+        for lane_id in paged:
+            if not (store.load(drive, lane_id).get("incident") or {}).get("paged"):
+                incidents.page(drive, lane_id, f"its monitor {(store.load(drive, lane_id).get('incident') or {}).get('monitor')} is alerting and he has been away; its owner is on the fix")
 
 
 def overdue(drive: str, moment: datetime) -> None:
