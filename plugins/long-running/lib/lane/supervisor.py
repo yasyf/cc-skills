@@ -847,7 +847,7 @@ def dashboard(drive: str) -> list[str]:
 
 
 def install(drive: str) -> str:
-    """Keep the drive's supervisor running as a launchd agent that launchd restarts whenever it exits, on this process's PATH; the plist's path."""
+    """Keep the drive's supervisor running as a launchd agent that launchd restarts whenever it exits, on this process's PATH, and its page server on the same launcher when one is served; the supervisor plist's path."""
     label = f"dev.long-running.lane.{drive}"
     plist = Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
     log = store.drive_dir(drive) / "supervisor.log"
@@ -855,6 +855,9 @@ def install(drive: str) -> str:
     env = {key: os.environ[key] for key in ("PATH", "HOME", "LONG_RUNNING_STATE", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR") if key in os.environ}
     plist.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [str(store.launcher(drive)), "--drive", drive, "supervise"], "KeepAlive": True, "RunAtLoad": True, "ThrottleInterval": 10, "EnvironmentVariables": env, "StandardOutPath": str(log), "StandardErrorPath": str(log), "ProcessType": "Background"}))
     loaded(label, plist)
+    served = plist.with_name(f"dev.long-running.lane-page.{drive}.plist")
+    if served.is_file():
+        print(f"page served from {page.install(drive, int(plistlib.loads(served.read_bytes())['ProgramArguments'][-1]))}")
     for line in dashboard(drive):
         print(line)
     return str(plist)
