@@ -7,6 +7,7 @@ from drive import dashboard, limits, picture, providers, reads, render, settled,
 from drive import slack as slack_api
 from drive.limits import REF
 from drive.state import DriveError
+from lane.words import short
 
 ACK = re.compile(r"\bAck: (https://\S+)")
 OPEN_LINK = re.compile(r"<((?:https?://|mailto:)[^<>|\s]*)\|[^<>]*\Z")
@@ -214,7 +215,7 @@ def card(cards: dict, data: dict, waits: str) -> dict:
 
 
 def pr(prs: dict, ref: str, label: str, pr_cards: list[dict]) -> dict:
-    """A PR named in Slack as #number and the few words its writer gave after the |, never its title, by his ruling that a PR is `#53430` plus a few words, and on the dashboard under its title, never a bare number: a PR the drive holds beside his open card at its head when it has one, which a line asking his tap links in its place, or any other PR named by its owner/repo#number or URL."""
+    """A PR named as #number and a few words on every surface, never its full title nor a bare number, by his ruling that a PR is `#53430` plus a few words: the words its writer gave after the |, or else its title shortened as lane.words.short shortens it for the lane voice; a PR the drive holds beside his open card at its head when it has one, which a line asking his tap links in its place, or any other PR named by its owner/repo#number or URL."""
     try:
         key = state.tracked_pr(prs, ref, untracked=True)
     except DriveError as error:
@@ -222,7 +223,7 @@ def pr(prs: dict, ref: str, label: str, pr_cards: list[dict]) -> dict:
     if key in prs:
         found = prs[key]
         shown = view.head_card(found, pr_cards)
-        return {"kind": "pr", "title": pr_words(key, label), "board_title": view.pr_title(found) if found["title"] else pr_words(key, label), "url": found["url"], "board": found["url"], "card": shown["url"] if shown else None}
+        return {"kind": "pr", "title": pr_words(key, label or (short(view.pr_title(found)) if found["title"] else "")), "url": found["url"], "board": found["url"], "card": shown["url"] if shown else None}
     if label:
         url = state.pr_url(key)
         return {"kind": "pr", "title": pr_words(key, label), "url": url, "board": url}
@@ -354,8 +355,8 @@ def typed(text: str, found: dict[str, dict], thread: str | None) -> str:
 
 
 def board(text: str, found: dict[str, dict]) -> str:
-    """The text as the dashboard shows it: each reference a link to the page or PR it names, a PR the drive holds under its title, or a record that links nothing as its words."""
-    return REF.sub(lambda match: linked(found[match[0]] | {"title": found[match[0]].get("board_title") or found[match[0]]["title"]}, found[match[0]]["board"], "[{words}]({url})"), text)
+    """The text as the dashboard shows it: each reference a link to the page or PR it names, or a record that links nothing as its words."""
+    return REF.sub(lambda match: linked(found[match[0]], found[match[0]]["board"], "[{words}]({url})"), text)
 
 
 def linked(ref: dict, url: str | None, form: str) -> str:

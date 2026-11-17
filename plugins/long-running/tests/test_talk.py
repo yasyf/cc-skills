@@ -119,11 +119,11 @@ def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show
     monkeypatch.setattr(state, "load", selected)
     assert talk.say(demo, {"text": "{pr:7} waits on {card:demo:j1-7}", "thread_ts": "1794200000.000100"}) == f"POSTED {POSTED}"
     assert posts == [
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794200000.000100", "--", f"<{PR_URL}|#7> waits on <{CARD_URL}|{QUESTION}>")
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794200000.000100", "--", f"<{PR_URL}|#7 the run page shows its history> waits on <{CARD_URL}|{QUESTION}>")
     ]
     assert ("name", "roles", "subcoordinators", "communicators") in loaded
     [kept] = said(demo)
-    assert kept["text"] == f"[the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
+    assert kept["text"] == f"[#7 the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
     assert (kept["url"], kept["thread"]) == (POSTED, "1794300000.000900")
 
 
@@ -263,14 +263,14 @@ def test_a_card_named_in_its_own_thread_reads_this_card_with_no_link(demo: str, 
 def test_an_edit_links_each_reference_as_a_post_does_and_the_dashboard_shows_its_new_words_in_place(demo: str, posts: list[tuple[str, ...]]) -> None:
     talk.say(demo, {"text": "{pr:7} is up", "thread_ts": "1794200000.000100"})
     edit = {"edit": POSTED, "text": "{pr:7} waits on {card:demo:j1-7}"}
-    sent = f"<{PR_URL}|#7> waits on <{CARD_URL}|{QUESTION}>"
+    sent = f"<{PR_URL}|#7 the run page shows its history> waits on <{CARD_URL}|{QUESTION}>"
     assert talk.say(demo, edit | {"dry_run": True}) == f"DRY edit of {POSTED}, 0 pictures: {sent}"
     assert talk.say(demo, edit) == f"EDITED {POSTED}"
     assert posts[1] == ("edit", "--url", POSTED, "--text", sent)
     assert [event["edited"] for event in said(demo)] == [False, True]
     history = view.history(state.load(demo), (event for event, _ in state.read_events(demo)), "https://acme.slack.com/")
     [shown] = [entry for entry in history if entry["kind"] == "said"]
-    assert shown["text"] == f"[the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
+    assert shown["text"] == f"[#7 the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
 
 
 @pytest.mark.parametrize(
@@ -1735,12 +1735,12 @@ def test_an_edit_of_a_line_in_an_alerts_thread_goes_out_with_the_ticket_its_hook
     claims = [{"claim": "The release failed on the migration", "read": "tools/ci release status"}]
     assert talk.say(demo, {"edit": POSTED, "text": "The release failed on the migration {pr:7} fixes.", "claims": claims} | TICKET) == f"EDITED {POSTED}"
     assert posts[1] == (
-        "edit", "--url", POSTED, "--text", f"The release failed on the migration <{PR_URL}|#7> fixes.",
+        "edit", "--url", POSTED, "--text", f"The release failed on the migration <{PR_URL}|#7 the run page shows its history> fixes.",
         "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
     )
     history = view.history(state.load(demo), (event for event, _ in state.read_events(demo)), "https://acme.slack.com/")
     [shown] = [entry for entry in history if entry["kind"] == "said"]
-    assert shown["text"] == f"The release failed on the migration [the run page shows its history]({PR_URL}) fixes."
+    assert shown["text"] == f"The release failed on the migration [#7 the run page shows its history]({PR_URL}) fixes."
 
 
 @pytest.mark.parametrize(

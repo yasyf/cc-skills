@@ -11,6 +11,7 @@ import urllib.request
 from pathlib import Path
 
 from lane import page, say, store, verbs
+from lane.words import short
 
 LANE_ENV = "LONG_RUNNING_LANE"
 TOKEN_ENV = "LANE_TOKEN"
@@ -18,10 +19,6 @@ VOICE_URL = "http://127.0.0.1:7378/voice"
 ENQUEUE_SECONDS = 2
 ROLE_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "voice.md"
 PR_REF = re.compile(r"\{pr:(?:([\w.-]+/[\w.-]+)#)?#?(\d+)(?:\|([^{}]*))?\}")
-LEAD_EMOJI = re.compile(r"^(?:[^\w\s(\[\x27\x22`]+\s*|:[a-z0-9_+-]+:\s*)+")
-KIND = re.compile(r"^(?:[\w-]+(?:\([^)]*\))?!?:\s*)+")
-CLAUSE = re.compile(r"[,;:](?=\s)| - | — ")
-TITLE_WORDS = 8
 THREAD_OF = re.compile(r"[?&]thread_ts=(\d+\.\d+)")
 SEGMENTS = re.compile(r"(<[^<>]*>)")
 BARE_PR_LINK = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|#\2>")
@@ -91,12 +88,6 @@ def titled(prs: list[dict], seen: dict[str, dict]) -> list[dict]:
     held = {f"{row['repo']}#{row['number']}" for row in prs}
     own = [row if row.get("words") or not (pull := seen.get(f"{row['repo']}#{row['number']}")) else row | {"words": short(pull["title"])} for row in prs]
     return own + [{"repo": key.partition("#")[0], "number": int(key.partition("#")[2]), "words": short(pull["title"])} for key, pull in seen.items() if key not in held and pull.get("title")]
-
-
-def short(title: str) -> str:
-    """A PR title as a link's few words: its leading emoji, such as a gitmoji ✨, and its kind prefix, such as `Fix:` or `feat(cc-slack):`, dropped, cut at its first clause, at most TITLE_WORDS words."""
-    words = CLAUSE.split(KIND.sub("", LEAD_EMOJI.sub("", title)).strip(), maxsplit=1)[0].split()
-    return " ".join(words[:TITLE_WORDS]) + ("…" if len(words) > TITLE_WORDS else "")
 
 
 def linked(text: str, prs: list[dict]) -> str:
