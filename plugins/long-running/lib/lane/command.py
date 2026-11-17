@@ -71,7 +71,7 @@ def bash_hook() -> int:
     if re.search(owners.OLD_DRIVE_CALL, command):
         print("The old drive's `drive` verbs are gone and never used in a lane: land through lane-land, post through `lane say`, and write your plan with `lane next`.", file=sys.stderr)
         return 2
-    if refused := merging(command) or queued_push(command, Path(payload.get("cwd") or os.getcwd())) or read_only_push(command, Path(payload.get("cwd") or os.getcwd())):
+    if refused := merging(command) or outage_release(command) or queued_push(command, Path(payload.get("cwd") or os.getcwd())) or read_only_push(command, Path(payload.get("cwd") or os.getcwd())):
         print(refused, file=sys.stderr)
         return 2
     if DATA_REACH.search(command) or DESTRUCTIVE_HINT.search(command):
@@ -85,6 +85,25 @@ def bash_hook() -> int:
 
 
 MERGE = re.compile(r"\bgh\s+pr\s+merge\b|\bgh\s+api\b.*/pulls/\d+/merge\b|\benablePullRequestAutoMerge\b|\bmergePullRequest\b")
+
+def outage_release(command: str) -> str | None:
+    """Why a release start is refused: an open outage work item touches an env it names, and only that item's own worker releases there until it is fixed, by drive-redesign's 9:57 PM order after release 18862 left a staging database with no writer and a second release of the same stack could crash the one healthy fleet."""
+    from drive import providers
+
+    from lane import work
+
+    drive = os.environ.get("LANE_OWNER", "").partition("/")[0] or os.environ.get("LANE_DRIVE", "")
+    if not drive or " release " not in f" {command} " or not (checkout := store.config(drive)["checkout"]):
+        return None
+    if not (start := providers.at(Path(checkout)).release.start_command) or start not in command:
+        return None
+    for item in work.items(drive):
+        if item.get("outage") and item["state"] in (work.QUEUED, work.TAKEN) and item.get("worker") != os.environ.get("LANE_WORKER"):
+            if held := [env for env in {touch.split()[0] for touch in item.get("touches") or []} if env in command]:
+                return f"{', '.join(held)} is down: {item['outage']}. Only {item['id']}'s worker releases there until it is fixed; start nothing on it, and finish a staging item that needs it with --failed naming {item['id']}."
+    return None
+
+
 
 
 def merging(command: str) -> str | None:

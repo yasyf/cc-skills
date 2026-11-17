@@ -1869,3 +1869,23 @@ def test_an_outage_item_is_pulled_first_holds_the_kinds_it_names_and_its_waiting
     monkeypatch.setattr(store, "now", lambda: later)
     assert work.untaken(DRIVE) == [f"b: {fix['id']} untaken"] and work.untaken(DRIVE) == []
     assert "no worker is on it yet" in store.load(DRIVE, "b")["wait"]["fired_why"]
+
+
+def test_a_release_onto_an_env_an_open_outage_item_touches_is_refused_except_from_that_items_own_worker(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from drive import providers
+
+    from lane import command, work
+
+    monkeypatch.setattr(store, "config", lambda drive: {"checkout": "/checkout"})
+    monkeypatch.setattr(providers, "at", lambda checkout: SimpleNamespace(release=SimpleNamespace(start_command="ci release start")))
+    outage = {"id": "w-856d8e7b", "outage": "staging SandSQL has no writer since release 18862", "state": work.TAKEN, "worker": "worker-fix", "touches": ["plat-usw2-staging sandsql-nodes-3"]}
+    monkeypatch.setattr(work, "items", lambda drive: [outage])
+    monkeypatch.setenv("LANE_DRIVE", DRIVE)
+    monkeypatch.setenv("LANE_WORKER", "worker-other")
+    assert "w-856d8e7b" in (command.outage_release("ci release start sandsql --env plat-usw2-staging --from 11bcb67c") or "")
+    assert command.outage_release("ci release start api --env plat-usw2-sandbox") is None
+    assert command.outage_release("ci release status 18862") is None
+    monkeypatch.setenv("LANE_WORKER", "worker-fix")
+    assert command.outage_release("ci release start sandsql --env plat-usw2-staging --from 11bcb67c") is None
