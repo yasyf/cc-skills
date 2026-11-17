@@ -149,7 +149,11 @@ def heard(channel: str, thread: str | None, words: str, link: str | None, ts: st
         for drive in drives:
             store.heard(drive, [{"ts": ts, "link": link}])
         return f"no lane holds {channel}; his presence is kept"
+    from lane import approve
+
     for drive, lane_id, lane in chosen:
+        if (landed := approve.tapped(drive, lane, words, ts, link)) is not None:
+            return f"{lane_id}: his tap on {', '.join(landed)}"
         tapped_pr(drive, lane, words, link, ts)
     return "; ".join(f"{lane_id}: {verbs.message(drive, lane_id, words, link, ts)} new" for drive, lane_id, _ in chosen)
 

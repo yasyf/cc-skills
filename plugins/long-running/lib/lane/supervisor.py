@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import facts, page, queue, rank, store, verbs
+from lane import approve, facts, page, queue, rank, store, verbs
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -44,6 +44,8 @@ def fired(drive: str, lane: dict, prs: dict, moment: datetime) -> str | None:
         return f"its backoff ended at {wait['until']}" if store.parse(wait["until"]) <= moment else None
     if store.unreplied(lane):
         return "his new words"
+    if why := verbs.unserved(lane):
+        return f"{why}, and its wait serves none"
     for event in wait["on"]:
         if event["kind"] != "his_reply" and facts.holds(drive, lane, event, prs):
             return f"{event['kind']} {event.get('ref', '')}".strip()
@@ -174,6 +176,11 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
 
     starts = store.transact(drive, deciding, leaving_unreplied=True)
     nudge(drive, store.now())
+    if read_outside and prs:
+        try:
+            approve.draw(drive)
+        except store.Refused as failed:
+            errors.append(f"an Approve card was refused: {failed}")
     with ThreadPoolExecutor(max_workers=READERS) as pool:
         errors += [error for error in pool.map(lambda start: launching(drive, start, shape), starts) if error]
     if read_outside:
@@ -291,6 +298,12 @@ def supervise(drive: str) -> None:
     store.launcher(drive)
     loaded = code_stamp()
     heartbeat(drive, store.now(), [])
+    if store.live(drive):
+        try:
+            for line in dashboard(drive):
+                print(line, flush=True)
+        except store.Refused as failed:
+            print(f"his dashboard was not reloaded: {failed}", flush=True)
     while code_stamp() == loaded:
         run_pass(drive, read_outside=False)
         if (newest := newest_install()) != here:
@@ -310,6 +323,35 @@ def supervise(drive: str) -> None:
             time.sleep(1)
 
 
+DASHBOARD_LABEL = "com.yasyf.long-running.dashboard."
+
+
+def dashboard(drive: str) -> list[str]:
+    """Keep his dashboard's launch agent on the lane drive with no hand launchctl: its log beside the lanes, reloaded when that changes its plist or a newer install than the one it last loaded on has landed, and each old drive's dashboard, one whose drive no live lane drive holds, booted out with its plist set aside so login loads it no more. What it did."""
+    agents = Path.home() / "Library" / "LaunchAgents"
+    done = []
+    for plist in sorted(agents.glob(f"{DASHBOARD_LABEL}*.plist")):
+        name = plist.stem.removeprefix(DASHBOARD_LABEL)
+        if not store.live(name):
+            subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{plist.stem}"], capture_output=True, check=False)
+            plist.replace(plist.with_name(f"{plist.name}.archived"))
+            done.append(f"booted out {plist.stem}")
+    plist = agents / f"{DASHBOARD_LABEL}{drive}.plist"
+    if not plist.is_file():
+        return done
+    shape = plistlib.loads(plist.read_bytes())
+    log = str(store.drive_dir(drive) / "dashboard.log")
+    stamp = store.drive_dir(drive) / "dashboard.install"
+    newest = str(newest_install())
+    if shape.get("StandardOutPath") == shape.get("StandardErrorPath") == log and stamp.is_file() and stamp.read_text().strip() == newest:
+        return done
+    shape["StandardOutPath"] = shape["StandardErrorPath"] = log
+    plist.write_bytes(plistlib.dumps(shape))
+    loaded(plist.stem, plist)
+    stamp.write_text(newest + "\n")
+    return [*done, f"reloaded {plist.stem} on {newest}, logging to {log}"]
+
+
 def install(drive: str) -> str:
     """Keep the drive's supervisor running as a launchd agent that launchd restarts whenever it exits, on this process's PATH; the plist's path."""
     label = f"dev.long-running.lane.{drive}"
@@ -319,6 +361,8 @@ def install(drive: str) -> str:
     env = {key: os.environ[key] for key in ("PATH", "HOME", "LONG_RUNNING_STATE", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR") if key in os.environ}
     plist.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [str(store.launcher(drive)), "--drive", drive, "supervise"], "KeepAlive": True, "RunAtLoad": True, "ThrottleInterval": 10, "EnvironmentVariables": env, "StandardOutPath": str(log), "StandardErrorPath": str(log), "ProcessType": "Background"}))
     loaded(label, plist)
+    for line in dashboard(drive):
+        print(line)
     return str(plist)
 
 

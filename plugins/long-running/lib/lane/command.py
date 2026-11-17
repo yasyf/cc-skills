@@ -164,6 +164,10 @@ def main(argv: list[str] | None = None) -> int:
     ruled.add_argument("--link")
     ruled.add_argument("--binds", required=True)
     verbs_parser.add_parser("unpark").add_argument("lane")
+    blocking = verbs_parser.add_parser("block", help="a refusal or blocker, written on the lane that waits on it, which wakes it; never a record to a lane's name")
+    blocking.add_argument("lane")
+    blocking.add_argument("--what", required=True)
+    blocking.add_argument("--by", required=True, help="who or what refused or blocks it")
     handing = verbs_parser.add_parser("handover", help="set the note every owner of the lane reads at its start, from a file, or clear it")
     handing.add_argument("--lane")
     handing.add_argument("--file")
@@ -298,6 +302,10 @@ def run(args: argparse.Namespace) -> int:
             verbs.wake(*where(args), args.why)
         case "worktree":
             verbs.set_worktree(*where(args), args.path)
+        case "block":
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            verbs.blocked(drive, args.lane, args.what, args.by)
+            print(f"written on {args.lane}")
         case "unpark":
             verbs.unpark(*where(args))
         case "pin":

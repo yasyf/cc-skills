@@ -884,3 +884,73 @@ def test_a_lane_with_done_checks_names_the_one_each_step_serves_and_its_brief_le
     assert "- 1. not met: from the Mac app" in text and "- 2. met " in text and "(serves done check 1)" in text
     verbs.mark_check(DRIVE, "a", None, 1, True, "replied in 4 s")
     verbs.set_next(DRIVE, "a", token_of("a"), "watch", "Nothing left.")
+
+
+def test_the_supervisor_draws_one_live_approve_card_per_lane_and_his_tap_on_it_lands_his_approve(world: dict) -> None:
+    from lane import voice
+
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", prs=[("acme/app", 7), ("acme/app", 8), ("acme/app", 9)], channel="C1")
+    world["prs"][("acme/app", 7)] = pull(rollup="SUCCESS", head="abc1234aaaa", branch="b7") | {"review": "APPROVED"}
+    world["prs"][("acme/app", 8)] = pull(rollup="SUCCESS", head="def5678bbbb", branch="b8") | {"review": "APPROVED"}
+    world["prs"][("acme/app", 9)] = pull(state="MERGED", rollup="SUCCESS", head="0123456cccc", branch="b9") | {"review": "APPROVED"}
+    supervisor.run_pass(DRIVE)
+    supervisor.run_pass(DRIVE)
+    cards = store.load(DRIVE, "a")["cards"]
+    assert [card["heads"] for card in cards] == [{"acme/app#7": "abc1234aaaa"}]
+    asks = len(store.load(DRIVE, "a")["asks"])
+    told = voice.heard("C1", None, 'tapped "Approve" on "Approve <https://github.com/acme/app/pull/7|#7 the fix> at abc1234?"', None, "1794880000.000100")
+    assert told == "a: his tap on acme/app#7"
+    lane = store.load(DRIVE, "a")
+    assert (lane["prs"][0]["approved_head"], len(lane["asks"]), lane["cards"][0]["tapped"]["label"]) == ("abc1234aaaa", asks, "Approve")
+    supervisor.run_pass(DRIVE)
+    assert [card["heads"] for card in store.load(DRIVE, "a")["cards"]] == [{"acme/app#7": "abc1234aaaa"}, {"acme/app#8": "def5678bbbb"}]
+    assert "a: 1 new" in voice.heard("C1", None, 'tapped "Approve" on "something else"', None, "1794880001.000100")
+
+
+def test_a_lane_with_an_unmet_done_check_its_step_serves_not_is_woken_and_cannot_end_its_turn_unserved(world: dict) -> None:
+    opened("a")
+    supervisor.run_pass(DRIVE)
+    ended("a", ["his_reply"], "2h")
+    verbs.add_check(DRIVE, "a", None, "start a Cloud agent from the Mac app and get its reply")
+    supervisor.run_pass(DRIVE)
+    lane = store.load(DRIVE, "a")
+    assert lane["state"] == store.RUNNING and "the nearest unmet done check is 1: start a Cloud agent" in lane["owner"]["woke"]
+    with pytest.raises(store.Refused, match="your step names none"):
+        ended("a", ["his_reply"], "2h")
+    verbs.set_next(DRIVE, "a", token_of("a"), "ship the agent fix", "Shipping the Cloud agent fix.", serves=1)
+    ended("a", ["his_reply"], "2h")
+
+
+def test_a_blocker_lands_on_the_lane_that_waits_on_it_and_wakes_it(world: dict) -> None:
+    opened("a")
+    supervisor.run_pass(DRIVE)
+    ended("a", ["his_reply"], "2h")
+    verbs.blocked(DRIVE, "a", "enqueue of #57630 refused: stood-down wait", "lane-land")
+    lane = store.load(DRIVE, "a")
+    assert lane["wait"]["fired_why"].startswith("a blocker from lane-land")
+    assert "blocked, from lane-land: enqueue of #57630 refused" in store.log_path(DRIVE, "a").read_text()
+    assert "Bash(cci post:*)" in owners.settings(DRIVE, "a", "t")["permissions"]["deny"]
+
+
+def test_lane_install_keeps_his_dashboard_beside_the_lanes_and_boots_out_the_old_drives_one(world: dict, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import plistlib
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    agents = tmp_path / "Library" / "LaunchAgents"
+    agents.mkdir(parents=True)
+    ran = []
+    monkeypatch.setattr(supervisor.subprocess, "run", lambda args, **kwargs: ran.append(args[:2]) or subprocess.CompletedProcess(args, 1 if args[1] == "print" else 0, "", ""))
+    monkeypatch.setattr(supervisor, "newest_install", lambda: Path("/installs/1.0.9"))
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    mine = agents / f"{supervisor.DASHBOARD_LABEL}{DRIVE}.plist"
+    mine.write_bytes(plistlib.dumps({"Label": mine.stem, "StandardOutPath": "/old/dashboard.log", "StandardErrorPath": "/old/dashboard.log"}))
+    old = agents / f"{supervisor.DASHBOARD_LABEL}ssql-duckdb.plist"
+    old.write_bytes(plistlib.dumps({"Label": old.stem}))
+    done = supervisor.dashboard(DRIVE)
+    assert done[0] == f"booted out {old.stem}" and done[1].startswith(f"reloaded {mine.stem} on /installs/1.0.9")
+    assert not old.exists() and old.with_name(f"{old.name}.archived").exists()
+    assert plistlib.loads(mine.read_bytes())["StandardOutPath"] == str(store.drive_dir(DRIVE) / "dashboard.log")
+    assert ["launchctl", "bootstrap"] in ran
+    ran.clear()
+    assert supervisor.dashboard(DRIVE) == [] and ran == []

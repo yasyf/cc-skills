@@ -15,7 +15,7 @@ SHADOW = Path(__file__).with_name("shadow.md")
 ENDED = ("stopped", "done", "failed")
 TOOL_SECONDS = 600
 STALLED_AFTER = timedelta(minutes=30)
-OLD_DRIVE_DENY = ["Bash(drive:*)", "Bash(drive *)", "mcp__plugin_long-running_drive"]
+OLD_DRIVE_DENY = ["Bash(drive:*)", "Bash(drive *)", "mcp__plugin_long-running_drive", "Bash(cci post:*)", "Bash(cci post *)", "mcp__plugin_cc-inbox_cci__post"]
 OLD_DRIVE_CALL = r"(^|[\s;&|(/])drive\s"
 SHADOW_DENY = [
     "Bash(git push:*)",

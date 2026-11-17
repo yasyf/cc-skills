@@ -209,6 +209,8 @@ def end_turn(drive: str, lane_id: str, token: str, on: list[dict], until: str, w
         raise store.Refused(f"{flying} background agents or tasks of yours still run, and ending your turn on a wait would stop them: stay running, end your turn without end-turn, and their return wakes you; the Stop hook lets you idle while they run")
     from lane import queue
 
+    if why_unserved := unserved(lane):
+        raise store.Refused(f"{why_unserved}, and your step names none: write `lane next \"<plan>\" --says \"<sentence>\" --serves <n>`, or `--serves-none \"<why>\"`, before you wait")
     if missing := [resource for resource in queue.asking(drive, lane_id) if {"kind": "queue_grant", "ref": resource} not in on]:
         raise store.Refused(f"this lane stands in line for {', '.join(missing)}: wait on {' and '.join(f'queue_grant:{resource}' for resource in missing)}, which wakes it the moment its grant is free, so its wait never reads as his reply")
     prs = facts.read_prs({facts.pr_ref(event["ref"]) for event in on if event["kind"] in ("pr_merged", "check")})
@@ -254,6 +256,28 @@ def owner_write(drive: str, lane_id: str, token: str | None, change) -> None:
 def unmet(lane: dict) -> list[int]:
     """The numbers, from 1, of the lane's done checks not yet met."""
     return [number for number, check in enumerate(lane.get("done", []), 1) if not check.get("met_at")]
+
+
+def unserved(lane: dict) -> str | None:
+    """Why the lane's work moves toward none of its unmet done checks, naming the nearest, or None: its step names no unmet check and gives no reason it serves none, as when its checks were written after its step or the check its step served is met."""
+    if not (open_checks := unmet(lane)):
+        return None
+    serves = lane.get("serves") or {}
+    if serves.get("none") or serves.get("check") in open_checks:
+        return None
+    return f"the nearest unmet done check is {open_checks[0]}: {lane['done'][open_checks[0] - 1]['words']}"
+
+
+def blocked(drive: str, lane_id: str, what: str, by: str) -> None:
+    """A refusal or blocker, written on the lane that waits on it and waking it, so no blocker lives only in a record another session must read."""
+
+    def blocking(lane: dict) -> None:
+        store.note(lane, f"blocked, from {by}: {what}")
+        if lane["state"] == store.WAITING:
+            woken(lane, f"a blocker from {by}: {what}")
+
+    store.update(drive, lane_id, blocking)
+    store.kick(drive)
 
 
 def set_next(drive: str, lane_id: str, token: str | None, text: str, says: str, serves: int | None = None, serves_none: str | None = None) -> None:
