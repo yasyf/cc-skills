@@ -24,6 +24,7 @@ THREAD_OF = re.compile(r"[?&]thread_ts=(\d+\.\d+)")
 SEGMENTS = re.compile(r"(<[^<>]*>)")
 BARE_PR_LINK = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|#\2>")
 BARE_NUMBER = re.compile(r"(?<![\w&/#])#(\d{3,})\b")
+BARE_PR_URL = re.compile(r"\s*\(?(?<![<|])(https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)\b\)?")
 
 
 def own_lane() -> tuple[str, str] | None:
@@ -101,7 +102,13 @@ def linked(text: str, prs: list[dict]) -> str:
         words = (match[3] or held[0].get("words") or "").strip()
         return f"<https://github.com/{held[0]['repo']}/pull/{number}|{' '.join(filter(None, [f'#{number}', words]))}>"
 
-    return "".join(worded(piece, prs) for piece in SEGMENTS.split(PR_REF.sub(drawn, text)))
+    return once("".join(worded(piece, prs) for piece in SEGMENTS.split(PR_REF.sub(drawn, text))))
+
+
+def once(text: str) -> str:
+    """The text with a bare PR URL, or one in parentheses, dropped when that PR is already linked in the post, so a PR never reads as two links."""
+    linked_urls = {piece[1:].partition("|")[0] for piece in SEGMENTS.findall(text)}
+    return "".join(piece if piece.startswith("<") else BARE_PR_URL.sub(lambda match: "" if match[1] in linked_urls else match[0], piece) for piece in SEGMENTS.split(text))
 
 
 def worded(piece: str, prs: list[dict]) -> str:
