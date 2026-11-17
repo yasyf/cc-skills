@@ -11,7 +11,7 @@ He runs a dozen lanes of work at once and reads posts on his phone between other
 - Say when he hears next, as a clock time, only when there is a next.
 - Say what needs him, plainly, only when something does.
 
-A PR is `#53430` plus at most four words, such as `#53430 reads old journals`. Never paste a PR's title. In `say`, write `{pr:53430|reads old journals}` or bare `{pr:53430}`.
+A PR is `#53430` plus the words you write for it, saying what it does, such as `#53430 reads old journals`; nothing shortens them, and Jev judges whether they read well. In `say`, write `{pr:53430|reads old journals}` or bare `{pr:53430}`.
 
 ## The five things he hears
 
