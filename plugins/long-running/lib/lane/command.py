@@ -225,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     verdicts.add_argument("--open")
     verdicts.add_argument("--drop")
     verdicts.add_argument("--join", nargs=2, metavar=("LANE", "WHY"))
-    paging = verbs_parser.add_parser("page", help="page him through Datadog On-Call: a live production failure only, what broke, for whom and its link")
+    paging = verbs_parser.add_parser("page-him", help="page him through Datadog On-Call: a live production failure only, what broke, for whom and its link")
     paging.add_argument("--lane")
     paging.add_argument("--why", required=True)
     verbs_parser.add_parser("github-events", help="handle GitHub's deliveries since the last, one process per drive at a time")
@@ -440,7 +440,7 @@ def run(args: argparse.Namespace) -> int:
 
             verdict, why, lane_id = ("open", args.open, None) if args.open else ("drop", args.drop, None) if args.drop else ("join", args.join[1], args.join[0])
             print(incidents.triage(args.drive, args.monitor, verdict, why, lane_id))
-        case "page":
+        case "page-him":
             from lane import incidents
 
             print(incidents.page(*where(args), args.why))

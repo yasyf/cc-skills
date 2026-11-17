@@ -1657,3 +1657,12 @@ def test_a_pr_above_one_he_approved_stands_as_its_own_stack_and_a_card_waits_on_
     lane = {"prs": [{"repo": "acme/app", "number": 53833, "approved_head": "a" * 40}, {"repo": "acme/app", "number": 54225}]}
     assert approve.ready_stacks(lane, seen) == [{"acme/app#54225": "b" * 40}]
     assert approve.card_title(lane, {"acme/app#54225": "b" * 40}, seen) == "Run page shows each step's kept rows"
+
+
+def test_every_lane_verb_parses_so_a_duplicate_verb_fails_ci() -> None:
+    from lane import command
+
+    for verb in ("check", "page-him", "say", "end-turn", "work", "config"):
+        with pytest.raises(SystemExit) as ended:
+            command.main([verb, "--help"])
+        assert ended.value.code == 0
