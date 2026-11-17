@@ -1086,3 +1086,21 @@ def test_the_brief_prints_each_pr_as_its_row_stands_before_any_carried_history(w
     text = owners.brief(DRIVE, store.load(DRIVE, "a"), "test")
     assert "acme/app#7: approved by him at abc1234; staging after merge" in text and "acme/app#8: held by him: his Hold at def" in text
     assert text.index("approved by him at abc1234") < text.index("seven PRs need a fresh tap") and "the rows are right" in text
+
+
+def test_the_supervisor_starts_an_audit_every_15_minutes_that_files_defects_for_the_codes_owner(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import audit
+
+    started = []
+    monkeypatch.setattr(audit.subprocess, "Popen", lambda argv, **kwargs: started.append(argv))
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", prs=[("acme/app", 7)])
+    world["prs"][("acme/app", 7)] = pull()
+    audit.missed(DRIVE, "a card asking him to merge PRs he already approved")
+    supervisor.run_pass(DRIVE)
+    supervisor.run_pass(DRIVE)
+    [argv] = started
+    assert argv[:4] == ["claude", "-p", "--model", "opus"] and "--effort" in argv and argv[argv.index("--effort") + 1] != "max"
+    assert "a card asking him to merge PRs he already approved" in argv[-1] and "voice.md" in argv[-1] and "defect --what" in argv[-1]
+    filed = json.loads(audit.defect(DRIVE, "no 👀 on his 6:25 PM ask", "https://x/p1", "no ack on receipt", "lane-core").read_text())
+    assert (filed["kind"], filed["owner"]) == ("fix the system", "lane-core")

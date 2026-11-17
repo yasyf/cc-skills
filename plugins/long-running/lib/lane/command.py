@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from lane import owner as owners
-from lane import ack, page, queue, store, supervisor, verbs, voice
+from lane import ack, audit, page, queue, store, supervisor, verbs, voice
 
 STOP_BLOCKS = 3
 PUSH = re.compile(r"\b(git push|jj git push|ccx vcs ship|gt submit|ccx vcs stack (submit|rebase))\b")
@@ -161,6 +161,13 @@ def main(argv: list[str] | None = None) -> int:
     ruled.add_argument("--relayed-by", help="who relayed his words, for a ruling with no link")
     ruled.add_argument("--reading", help="what it means, an agent's reading kept apart from his words")
     verbs_parser.add_parser("unpark").add_argument("lane")
+    defecting = verbs_parser.add_parser("defect", help="the auditor's verb: file one defect of the system as a fix-the-system item for the code's owner, never for him")
+    defecting.add_argument("--what", required=True)
+    defecting.add_argument("--evidence", required=True, help="a permalink or file:line")
+    defecting.add_argument("--mechanism", required=True, help="the class of mechanism that let it through")
+    defecting.add_argument("--owner", required=True, help="the lane that owns that code")
+    missing = verbs_parser.add_parser("audit-miss", help="a defect he found that the audits missed, kept as a rubric line every later audit checks")
+    missing.add_argument("line")
     blocking = verbs_parser.add_parser("block", help="a refusal or blocker, written on the lane that waits on it, which wakes it; never a record to a lane's name")
     blocking.add_argument("lane")
     blocking.add_argument("--what", required=True)
@@ -298,6 +305,12 @@ def run(args: argparse.Namespace) -> int:
             verbs.wake(*where(args), args.why)
         case "worktree":
             verbs.set_worktree(*where(args), args.path)
+        case "defect":
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            print(audit.defect(drive, args.what, args.evidence, args.mechanism, args.owner))
+        case "audit-miss":
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            audit.missed(drive, args.line)
         case "block":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             verbs.blocked(drive, args.lane, args.what, args.by)
