@@ -14,6 +14,7 @@ from lane import landing, rows, store
 SHADOW = "shadow"
 STAGER_MINUTES = 60
 WANTS = "staging-wants"
+AFTER_MERGE = "after_merge: no PR of this lane needs a staging test before merge, so its stacks merge on his Approve and are tested after; wait on nothing for staging"
 PAGE = Path(__file__).resolve().parents[2] / "agents" / "stager.md"
 CUTS = "cuts"
 DECISIONS = "decisions"
@@ -156,9 +157,17 @@ def want(drive: str, lane_id: str) -> str:
     path = lanes_dir(drive) / WANTS / f"{lane_id}.json"
     if path.is_file():
         return json.loads(path.read_text())["cut"]
+    if not premerge(drive, lane_id):
+        return AFTER_MERGE
     cut = f"{lane_id}-{store.now().strftime('%Y%m%d%H%M%S')}"
     written(path, {"lane": lane_id, "cut": cut, "at": store.stamp()})
     return cut
+
+
+def premerge(drive: str, lane_id: str) -> list[str]:
+    """The lane's open PRs the danger page in force holds for a staging test before merge, judged at their current heads, SandSQL work alone by his 5:00 PM words; a lane with none asks no cut, since its stacks merge on his Approve and are tested after."""
+    seen = rows.seen(store.load(drive, lane_id), rows.view(drive), rows.rule_key(drive))
+    return [landing.key(row) for row in seen["prs"] if not row.get("merged") and landing.judged(row) and landing.dangerous(row)]
 
 
 def wants(drive: str) -> dict[str, dict]:

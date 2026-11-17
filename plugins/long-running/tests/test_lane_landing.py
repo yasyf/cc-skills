@@ -109,3 +109,19 @@ def test_a_tooling_pr_lands_on_green_with_no_approve_of_his_and_a_red_one_waits(
     assert landing.verdicts(lane(tool))[0].lands is True
     assert landing.verdicts(lane(tool | {"checks": "fail"}))[0].why == "Forge-AI/monorepo#57908 waits: checks fail"
     assert landing.verdicts(lane(row(1, approved_head=None)))[0].why == "Forge-AI/monorepo#1 waits: no Approve of his"
+
+
+def test_a_staging_ask_from_a_lane_with_no_premerge_pr_returns_after_merge_and_creates_no_wait(monkeypatch, tmp_path) -> None:
+    from lane import stager, store
+
+    journal = row(53430) | {"dangerous": {"head": "h", "classes": {}, "rule": "r"}, "guarded": {"head": "h", "classes": {}, "rule": "r"}}
+    sandsql = row(56597) | {"dangerous": {"head": "h", "classes": {"before merge": ["rust/crates/sandsql-storage/src/lib.rs"]}, "rule": "r"}, "guarded": {"head": "h", "classes": {}, "rule": "r"}}
+    lanes = {"run-page-v3": lane(journal) | {"id": "run-page-v3"}, "sandsql-ha-release-3": lane(sandsql) | {"id": "sandsql-ha-release-3"}}
+    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(store, "load", lambda drive, lane_id: lanes[lane_id])
+    monkeypatch.setattr(rows, "view", lambda drive: {landing.key(pr): {"head": "h", "checks": "pass", "under": None} for pr in (journal, sandsql)})
+    monkeypatch.setattr(rows, "rule_key", lambda drive: "r")
+    monkeypatch.setattr(rows, "ours", lambda: "lane-bot")
+    assert stager.want("durable-agents", "run-page-v3") == stager.AFTER_MERGE
+    assert not (tmp_path / stager.WANTS / "run-page-v3.json").exists()
+    assert stager.want("durable-agents", "sandsql-ha-release-3").startswith("sandsql-ha-release-3-")
