@@ -352,7 +352,7 @@ def test_an_open_incidents_fix_merges_outside_the_queue_and_starts_its_hotfix_wi
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: ran.append(argv) or subprocess.CompletedProcess(argv, 0, "build 18900 started", ""))
     fix = lane(row(58100)) | {"id": "runtime-api-next-app-errors", "incident": {"link": "l", "monitor": "345323874", "fix_live": None, "hotfix_only": "runtime-api-next"}}
     said = cli.merged("durable-agents", fix, ["Forge-AI/monorepo#58100"], tmp_path, {}, False)
-    assert ran == [["gh", "pr", "merge", "58100", "-R", "Forge-AI/monorepo", "--squash"], ["ci", "release", "hotfix", "58100", "--only", "runtime-api-next"]]
+    assert ran == [["gh", "pr", "merge", "58100", "-R", "Forge-AI/monorepo", "--squash"], ["ci", "release", "hotfix", "58100", "--only", "runtime-api-next", "--incident", "l"]]
     assert "build 18900 started" in said and len(woken) == 1
 
 
@@ -399,3 +399,20 @@ def test_a_lane_release_applies_only_what_it_names_and_says_which_open_asks_it_l
     assert ran == ["ci release start runtime-api-next --env plat-usw2-staging"] and "Wait on release:18900" in said and "migration when a migration is pending: api" in said
     kept = json.loads((tmp_path / releases.FOLDER / "18900.json").read_text())
     assert (kept["lane"], kept["asks"], kept["leaves_out"], kept["reporters"]) == ("releases", ["1.1"], {"2.2": "waits on #57908"}, ["C1/p1"])
+
+
+def test_an_open_incident_freezes_its_services_other_releases_once_and_lifts_the_freeze_when_its_fix_is_live(monkeypatch, tmp_path) -> None:
+    from drive import providers
+    from lane import cli
+
+    froze, ran, stored = [], [], {}
+    release = type("Release", (), {"incident_freeze": lambda self, components, why, until: froze.append(components) or "f-1", "unfreeze": lambda self, freeze: f"ci release unfreeze {freeze}", "run": lambda self, command: ran.append(command) or ""})()
+    monkeypatch.setattr(providers, "at", lambda checkout: type("Found", (), {"release": release})())
+    monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path)})
+    open_one = {"id": "runtime-api-next-app-errors", "incident": {"link": "l", "fix_live": None, "hotfix_only": "runtime-api-next,api", "freeze": None}}
+    monkeypatch.setattr(store, "update", lambda drive, lane_id, change: change(stored.setdefault(lane_id, {"incident": dict(open_one["incident"])})))
+    assert cli.frozen("durable-agents", [open_one]) == ["runtime-api-next-app-errors: froze runtime-api-next,api but the incident's fix, f-1"]
+    assert froze == [["runtime-api-next", "api"]] and stored["runtime-api-next-app-errors"]["incident"]["freeze"] == "f-1"
+    live = {"id": "runtime-api-next-app-errors", "incident": {"link": "l", "fix_live": "https://release", "hotfix_only": "runtime-api-next,api", "freeze": "f-1"}}
+    assert cli.frozen("durable-agents", [live]) == ["runtime-api-next-app-errors: lifted the incident freeze f-1"]
+    assert ran == ["ci release unfreeze f-1"] and stored["runtime-api-next-app-errors"]["incident"]["freeze"] is None

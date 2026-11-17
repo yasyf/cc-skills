@@ -481,7 +481,7 @@ def set_incident(drive: str, lane_id: str, token: str | None, link: str | None =
 
     def setting(lane: dict) -> None:
         kept = lane.get("incident") or {}
-        lane["incident"] = {"link": link or kept.get("link"), "monitor": monitor or kept.get("monitor"), "fix_live": fix_live or kept.get("fix_live"), "hotfix_only": hotfix_only or kept.get("hotfix_only")}
+        lane["incident"] = {"link": link or kept.get("link"), "monitor": monitor or kept.get("monitor"), "fix_live": fix_live or kept.get("fix_live"), "hotfix_only": hotfix_only or kept.get("hotfix_only"), "freeze": kept.get("freeze")}
         store.note(lane, f"incident: {lane['incident']}")
 
     owner_write(drive, lane_id, token, setting)

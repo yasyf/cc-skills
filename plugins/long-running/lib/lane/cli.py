@@ -20,6 +20,7 @@ REVIEWS = "reviews"
 UNIT_SECONDS = 300
 UNITS_AT_ONCE = 8
 PASS_SECONDS = 600
+FREEZE_HOURS = 24
 LANDERS = "landers"
 CONFLICT = re.compile(r"CONFLICTING|conflicts with origin/")
 
@@ -122,6 +123,31 @@ def conflicted(drive: str, lane: dict, keys: list[str], said: Callable[[], str])
     woken(drive, lane, keys, "conflicts", lambda: f"{', '.join(keys)} conflicts with the default branch {said()}; a rebase item is queued for a worker and the next landing pass queues it once rebased, so it needs nothing from you.", block=False)
 
 
+def frozen(drive: str, lanes: list[dict]) -> list[str]:
+    """Freeze, for each open incident whose fix names its components under hotfix_only, every other release of those components until the fix is live, through the release provider's incident_freeze, which lets the incident's own hotfix through; and lift that freeze once the incident records its fix live. The freeze's id is kept on the incident. What was frozen or lifted."""
+    from drive import providers
+
+    release = providers.at(Path(store.config(drive)["checkout"])).release
+    said = []
+    for lane in lanes:
+        incident = lane.get("incident") or {}
+        if incident.get("hotfix_only") and not incident.get("fix_live") and not incident.get("freeze"):
+            until = store.stamp(store.now() + timedelta(hours=FREEZE_HOURS))
+            freeze = release.incident_freeze(incident["hotfix_only"].split(","), f"incident {incident['link']}: the broken service ships only its fix until the fix is live", until)
+            store.update(drive, lane["id"], lambda kept, freeze=freeze, until=until: keep_freeze(kept, freeze, f"froze {kept['incident']['hotfix_only']} but the incident's fix until {until}: {freeze}"))
+            said.append(f"{lane['id']}: froze {incident['hotfix_only']} but the incident's fix, {freeze}")
+        elif incident.get("fix_live") and incident.get("freeze"):
+            release.run(release.unfreeze(incident["freeze"]))
+            store.update(drive, lane["id"], lambda kept: keep_freeze(kept, None, f"lifted the incident freeze {kept['incident']['freeze']}: the fix is live"))
+            said.append(f"{lane['id']}: lifted the incident freeze {incident['freeze']}")
+    return said
+
+
+def keep_freeze(lane: dict, freeze: str | None, text: str) -> None:
+    store.note(lane, text)
+    lane["incident"]["freeze"] = freeze
+
+
 def hotfixed(drive: str, lane: dict, keys: list[str], checkout: Path, incident: dict) -> str:
     """Land an open incident's fix as the incident rule says: merge it with `gh pr merge --squash`, skipping the merge queue, then start the drive config's hotfix_cli on it with the components the incident names under hotfix_only as --only, and tell the owner what started, with the release tool's own words. With no components named, the owner is told once to name them, since a hotfix with no --only ships every component the release tool pairs with the fix."""
     repo, _, top = keys[-1].rpartition("#")
@@ -134,7 +160,7 @@ def hotfixed(drive: str, lane: dict, keys: list[str], checkout: Path, incident: 
     if not (only := incident.get("hotfix_only")):
         woken(drive, lane, keys, "hotfix", lambda: f"the incident fix {', '.join(keys)} merged outside the merge queue; name the components its hotfix releases with `lane incident --hotfix-only <a,b>`, and the lander starts the hotfix of each fix it merges from then on. Start this one with `{' '.join(store.config(drive)['hotfix_cli'])} {top} --only <a,b>`.", block=True)
         return f"{lane['id']}: merged the incident fix {', '.join(keys)}; its hotfix waits on the components its owner names"
-    started = subprocess.run([*store.config(drive)["hotfix_cli"], top, "--only", only], cwd=checkout, capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
+    started = subprocess.run([*store.config(drive)["hotfix_cli"], top, "--only", only, "--incident", incident["link"]], cwd=checkout, capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
     said = " ".join((started.stdout + started.stderr).split())[:600]
     what = f"the hotfix of the incident fix {', '.join(keys)} with --only {only} started: {said}" if started.returncode == 0 else f"the hotfix of the incident fix {', '.join(keys)} with --only {only} was refused: {said}"
     woken(drive, lane, keys, "hotfix", lambda: f"{what}. Watch it to live and record the proof with `lane incident --fix-live <link>`.", block=True)
@@ -241,6 +267,8 @@ def land(args: argparse.Namespace) -> None:
                 print(said)
             if not args.lane:
                 print(f"staging items queued or kept: {len(stager.queue(args.drive, seen_lanes))}")
+            for said in frozen(args.drive, seen_lanes):
+                print(said)
         if not units:
             return
         if supervisor.newest_install() != here:

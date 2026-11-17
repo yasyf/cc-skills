@@ -196,6 +196,10 @@ class ReleaseProvider(Provider):
         """Freeze releases of components until the stamp until, for why; the freeze's id."""
         raise ProviderError("this repository sets no release freeze")
 
+    def incident_freeze(self, components: list[str], why: str, until: str) -> str:
+        """Freeze every release of components but an incident's fix until the stamp until, for why, so the broken service ships nothing else until its root fix does; the freeze's id."""
+        raise ProviderError("this repository sets no incident freeze")
+
     def unfreeze(self, freeze: str) -> str:
         """The command that lifts the freeze with id freeze."""
         return ""
