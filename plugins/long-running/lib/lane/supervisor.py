@@ -29,6 +29,7 @@ UNPRODUCED = "nothing is producing what it waits on"
 READERS = 6
 STEP_SECONDS = 120
 READ_SECONDS = 600
+SLOW_STEP_SECONDS = 10
 RUNNING_STEPS: dict[str, threading.Thread] = {}
 BOOTOUT_SECONDS = 30
 BOOTSTRAP_TRIES = 10
@@ -123,8 +124,11 @@ def alone(drive: str, errors: list[str], what: str, step, seconds: float = STEP_
             kept["failed"], kept["trace"] = failed, traceback.format_exc()[-2000:]
 
     worker = threading.Thread(target=running, name=what, daemon=True)
+    began = time.monotonic()
     worker.start()
     worker.join(seconds)
+    if (took := time.monotonic() - began) >= SLOW_STEP_SECONDS:
+        print(f"{store.stamp()} pass step took {took:.0f}s: {what}", flush=True)
     if worker.is_alive():
         RUNNING_STEPS[f"{drive}:{what}"] = worker
         line, trace = f"{what}: ran past {seconds:.0f}s, so this pass moves on without it", ""
