@@ -74,8 +74,8 @@ def items(drive: str) -> list[dict]:
     return [json.loads(found.read_text()) for found in sorted(folder(drive).glob("w-*.json"))]
 
 
-def add(drive: str, kind: str, lane_id: str, subject: str, words: str, serves: int | None = None, head: str | None = None, touches: list[str] | None = None, runs_on: str = "local", by: str = "owner") -> dict:
-    """Queue one item, or update the one this kind and subject already has: its words and head while it is queued, queued again at a new head once done or failed, and never touched while a worker holds it, since that worker's own push moves the head. A worker is started at once when none is free."""
+def add(drive: str, kind: str, lane_id: str, subject: str, words: str, serves: int | None = None, head: str | None = None, touches: list[str] | None = None, runs_on: str = "local", by: str = "owner", again: bool = False) -> dict:
+    """Queue one item, or update the one this kind and subject already has: its words and head while it is queued, queued again at a new head once done or failed, or at the same head with again when what failed it is fixed, and never touched while a worker holds it, since that worker's own push moves the head. A worker is started at once when none is free."""
     if kind not in KINDS:
         raise store.Refused(f"a work item's kind is one of {', '.join(KINDS)}, not {kind!r}")
     store.load(drive, lane_id)
@@ -86,7 +86,7 @@ def add(drive: str, kind: str, lane_id: str, subject: str, words: str, serves: i
         kept = load(drive, found)
         if kept and kept["state"] == TAKEN:
             return kept
-        if kept and kept["state"] in (DONE, FAILED) and (head is None or kept.get("head") == head):
+        if kept and kept["state"] in (DONE, FAILED) and not again and (head is None or kept.get("head") == head):
             return kept
         fresh = {"id": found, "kind": kind, "lane": lane_id, "subject": subject, "words": words, "serves": serves, "head": head, "touches": touches or [], "runs_on": runs_on, "state": QUEUED, "added": (kept or {}).get("added") or moment, "queued": moment, "by": by, "rounds": (kept or {}).get("rounds", 0) + (1 if kept else 0), "history": (kept or {}).get("history", [])[-10:]}
         if kept and kept["state"] in (DONE, FAILED):

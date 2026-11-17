@@ -240,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     work_add.add_argument("--head")
     work_add.add_argument("--touches", nargs="*", default=[])
     work_add.add_argument("--runs-on", default="local")
+    work_add.add_argument("--again", action="store_true", help="queue a done or failed item again at its head, once what failed it is fixed; its words say what changed")
     work_verbs.add_parser("pull")
     work_take = work_verbs.add_parser("take")
     work_take.add_argument("ids", nargs="+")
@@ -468,7 +469,7 @@ def run(args: argparse.Namespace) -> int:
             match args.work_verb:
                 case "add":
                     drive, lane_id = where(args)
-                    print(work.add(drive, args.kind, lane_id, args.subject, args.words, args.serves, args.head, args.touches, args.runs_on)["id"])
+                    print(work.add(drive, args.kind, lane_id, args.subject, args.words, args.serves, args.head, args.touches, args.runs_on, again=args.again)["id"])
                 case "pull":
                     print(json.dumps(work.pull(drive), indent=1))
                 case "take":
