@@ -41,6 +41,9 @@ def merged(drive: str, lane: dict, keys: list[str], guarded: bool, checkout: Pat
     checked = subprocess.run([str(checkout / script), "--check", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
     if (gone := GONE_BASE.search(checked.stdout + checked.stderr)) and retargeted(keys[0], gone["branch"]):
         checked = subprocess.run([str(checkout / script), "--check", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
+    if (blocked := old_land.BLOCKED_LINE.search(checked.stdout)) and (cut := numbers.index(blocked["number"]) if blocked["number"] in numbers else 0):
+        numbers, keys = numbers[:cut], keys[:cut]
+        checked = subprocess.run([str(checkout / script), "--check", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
     if dry_run:
         return f"would queue {', '.join(keys)} at base {sha[:12]}; --check exited {checked.returncode}: {old_land.said(checked.stdout + checked.stderr)}"
     if failed := old_land.unfinished(drive, "--check", keys, checked):
@@ -110,7 +113,7 @@ def land(args: argparse.Namespace) -> None:
     from drive import land as old_land
 
     here = Path(__file__).resolve().parents[2]
-    with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}.lock") as mine:
+    with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}{'-' + '-'.join(args.lane) if args.lane else ''}.lock") as mine:
         if not mine:
             print("another landing pass runs; this one ends")
             return
@@ -121,7 +124,7 @@ def land(args: argparse.Namespace) -> None:
         rows.judge(args.drive, read)
         moment = store.now()
         units = []
-        for lane in [rows.seen(lane, read, rule) for lane in store.load_all(args.drive).values()]:
+        for lane in [rows.seen(lane, read, rule) for lane in store.load_all(args.drive).values() if not args.lane or lane["id"] in args.lane]:
             by_key = {landing.key(row): row for row in lane["prs"]}
             for verdict in landing.verdicts(lane, heard(args.drive), moment):
                 print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
@@ -186,6 +189,7 @@ def main() -> int:
     verbs = parser.add_subparsers(required=True)
     verb = verbs.add_parser("land", help="what his Approve lands now, queued only once live")
     verb.add_argument("--dry-run", action="store_true", help="run the merge queue's --check for each landing unit and queue nothing")
+    verb.add_argument("--lane", action="append", help="land only this lane's units, beside any whole-drive pass, as when his presence window is short; repeatable")
     verb.set_defaults(run=land)
     verb = verbs.add_parser("verdicts", help="each lane stack's verdict now, read from GitHub, with no pass lock, no judging and no merge queue call")
     verb.set_defaults(run=verdicts)
