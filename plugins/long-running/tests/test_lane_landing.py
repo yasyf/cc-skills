@@ -354,3 +354,19 @@ def test_an_open_incidents_fix_merges_outside_the_queue_and_starts_its_hotfix_wi
     said = cli.merged("durable-agents", fix, ["Forge-AI/monorepo#58100"], tmp_path, {}, False)
     assert ran == [["gh", "pr", "merge", "58100", "-R", "Forge-AI/monorepo", "--squash"], ["ci", "release", "hotfix", "58100", "--only", "runtime-api-next"]]
     assert "build 18900 started" in said and len(woken) == 1
+
+
+def test_a_met_done_check_naming_staging_is_reopened_by_a_later_untested_merge_and_its_batch_item_serves_it(monkeypatch, tmp_path) -> None:
+    from lane import stager, work
+
+    served = []
+    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(stager, "live", lambda drive: True)
+    monkeypatch.setattr(stager, "promoted", lambda drive: None)
+    monkeypatch.setattr(store, "config", lambda drive: {"staging_targets": ["staging"], "staging_alerts": "#alerts-staging"})
+    monkeypatch.setattr(store, "update", lambda drive, lane_id, change: None)
+    monkeypatch.setattr(work, "add", lambda drive, kind, lane_id, subject, words, serves=None, head=None, touches=None, by="owner": served.append(serves) or {"id": "w"})
+    merged = row(57891, merged=True, merged_at="2026-11-17T04:10:00Z") | {"approved_head": "h"}
+    ha = lane(merged) | {"done": [{"words": "the switch-back passes on staging", "met_at": "2026-11-17T03:00:00Z"}, {"words": "a card shows it", "met_at": "2026-11-17T03:00:00Z"}]}
+    stager.queue("durable-agents", [ha])
+    assert served == [1] and "met_at" not in ha["done"][0] and ha["done"][1]["met_at"]

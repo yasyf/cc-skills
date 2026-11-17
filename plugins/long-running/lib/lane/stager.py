@@ -196,12 +196,31 @@ def queue(drive: str, lanes: list[dict]) -> list[str]:
                 added.append(work.add(drive, "staging-before", lane["id"], keys[0], before_words(drive, keys, open_rows[-1]["head"]), head=open_rows[-1]["head"], touches=targets, by="lane-land")["id"])
         for row in lane["prs"]:
             if row.get("merged") and not row.get("staging") and row.get("approved_head") and (not since or row["merged_at"] > since["at"]):
-                added.append(work.add(drive, "staging-after", lane["id"], landing.key(row), after_words(drive, landing.key(row), since), head=row["head"], touches=targets, by="lane-land")["id"])
+                serves = reopened(drive, lane, row)
+                added.append(work.add(drive, "staging-after", lane["id"], landing.key(row), after_words(drive, landing.key(row), since), serves=serves, head=row["head"], touches=targets, by="lane-land")["id"])
     for lane_id, asked in wants(drive).items():
         moved = work.item_id("staging-before", next((landing.key(stack[0]) for lane in lanes if lane["id"] == lane_id for stack in landing.stacks(lane) if any(not row.get("merged") for row in stack)), lane_id))
         written(lanes_dir(drive) / CUTS / f"{asked['cut']}.json", {"lane": lane_id, "cut": asked["cut"], "result": "moved", "stacks": {}, "why": f"staging asks are work items now: wait on work:{moved}"})
         (lanes_dir(drive) / WANTS / f"{lane_id}.json").unlink()
     return added
+
+
+def reopened(drive: str, lane: dict, row: dict) -> int | None:
+    """The lane's done check that names staging, met before row merged untested, marked unmet again with why, so a check proven on staging is proven again on the batch that carries the later merge; its number, which the merge's staging-after item serves, None when the lane has no such check."""
+    numbers = [number for number, check in enumerate(lane.get("done", []), 1) if "staging" in check["words"].lower() and check.get("met_at") and check["met_at"] < row["merged_at"]]
+    if not numbers:
+        return next((number for number, check in enumerate(lane.get("done", []), 1) if "staging" in check["words"].lower() and not check.get("met_at")), None)
+
+    def reopening(stored: dict) -> None:
+        for number in numbers:
+            check = stored["done"][number - 1]
+            check.pop("met_at", None)
+            check["how"] = f"{landing.key(row)} merged at {row['merged_at']}, after this check was met, and has not run on staging since; its staging-after batch proves the check again"
+            store.note(stored, f"done check {number} unmet: {check['how']}")
+
+    store.update(drive, lane["id"], reopening)
+    reopening(lane)
+    return numbers[0]
 
 
 def promoted(drive: str) -> dict | None:
