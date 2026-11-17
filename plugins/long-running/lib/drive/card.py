@@ -882,7 +882,7 @@ def lane_held(asked: list[dict]) -> dict[str, tuple[str, str, dict]]:
 
 
 def lane_cards(held: dict[str, tuple[str, str, dict]], redraw: bool = False) -> dict:
-    """The PR-group cards of the asked PRs live lane drives hold, the cards approve.draw asks cc-slack for: one per ready stack of the lane holding each, by approve.ready_stacks, bottom first, drawn by render or render_stack as the old drive's cards are, titled whole by the lane's name for the stack, or its bottom PR's GitHub title while it has none, by approve.card_title, its body led by the lane's own line on what the stack changes and what waits on it, lane_why, with Approve and Hold while its PRs ask his tap at the heads GitHub reads. A PR in no ready stack draws on a redraw as it stands now, with no Approve, on the stack the lane's card last asked it in, and is skipped on a fresh ask, since its card would offer him no Approve."""
+    """The PR-group cards of the asked PRs live lane drives hold, the cards approve.draw asks cc-slack for: one per ready stack of the lane holding each, by approve.ready_stacks, bottom first, drawn by render or render_stack as the old drive's cards are, titled whole by the lane's name for the stack, or its bottom PR's GitHub title while it has none, by approve.card_title, its body led by what the stack changes for a user and what waits on his tap, lane_why, with Approve and Hold while its PRs ask his tap at the heads GitHub reads. A PR in no ready stack draws on a redraw as it stands now, with no Approve, on the stack the lane's card last asked it in, and is skipped on a fresh ask, since its card would offer him no Approve."""
     from lane import approve, page
 
     found, skipped = [], []
@@ -909,24 +909,22 @@ def lane_cards(held: dict[str, tuple[str, str, dict]], redraw: bool = False) -> 
                 continue
             card = drawn_card([(reads[key], lane_entry(key, rows[key], reads[key], tappable), (), ()) for key in members], False)
             card["title"] = approve.card_title(lane, dict.fromkeys(members), page.view(drive)["prs"])
-            card["body"] = "\n\n".join(filter(None, [lane_why(lane, members, page.view(drive)["prs"]), card.get("body")]))
+            card["body"] = "\n\n".join(filter(None, [lane_why(drive, lane, members, page.view(drive)["prs"], reads), card.get("body")]))
             repo, number = members[0].split("#")
             found.append({"repo": repo, "number": int(number), "card": card})
     return {"cards": found, "skipped": skipped}
 
 
-def lane_why(lane: dict, members: list[str], seen: dict) -> str:
-    """The card's first line, in the owner's own words from the lane: its plain plan, what its wait says the stack's merge lets go, and the approved PRs under it that his tap lands it on."""
-    from lane import page
+def lane_why(drive: str, lane: dict, members: list[str], seen: dict, reads: dict[str, dict]) -> str:
+    """The card's first line: what the stack changes for a user and what waits on his tap, in the owner's words or a small model's from the PR bodies, by cardline.written, then the approved PRs under it that his tap lands it on."""
+    from lane import cardline, page
 
-    numbers = {key.rpartition("#")[2] for key in members}
-    wait = (lane.get("wait") or {}).get("why") or ""
     branches = {(key.rpartition("#")[0], pull.get("branch")): key for key, pull in seen.items() if pull["state"] == "OPEN"}
     under, key = [], members[0]
     while (key := branches.get((key.rpartition("#")[0], (seen.get(key) or {}).get("base")))) and key in page.approved(lane) and key not in under:
         under.append(key)
     under = [f"#{key.rpartition('#')[2]}" for key in under]
-    return " ".join(filter(None, [lane.get("says"), wait if any(f"#{number}" in wait for number in numbers) else "", f"It lands on {', '.join(under)}, which you approved." if under else ""]))
+    return " ".join(filter(None, [cardline.written(drive, lane, members, reads), f"It lands on {', '.join(under)}, which you approved." if under else ""]))
 
 
 def lane_entry(key: str, row: dict, pr: dict, tappable: dict[str, str]) -> dict:

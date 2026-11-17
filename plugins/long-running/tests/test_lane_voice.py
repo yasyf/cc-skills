@@ -291,20 +291,30 @@ def test_his_words_no_lane_holds_go_to_the_lane_jev_picks_in_the_call_and_only_r
     assert "and give it the invoices too" in (root / "demo" / intake.INTAKES / "D0DM.jsonl").read_text()
 
 
-def test_at_the_cap_the_intake_asks_which_lane_to_park_least_urgent_first_and_his_tap_parks_it_and_opens_in_the_call(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_at_the_cap_the_intake_parks_the_least_urgent_lane_and_his_undo_unparks_it_and_parks_the_next_in_the_call(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from lane import intake, rank, verbs
 
     root = tmp_path / "lanes"
     (root / "demo").mkdir(parents=True)
     (root / "demo" / store.LIVE).touch()
+    lanes = {"a": {"state": store.WAITING, "channel": "C1"}, "b": {"state": store.WAITING, "channel": "C2"}, "c": {"state": store.WAITING, "channel": "C3"}}
     monkeypatch.setattr(store, "root", lambda: root)
-    monkeypatch.setattr(store, "load_all", lambda drive: {"a": {"state": store.RUNNING, "channel": "C1"}, "b": {"state": store.WAITING, "channel": "C2"}, "c": {"state": store.PARKED, "channel": "C3"}})
-    monkeypatch.setattr(rank, "last", lambda drive: {"order": ["a", "b"]})
+    monkeypatch.setattr(store, "load_all", lambda drive: lanes)
+    monkeypatch.setattr(store, "transact", lambda drive, change, leaving_unreplied=False: change(lanes))
+    monkeypatch.setattr(rank, "last", lambda drive: {"order": ["a", "b", "c"]})
     replied, opened = [], []
-    monkeypatch.setattr(intake, "reply", lambda drive, channel, thread, text, options=None: replied.append((thread, options)) or "QUEUED q1")
-    monkeypatch.setattr(verbs, "open_lane", lambda drive, **kwargs: opened.append(kwargs) or {"id": kwargs["lane_id"], "title": kwargs["title"]})
+    monkeypatch.setattr(intake, "reply", lambda drive, channel, thread, text, options=None: replied.append((text, options)) or "QUEUED q1")
+
+    def opening_lane(drive: str, **kwargs) -> dict:
+        opened.append(kwargs)
+        lanes[kwargs["parks"]]["state"] = store.PARKED
+        lanes[kwargs["lane_id"]] = {"state": store.WAITING, "channel": "C4"}
+        return {"id": kwargs["lane_id"]}
+
+    monkeypatch.setattr(verbs, "open_lane", opening_lane)
     opening = {"lane_id": "billing", "title": "Billing export", "words": "open a lane for the billing export", "link": "https://x.slack.com/archives/D0DM/p1", "ts": "9.1", "worktree": "/w"}
-    assert intake.ask_park("demo", "D0DM", "9.1", "Billing export needs a lane; one must park for it.", opening) == "QUEUED q1"
-    assert replied == [("9.1", ["Park b", "Park a"])] and not opened
-    assert voice.heard("D0DM", "9.1", 'tapped "Park b"', None, "9.2") == "intake of 9.2: parked b, opened billing"
-    assert opened == [opening | {"parks": "b", "park_words": 'tapped "Park b" (9.2)'}] and intake.pending("demo") == []
+    assert intake.park_open("demo", "D0DM", "9.1", "Billing export has its lane in #billing.", opening) == "QUEUED q1"
+    assert opened[0]["parks"] == "c" and replied == [("Billing export has its lane in #billing. Parked c, the least urgent lane by the queue.", ["Undo"])]
+    assert voice.heard("D0DM", "9.1", 'tapped "Undo"', None, "9.2") == "intake of 9.2: unparked c, parked b"
+    assert (lanes["c"]["state"], lanes["b"]["state"], intake.pending("demo")) == (store.WAITING, store.PARKED, [])

@@ -62,7 +62,7 @@ def heard(drive: str, channel: str, thread: str | None, words: str, link: str | 
     except FileExistsError:
         return f"intake of {ts}: already heard"
     if words.startswith('tapped "'):
-        return tapped(drive, channel, words, link, ts) or f"intake of {ts}: a tap on no question of the intake's"
+        return tapped(drive, channel, thread, words, link, ts) or f"intake of {ts}: a tap on no question of the intake's"
     picked = route(drive, words)
     if picked == CHATTER:
         return f"intake of {ts}: chatter, nothing to do"
@@ -116,8 +116,9 @@ def reply(drive: str, channel: str, thread: str, text: str, options: list[str] |
     return f"QUEUED {queued['id']}" + (f"; {queued['warning']}" if queued.get("warning") else "")
 
 
+
 PENDING = "pending.json"
-PARK = "Park {lane}"
+UNDO = "Undo"
 
 
 def pending(drive: str) -> list[dict]:
@@ -125,28 +126,43 @@ def pending(drive: str) -> list[dict]:
     return json.loads(path.read_text()) if path.is_file() else []
 
 
-def ask_park(drive: str, channel: str, thread: str, text: str, opening: dict) -> str:
-    """At the cap, ask him which lane to park for the lane opening would open, by his rule that a 13th lane names the lane it parks: one button per active lane, least urgent first by the last rank, the first recommended; the open waits, nothing parked, until his tap, which tapped carries out in the call that hears it."""
+def kept(drive: str, rows: list[dict]) -> None:
+    (folder(drive) / PENDING).write_text(json.dumps(rows, ensure_ascii=False) + "\n")
+
+
+def least_urgent(drive: str, lanes: dict[str, dict]) -> list[str]:
+    """The active lanes, least urgent first by the priority queue's last rank, his "internal PQ that is constantly being evaluated"."""
     from lane import rank
 
-    lanes = {lane_id for lane_id, lane in store.load_all(drive).items() if lane["state"] != store.PARKED}
-    order = [lane_id for lane_id in rank.last(drive).get("order", []) if lane_id in lanes]
-    least = [*reversed(order), *sorted(lanes - set(order))]
-    options = [PARK.format(lane=lane_id) for lane_id in least]
-    sent = reply(drive, channel, thread, text, options)
-    kept = [*pending(drive), {"channel": channel, "thread": thread, "options": options, "open": opening, "at": store.stamp()}]
-    (folder(drive) / PENDING).write_text(json.dumps(kept, ensure_ascii=False) + "\n")
+    active = {lane_id for lane_id, lane in lanes.items() if lane["state"] != store.PARKED}
+    order = [lane_id for lane_id in rank.last(drive).get("order", []) if lane_id in active]
+    return [*reversed(order), *sorted(active - set(order))]
+
+
+def park_open(drive: str, channel: str, thread: str, text: str, opening: dict) -> str:
+    """At the cap, open the lane opening names by parking the queue's least urgent lane, and tell him in his thread with an Undo button, which unparks it and parks the next least urgent in the call that hears his tap."""
+    parks = least_urgent(drive, store.load_all(drive))[0]
+    lane = verbs.open_lane(drive, **opening, parks=parks, park_words=f"the priority queue's least urgent lane, parked to open {opening['lane_id']}")
+    sent = reply(drive, channel, thread, f"{text} Parked {parks}, the least urgent lane by the queue.", [UNDO])
+    kept(drive, [*pending(drive), {"channel": channel, "thread": thread, "parked": parks, "opened": lane["id"], "at": store.stamp()}])
     return sent
 
 
-def tapped(drive: str, channel: str, words: str, link: str | None, ts: str) -> str | None:
-    """His tap on a park question the intake asked: park the lane he picked and open the waiting lane in this call, then tell him in its thread; None when the tap answers no such question."""
-    label = words.removeprefix('tapped "').partition('"')[0]
-    asked = next((each for each in pending(drive) if each["channel"] == channel and label in each["options"]), None)
+def tapped(drive: str, channel: str, thread: str | None, words: str, link: str | None, ts: str) -> str | None:
+    """His Undo on a park the intake made: unpark that lane and park the next least urgent in place of it, in this call, then tell him in its thread; None when the tap answers no such post."""
+    asked = next((each for each in pending(drive) if each["channel"] == channel and each["thread"] == thread), None) if words == f'tapped "{UNDO}"' else None
     if not asked:
         return None
-    parks = asked["options"][asked["options"].index(label)].removeprefix(PARK.format(lane=""))
-    lane = verbs.open_lane(drive, **asked["open"], parks=parks, park_words=f"{words} ({link or ts})")
-    (folder(drive) / PENDING).write_text(json.dumps([each for each in pending(drive) if each != asked], ensure_ascii=False) + "\n")
-    reply(drive, channel, asked["thread"], f"Parked {parks} and opened {lane['id']}: {lane['title']}.")
-    return f"intake of {ts}: parked {parks}, opened {lane['id']}"
+    lanes = store.load_all(drive)
+    then = next(lane_id for lane_id in least_urgent(drive, lanes) if lane_id not in (asked["parked"], asked["opened"]))
+
+    def swapping(lanes: dict[str, dict]) -> None:
+        verbs.park_in(lanes[then], f"{words}: parked in place of {asked['parked']}", link)
+        verbs.woken(lanes[asked["parked"]], f"unparked by his Undo ({link or ts})")
+        store.note(lanes[asked["parked"]], "unparked by his Undo")
+
+    store.transact(drive, swapping)
+    store.kick(drive)
+    kept(drive, [each for each in pending(drive) if each != asked])
+    reply(drive, channel, thread, f"Unparked {asked['parked']} and parked {then}, the next least urgent lane.")
+    return f"intake of {ts}: unparked {asked['parked']}, parked {then}"

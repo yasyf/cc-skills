@@ -470,13 +470,14 @@ def log(drive: str, lane_id: str, token: str | None, text: str) -> None:
     owner_write(drive, lane_id, token, lambda lane: store.note(lane, text))
 
 
-def add_pr(drive: str, lane_id: str, token: str | None, repo: str, number: int, words: str | None) -> None:
+def add_pr(drive: str, lane_id: str, token: str | None, repo: str, number: int, words: str | None, why: str | None = None) -> None:
     def adding(lane: dict) -> None:
         for row in lane["prs"]:
             if row["repo"] == repo and row["number"] == number:
                 row["words"] = words or row.get("words")
+                row["why"] = why or row.get("why")
                 return
-        lane["prs"].append(pr_row(repo, number, words))
+        lane["prs"].append(pr_row(repo, number, words) | ({"why": why} if why else {}))
 
     owner_write(drive, lane_id, token, adding)
 

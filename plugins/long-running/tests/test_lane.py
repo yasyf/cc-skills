@@ -21,6 +21,9 @@ def pull(state: str = "OPEN", rollup: str | None = "PENDING", head: str = "abc",
 def world(monkeypatch: pytest.MonkeyPatch) -> dict:
     """Owners that start as fake background jobs, leases the test sets, pull requests the test sets, and a ranking by the scores the test sets."""
     seen: dict = {"launched": [], "stopped": [], "leases": {}, "prs": {}, "scores": {}, "messages": {}, "fail": set()}
+    from lane import cardline
+
+    monkeypatch.setattr(cardline, "extract_sync", lambda prompt, model, **kwargs: cardline.Line(line="Files move to the shared pool, and the next staging release waits on your tap."))
 
     def launch(drive: str, lane: dict, token: str, woke: str) -> dict:
         if lane["id"] in seen["fail"]:
@@ -981,6 +984,7 @@ def test_the_card_command_draws_a_lane_stack_as_the_old_pr_group_card_ahead_of_a
     name = "Every file goes through blobstore, cells hold pointers, and SandSQL keeps no per-file bookkeeping of its own anywhere: one shared pool"
     store.update(DRIVE, "a", lambda lane: lane["prs"][0].__setitem__("words", name))
     [drawn] = card.cards([{"repo": "acme/app", "number": 8}])["cards"]
+    assert drawn["card"]["body"].startswith("Files move to the shared pool, and the next staging release waits on your tap.")
     assert (drawn["repo"], drawn["number"], drawn["card"]["title"], drawn["card"]["options"]) == ("acme/app", 7, name, ["Approve", "Hold"])
     assert json.dumps(drawn["card"]).count(name) == 1 and "Blob pointers everywhere" not in drawn["card"]["title"] + drawn["card"]["body"]
     assert [row["url"] for row in drawn["card"]["prs"]] == ["https://github.com/acme/app/pull/7", "https://github.com/acme/app/pull/8"]

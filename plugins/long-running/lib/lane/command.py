@@ -255,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
     homing.add_argument("lane")
     homing.add_argument("--channel", required=True)
     homing.add_argument("--thread")
-    parking = verbs_parser.add_parser("ask-park", help="the intake's question at the cap: which lane to park for the lane it would open, one button per lane, least urgent first; his tap parks it and opens the new lane in the call that hears it")
+    parking = verbs_parser.add_parser("park-open", help="the intake's open at the cap: park the least urgent lane by the queue, open the new one, and tell him with an Undo button, whose tap unparks it and parks the next least urgent in the call that hears it")
     for flag in ("--channel", "--thread", "--text", "--lane", "--title", "--words", "--link", "--ts", "--worktree"):
         parking.add_argument(flag, required=True)
     replying = verbs_parser.add_parser("reply", help="the intake session's one reply in his thread, through the voice, for his words no lane holds")
@@ -340,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
     adding.add_argument("action", choices=["add"])
     adding.add_argument("ref")
     adding.add_argument("--words")
+    adding.add_argument("--why", help="what the stack this PR is the bottom of changes for a user and what waits on his tap, the first line of its Approve card; a model writes it from the PR bodies when left out")
     adding.add_argument("--lane")
     granting = verbs_parser.add_parser("queue", help="ask the priority queue for a release start")
     granting.add_argument("action", choices=["take", "renew", "release"])
@@ -486,12 +487,12 @@ def run(args: argparse.Namespace) -> int:
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             verbs.home(drive, args.lane, args.channel, args.thread)
             print(f"{args.lane} now posts in {args.channel}")
-        case "ask-park":
+        case "park-open":
             from lane import intake
 
             if not args.drive:
                 raise store.Refused("name the drive with --drive")
-            print(intake.ask_park(args.drive, args.channel, args.thread, args.text, {"lane_id": args.lane, "title": args.title, "words": args.words, "link": args.link, "ts": args.ts, "worktree": args.worktree}))
+            print(intake.park_open(args.drive, args.channel, args.thread, args.text, {"lane_id": args.lane, "title": args.title, "words": args.words, "link": args.link, "ts": args.ts, "worktree": args.worktree}))
         case "reply":
             from lane import intake
 
@@ -539,7 +540,7 @@ def run(args: argparse.Namespace) -> int:
                 print(f"marked done; no ✅ in Slack: {failed}", file=sys.stderr)
         case "pr":
             drive, lane_id = where(args)
-            verbs.add_pr(drive, lane_id, token(), *pr_ref(args.ref), args.words)
+            verbs.add_pr(drive, lane_id, token(), *pr_ref(args.ref), args.words, args.why)
         case "queue":
             drive, lane_id = where(args)
             holder = args.holder or lane_id
