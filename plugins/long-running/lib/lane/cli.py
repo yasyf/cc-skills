@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from lane import landing, releases, rows, stager, store
+from lane import landing, releases, rows, stager, store, supervisor
 
 LANDING = "landing"
 LANDINGS = "landings"
@@ -73,11 +73,12 @@ def exclusive(path: Path) -> Iterator[bool]:
 
 
 def land(args: argparse.Namespace) -> None:
-    """One landing pass, never two at once: a pass that finds another running ends at once, so the supervisor's start each pass never piles landers up. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, writes each unjudged head's verdict by rows.judge, prints what his Approve lands now in each lane, and in live mode queues each landing unit by merged() from one fresh worktree for the whole pass."""
+    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, writes each unjudged head's verdict by rows.judge, prints what his Approve lands now in each lane, and in live mode queues each landing unit by merged() from one fresh worktree for the whole pass."""
     from drive import github, providers
     from drive import land as old_land
 
-    with exclusive(store.drive_dir(args.drive) / LANDING / "pass.lock") as mine:
+    here = Path(__file__).resolve().parents[2]
+    with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}.lock") as mine:
         if not mine:
             print("another landing pass runs; this one ends")
             return
@@ -100,6 +101,9 @@ def land(args: argparse.Namespace) -> None:
         script = providers.at(checkout_of).repo.queue().script
         with old_land.fresh(args.drive, checkout_of, repo, github.default_branch(repo), store.drive_dir(args.drive) / LANDINGS) as (checkout, sha):
             for lane, keys, guarded in units:
+                if supervisor.newest_install() != here:
+                    print(f"a newer install than {here.name} landed; this pass ends before {keys[0]} and the next pass, on the new code, lands the rest")
+                    return
                 with exclusive(store.drive_dir(args.drive) / LANDING / f"{keys[0].replace('/', '_').replace('#', '-')}.lock") as mine:
                     if not mine:
                         print(f"{lane['id']}: another lander is landing {keys[0]}; this pass skips it")
