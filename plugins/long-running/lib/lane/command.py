@@ -556,6 +556,10 @@ def run(args: argparse.Namespace) -> int:
             if not drive:
                 raise store.Refused("name the drive with --drive")
             print(", ".join(verbs.tapped(drive, *pr_ref(args.ref), args.verb.title(), args.head, args.source)))
+            from lane import approve
+
+            for why in approve.settle(drive):
+                print(why, file=sys.stderr)
         case "incident":
             drive, lane_id = where(args)
             verbs.set_incident(drive, lane_id, token(), args.link, args.monitor, args.fix_live, args.hotfix_only)

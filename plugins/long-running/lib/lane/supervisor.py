@@ -260,6 +260,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
     if read_outside:
         alone(drive, errors, "no lander started", lambda: lane_land.spawn(drive))
         if prs:
+            errors += alone(drive, errors, "an Approve card stayed live under rows that settle it", lambda: approve.settle(drive)) or []
             errors += alone(drive, errors, "no Approve card was drawn", lambda: approve.draw(drive)) or []
             alone(drive, errors, "the queue kept no item for what GitHub shows", lambda: work.adds(drive))
         alone(drive, errors, "no item of a gone worker went back to the queue", lambda: work.expire(drive))

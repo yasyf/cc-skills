@@ -139,3 +139,32 @@ def answered(drive: str, key: str, head: str, label: str, ts: str | None) -> Non
     for lane_id, lane in store.load_all(drive).items():
         if any(heads.get(key) == head for card in lane.get("cards", []) for heads in card["stacks"]):
             store.update(drive, lane_id, marking)
+
+
+def settle(drive: str) -> list[str]:
+    """Settle each open card from its rows, by his order that "messages should be tagged such that when the thing underneath them (such as an approval) changes they change state": a card whose every PR carries his Approve at the head it asked, or his Hold, or is no longer open, is redrawn from `drive card` as it stands, with no Approve, and marked settled, whoever wrote the rows, his tap, `lane approve` or a carry; why each card stayed as drawn."""
+    from drive import slack
+
+    seen = page.view(drive)["prs"]
+    stayed = []
+    for lane_id, lane in store.load_all(drive).items():
+        rows = {f"{row['repo']}#{row['number']}": row for row in lane["prs"]}
+        done = [card for card in lane.get("cards", []) if not card.get("tapped") and not card.get("superseded") and all(
+            (row := rows.get(key) or {}).get("approved_head") == head or row.get("held") or (seen.get(key) or {}).get("state", "OPEN") != "OPEN"
+            for heads in card["stacks"] for key, head in heads.items())]
+        for card in done:
+            try:
+                for key in card["stacks"][0] if store.config(drive)["posting"] else []:
+                    slack.redraw_pr_cards(pr_url(key))
+            except slack.SlackError as failed:
+                stayed.append(f"{lane_id}: card {card['id']} stays as drawn: {failed}")
+                continue
+
+            def settling(lane: dict, settled: str = card["id"]) -> None:
+                for each in lane.get("cards", []):
+                    if each["id"] == settled:
+                        each["tapped"] = {"label": "settled from its rows", "ts": None}
+                store.note(lane, f"card {settled} settled from its rows")
+
+            store.update(drive, lane_id, settling)
+    return stayed

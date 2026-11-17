@@ -1673,3 +1673,15 @@ def test_every_lane_verb_parses_so_a_duplicate_verb_fails_ci() -> None:
         with pytest.raises(SystemExit) as ended:
             command.main([verb, "--help"])
         assert ended.value.code == 0
+
+
+def test_a_card_settles_from_its_rows_when_his_approve_comes_by_verb_not_by_tap(world: dict) -> None:
+    from lane import approve
+
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", prs=[("acme/app", 58092)], channel="C1")
+    store.update(DRIVE, "a", lambda lane: lane.update({"cards": [{"id": "65e499", "stacks": [{"acme/app#58092": "2eaba576e"}], "at": store.stamp(), "sent": "log"}]}))
+    assert approve.settle(DRIVE) == [] and not store.load(DRIVE, "a")["cards"][0].get("tapped")
+    store.update(DRIVE, "a", lambda lane: lane["prs"][0].update({"approved_head": "2eaba576e"}))
+    assert approve.settle(DRIVE) == []
+    assert store.load(DRIVE, "a")["cards"][0]["tapped"]["label"] == "settled from its rows"
