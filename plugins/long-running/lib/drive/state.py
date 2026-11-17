@@ -2433,6 +2433,15 @@ def rebuild_asks(name: str, data: dict) -> None:
         if (waits := stored["card"].get("waits")) in unkept and not (kept := rebuilt_ask(name, waits)).exists():
             with suppress(DriveError):
                 kept.write_text(limits.rebuilt(stored["card"], asks, data["jobs"]))
+    restored = {waits: str(kept) for waits in unkept if (kept := rebuilt_ask(name, waits)).exists()}
+    if restored:
+        def keep(current: dict) -> None:
+            for job in current["jobs"].values():
+                for question in job["questions"]:
+                    if not question["file"] and question["waits"] in restored:
+                        question["file"] = restored[question["waits"]]
+
+        write(name, keep)
     (asks / REBUILT_ASKS).touch()
 
 
