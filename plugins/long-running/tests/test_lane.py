@@ -1219,3 +1219,17 @@ def test_his_page_shows_each_lanes_last_hour_of_spend_from_its_transcripts(world
     assert spent == {"tokens": {"claude-opus-5-5": {"input": 1000, "output": 2000, "cache_read": 1_000_000, "cache_write": 0}, "claude-haiku-4-5": {"input": 1000, "output": 2000, "cache_read": 1_000_000, "cache_write": 0}}, "dollars_per_hour": None}
     (store.drive_dir(DRIVE) / "config.json").write_text(json.dumps({"active": 3, "slots": 2, "posting": False, "prices": {"opus": {"input": 5, "output": 25, "cache_read": 0.5}}}))
     assert cost.hourly(DRIVE, store.load(DRIVE, "a"))["dollars_per_hour"] == round(0.005 + 0.05 + 0.5, 2)
+
+
+def test_a_done_check_can_be_reworded_or_dropped_keeping_what_the_step_serves(world: dict) -> None:
+    opened("a")
+    for words in ("unsure (a bot post)", "start a Cloud agent", "team-lead's wording"):
+        verbs.add_check(DRIVE, "a", None, words)
+    verbs.mark_check(DRIVE, "a", None, 2, True, "ran it")
+    verbs.reword_check(DRIVE, "a", None, 1, "share links work as his note asked")
+    store.update(DRIVE, "a", lambda lane: lane.__setitem__("serves", {"check": 3}))
+    verbs.reword_check(DRIVE, "a", None, 1, None)
+    lane = store.load(DRIVE, "a")
+    assert [check["words"] for check in lane["done"]] == ["start a Cloud agent", "team-lead's wording"] and lane["done"][0]["met_at"] and lane["serves"] == {"check": 2}
+    with pytest.raises(store.Refused, match="1 to 2, not 5"):
+        verbs.reword_check(DRIVE, "a", None, 5, "x")

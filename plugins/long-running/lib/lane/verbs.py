@@ -347,6 +347,27 @@ def add_check(drive: str, lane_id: str, token: str | None, words: str) -> int:
     return found["number"]
 
 
+def reword_check(drive: str, lane_id: str, token: str | None, number: int, words: str | None) -> None:
+    """Give done check number new words, his words or the nearest to them, keeping whether it is met; with no words, drop it, the checks after it moving up one."""
+
+    def rewording(lane: dict) -> None:
+        checks = lane.get("done", [])
+        if not 1 <= number <= len(checks):
+            raise store.Refused(f"lane {lane_id} has done checks 1 to {len(checks)}, not {number}")
+        if words is None:
+            dropped = checks.pop(number - 1)
+            store.note(lane, f"done check {number} dropped: {dropped['words']}")
+            if (lane.get("serves") or {}).get("check") == number:
+                lane["serves"] = None
+            elif (served := (lane.get("serves") or {}).get("check")) and served > number:
+                lane["serves"] = {"check": served - 1}
+            return
+        store.note(lane, f"done check {number} reworded from {checks[number - 1]['words']!r} to {words!r}")
+        checks[number - 1]["words"] = words
+
+    owner_write(drive, lane_id, token, rewording)
+
+
 def mark_check(drive: str, lane_id: str, token: str | None, number: int, met: bool, how: str) -> None:
     """Mark done check number met, with how it was seen met, or unmet again, with why."""
 

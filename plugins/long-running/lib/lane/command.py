@@ -232,6 +232,13 @@ def main(argv: list[str] | None = None) -> int:
     check_add = check_verbs.add_parser("add")
     check_add.add_argument("words")
     check_add.add_argument("--lane")
+    check_reword = check_verbs.add_parser("reword")
+    check_reword.add_argument("number", type=int)
+    check_reword.add_argument("words")
+    check_reword.add_argument("--lane")
+    check_drop = check_verbs.add_parser("drop")
+    check_drop.add_argument("number", type=int)
+    check_drop.add_argument("--lane")
     for name in ("met", "unmet"):
         marked = check_verbs.add_parser(name)
         marked.add_argument("number", type=int)
@@ -353,6 +360,8 @@ def run(args: argparse.Namespace) -> int:
             verbs.set_next(*where(args), token(), args.text, args.says, args.serves, args.serves_none)
         case "done-check" if args.check_verb == "add":
             print(f"done check {verbs.add_check(*where(args), token(), args.words)}")
+        case "done-check" if args.check_verb in ("reword", "drop"):
+            verbs.reword_check(*where(args), token(), args.number, args.words if args.check_verb == "reword" else None)
         case "done-check":
             verbs.mark_check(*where(args), token(), args.number, args.check_verb == "met", args.how)
         case "asks":
