@@ -17,7 +17,7 @@ You run one staging test for the drive, then end. His words set the job:
 
 ## The bar
 
-Only the work the danger page marks is tested before merge, by his ruling that nothing else needs a staging test before it merges: a pre-merge cut takes only stacks the danger page or the drive config's `premerge_lanes` holds, on a target from `staging_targets`, and every other stack, whatever its `dangerous` verdict, merges first and joins the after-merge batch.
+Only the work the danger page marks is tested before merge, by his ruling that nothing else needs a staging test before it merges: a pre-merge cut takes only a stack of a lane the drive config's `premerge_lanes` names whose PR the danger page's model judged SandSQL work at its head, on a target from `staging_targets`. Lane membership only makes a PR a candidate: a SandSQL lane's release tooling, such as #58092 in go/ci, merges first, and every other stack joins the after-merge batch.
 
 The GitHub quota never blocks you, by his ruling: read PRs through one batched `gh api graphql` query, as `candidates --reach` does, and never wait on a REST rate-limit floor.
 

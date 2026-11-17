@@ -30,8 +30,8 @@ def tooling(row: dict) -> bool:
 
 
 def dangerous(row: dict) -> bool:
-    """Whether the head needs a staging pass before it merges: the narrow danger page names a class, or its lane is one the drive config's premerge_lanes names, whose every PR needs one whatever the judge scored."""
-    return row["premerge"] or bool(row["dangerous"]["classes"])
+    """Whether the head needs a staging pass before it merges: its lane is one the drive config's premerge_lanes names, which only makes it a candidate, and the model reading the danger page judged it SandSQL work at that head, by his 5:02 PM words "nothing other than the ssql work needs to run before merging"."""
+    return row["premerge"] and bool(row["dangerous"]["classes"])
 
 
 def proven(stack: list[dict]) -> bool:
