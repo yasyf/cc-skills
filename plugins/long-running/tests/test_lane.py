@@ -250,7 +250,10 @@ def test_his_ruling_lands_on_the_lane_and_wakes_its_owner(world: dict, monkeypat
 
 def test_replaying_his_229_pm_ruling_stores_his_words_refuses_the_252_paraphrase_and_has_a_model_judge_each_wait(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(facts, "said_at", lambda link: HIS_229)
+    from lane import session
+
     judged = []
+    monkeypatch.setattr(session, "argv", lambda config, role, checkout, own, head, tail: ["claude", *tail])
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kwargs: judged.append(argv[-1]))
     opened("a")
     opened("b")
@@ -1075,9 +1078,9 @@ def test_his_approved_prs_needing_a_fix_become_one_queue_item_each_pulled_by_wor
     queued = {item["subject"]: item for item in work.items(DRIVE)}
     assert sorted(queued) == ["acme/app#1", "acme/app#2", "acme/app#3", "acme/app#4"] and queued["acme/app#1"]["kind"] == "rebase"
     assert queued["acme/app#1"]["words"].startswith("Rebase acme/app#1 (branch b1) onto origin/main") and "lint" in queued["acme/app#2"]["words"]
-    assert len(started) == work.WORKERS_DEFAULT
+    assert len(started) == 4
     supervisor.run_pass(DRIVE)
-    assert len(work.items(DRIVE)) == 4 and len(started) == work.WORKERS_DEFAULT
+    assert len(work.items(DRIVE)) == 4 and len(started) == 4
     top = work.pull(DRIVE)
     assert top["top"]["lane"] == "a" and len(top["with"]) == 3
     rebase = queued["acme/app#1"]["id"]
