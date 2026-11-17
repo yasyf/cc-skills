@@ -74,7 +74,9 @@ def merged(drive: str, lane: dict, keys: list[str], checkout: Path, held: dict[s
             return f"would merge {', '.join(keys)} through GitHub, as {repo} has no merge queue the drive's checkout serves"
         done = subprocess.run(["gh", "pr", "merge", top, "-R", repo, "--squash"], capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
         said = " ".join((done.stdout + done.stderr).split())[:600]
-        return hold(drive, lane["id"], f"merged through GitHub: {', '.join(keys)}" if done.returncode == 0 else f"not landed: gh pr merge refused {keys[-1]}: {said}")
+        if done.returncode == 0:
+            return hold(drive, lane["id"], f"merged through GitHub: {', '.join(keys)}")
+        return refused(drive, lane, keys, f"gh pr merge refused {keys[-1]}: {said}")
     if (row := held.get(top) or {}).get("isCurrentlySubmittedToQueue"):
         state = (row.get("queueEntry") or {}).get("state") or row.get("state")
         if state == "notReady":
@@ -90,7 +92,8 @@ def merged(drive: str, lane: dict, keys: list[str], checkout: Path, held: dict[s
         return hold(drive, lane["id"], f"queued for merge: {', '.join(keys)} through #{top}")
     if CONFLICT.search(said):
         conflicted(drive, lane, keys, lambda: said)
-    return hold(drive, lane["id"], f"not landed: the merge queue refused #{top}: {said}")
+        return hold(drive, lane["id"], f"not landed: the merge queue refused #{top}: {said}")
+    return refused(drive, lane, keys, f"the merge queue refused #{top}: {said}")
 
 
 def reviewed(drive: str, key: str, head: str) -> None:
@@ -115,6 +118,13 @@ def conflicted(drive: str, lane: dict, keys: list[str], said: Callable[[], str])
             repo, _, number = key.rpartition("#")
             work.add(drive, "rebase", lane["id"], key, fixes.brief("conflict", repo, int(number), pull), head=pull["head"], touches=[repo], by="lane-land")
     woken(drive, lane, keys, "conflicts", lambda: f"{', '.join(keys)} conflicts with the default branch {said()}; a rebase item is queued for a worker and the next landing pass queues it once rebased, so it needs nothing from you.", block=False)
+
+
+def refused(drive: str, lane: dict, keys: list[str], why: str) -> str:
+    """Note a landing the merge queue or GitHub refused for any reason but a conflict and tell the lane's owner once per set of heads, in this call, with the refusal in full, so no refused PR sits with no one told."""
+    said = hold(drive, lane["id"], f"not landed: {why}")
+    woken(drive, lane, keys, "refused", lambda: f"{', '.join(keys)} was not landed: {why}. Fix what the refusal names, or say why it cannot land; each landing pass submits it again while it stays ready.", block=True)
+    return said
 
 
 def ejected(drive: str, lane: dict, keys: list[str], row: dict) -> str:

@@ -314,3 +314,23 @@ def test_land_stack_submits_the_one_stack_holding_the_pr_and_reads_only_its_lane
 def test_an_approved_pr_github_did_not_answer_holds_instead_of_crashing_the_pass_on_a_missing_carry_verdict() -> None:
     unread = row(58054, head=None) | {"approved_head": "ae4c617c7"}
     assert landing.verdicts(lane(unread))[0].lands is False
+
+
+def test_a_merge_queue_refusal_that_is_no_conflict_tells_the_owner_once_with_the_refusal(monkeypatch, tmp_path) -> None:
+    import subprocess
+
+    from lane import cli, verbs
+
+    woken = []
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(store, "update", lambda drive, lane_id, change: None)
+    monkeypatch.setattr(cli, "queue_repo", lambda checkout: "Forge-AI/monorepo")
+    monkeypatch.setattr(cli, "queue_cli", lambda drive: ["ci", "trunk"])
+    monkeypatch.setattr(verbs, "blocked", lambda drive, lane_id, what, by: woken.append(what))
+    monkeypatch.setattr(verbs, "handover", lambda drive, lane_id, text, by: None)
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, "", "readiness: required status check release-pr-check is missing"))
+    pr = row(57335)
+    for _ in range(2):
+        said = cli.merged("durable-agents", lane(pr), ["Forge-AI/monorepo#57335"], tmp_path, {}, False)
+    assert said.startswith("not landed: the merge queue refused #57335: readiness")
+    assert len(woken) == 1 and "release-pr-check is missing" in woken[0]
