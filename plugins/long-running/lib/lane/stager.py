@@ -179,7 +179,7 @@ def starts(drive: str, cut: str) -> str | None:
 
 
 def premerge(drive: str, lane_id: str) -> list[str]:
-    """The lane's open PRs the danger page in force holds for a staging test before merge, judged at their current heads, SandSQL work alone by his 5:00 PM words; a lane with none asks no cut, since its stacks merge on his Approve and are tested after."""
+    """The lane's open PRs the danger page in force holds for a staging test before merge, judged at their current heads, the only work tested before merge by his 5:00 PM words; a lane with none asks no cut, since its stacks merge on his Approve and are tested after."""
     seen = rows.seen(store.load(drive, lane_id), rows.view(drive), rows.rule_key(drive), store.config(drive)["premerge_lanes"])
     return [landing.key(row) for row in seen["prs"] if not row.get("merged") and landing.judged(row) and landing.dangerous(row)]
 
@@ -271,20 +271,21 @@ def start(drive: str) -> str | None:
 
 
 def missing(drive: str, target: str) -> str | None:
-    """Why a staging target, `<env>` or `<env> <SandSQL generation>`, does not exist on the repository's default branch: its env has no infra/envs/<env>.yaml, or that file names no such generation; None when it exists."""
+    """Why a staging target, `<env>` or `<env> <generation>`, does not exist on the repository's default branch: the file the drive config's staging_env_file names for its env, a path with `{env}` in it, is missing there or names no such generation; None when it exists."""
     from drive import providers
 
     env, _, generation = target.partition(" ")
     checkout = Path(store.config(drive)["checkout"])
-    if not (spec := providers.blob(checkout, providers.at(checkout).sha, f"infra/envs/{env}.yaml")):
-        return f"{env} has no infra/envs/{env}.yaml on the default branch"
+    named = store.config(drive)["staging_env_file"].format(env=env)
+    if not (spec := providers.blob(checkout, providers.at(checkout).sha, named)):
+        return f"{env} has no {named} on the default branch"
     if generation and generation not in spec:
-        return f"infra/envs/{env}.yaml on the default branch names no {generation}"
+        return f"{named} on the default branch names no {generation}"
     return None
 
 
 def targets(drive: str, named: list[str]) -> list[str]:
-    """Write the drive's staging_targets, refusing the whole set when any target does not exist, as sandsql-nodes-4, read from his words about "the 3rd and 4th clusters", exists nowhere."""
+    """Write the drive's staging_targets, refusing the whole set when any target does not exist on the default branch, as a generation his words named but the env file does not."""
     if refused := [f"{target}: {why}" for target in named if (why := missing(drive, target))]:
         raise store.Refused(f"no such staging target: {'; '.join(refused)}")
     path = store.drive_dir(drive) / "config.json"

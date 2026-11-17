@@ -334,7 +334,7 @@ def main() -> int:
     verb.add_argument("--cut", required=True)
     verb.add_argument("file")
     verb.set_defaults(run=decide)
-    verb = verbs.add_parser("targets", help="set the drive's staging targets, each '<env>' or '<env> <SandSQL generation>', refused when one does not exist on the default branch")
+    verb = verbs.add_parser("targets", help="set the drive's staging targets, each '<env>' or '<env> <generation>', refused when one does not exist on the default branch")
     verb.add_argument("target", nargs="+")
     verb.set_defaults(run=targets)
     verb = verbs.add_parser("block", help="end a lane's staging ask the stager will not run, with its why in full, which wakes the lane")

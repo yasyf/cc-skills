@@ -32,7 +32,8 @@ DEFAULTS = {
     "queue_cli": None,
     "premerge_lanes": [],
     "staging_alerts": None,
-    "staging_targets": ["plat-usw2-staging"],
+    "staging_targets": [],
+    "staging_env_file": None,
 }
 LIVE = "live"
 NOT_LANES = ("rank", "config", "supervisor", "presence", "rulings", "queue", "view", "github", "settled")

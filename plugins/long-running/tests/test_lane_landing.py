@@ -135,7 +135,7 @@ def test_writing_a_staging_target_that_exists_nowhere_is_refused_and_one_that_ex
     from lane import stager, store
 
     monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
-    monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path)})
+    monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path), "staging_env_file": "infra/envs/{env}.yaml"})
     monkeypatch.setattr(providers, "at", lambda checkout: type("Found", (), {"sha": "dev"})())
     monkeypatch.setattr(providers, "blob", lambda checkout, sha, path: "sandsql:\n  primaryGeneration: sandsql-nodes-3\n" if path == "infra/envs/plat-usw2-staging.yaml" else None)
     with pytest.raises(store.Refused, match="names no sandsql-nodes-4"):
