@@ -152,16 +152,26 @@ def premerge_work(drive: str, read: dict[str, dict], keys: list[str]) -> dict[st
     return found
 
 
-def premerge_asked(drive: str, chunk: dict[str, tuple[str, list[str]]], read: dict[str, dict]) -> dict[str, dict]:
-    """One model request asking the drive config's premerge_question of each PR of chunk; none when the request fails, so those heads stay held."""
-    told = [{"id": f"p{index}", "pr": key, "title": read[key].get("title") or "", "files": paths[:FILES_SHOWN], "more_files": max(0, len(paths) - FILES_SHOWN)} for index, (key, (_, paths)) in enumerate(chunk.items())]
+def premerge_asked(drive: str, chunk: dict[str, tuple[str, list[str]]], read: dict[str, dict], evidence: str | None = None) -> dict[str, dict]:
+    """One model request asking the drive config's premerge_question of each PR of chunk, with a worker's evidence beside them when it reruns the judge; none when the request fails, so those heads stay held."""
+    told = [{"id": f"p{index}", "pr": key, "title": read[key].get("title") or "", "files": paths[:FILES_SHOWN], "more_files": max(0, len(paths) - FILES_SHOWN)} | ({"evidence": evidence} if evidence else {}) for index, (key, (_, paths)) in enumerate(chunk.items())]
     questions = {item["id"]: Binary(f"By the rule, of {item['pr']}: {store.config(drive)['premerge_question']}", yes="any of its files does, or it is unclear", no="its files plainly do none of it, such as CI, tooling, docs or tests alone") for item in told}
     try:
         decision = decide_sync({"rule": rule(drive), "prs": told}, questions, provider=JEV, timeout=JUDGE_SECONDS)
     except (TimeoutError, ValueError, DecideError, DecideKeyMissing, httpx.HTTPError):
         return {}
-    return {item["pr"]: {"head": chunk[item["pr"]][0], "p_yes": round(answer.p_yes, 3)} for item in told if isinstance(answer := decision.answers.get(item["id"]), BinaryAnswer)}
+    return {item["pr"]: {"head": chunk[item["pr"]][0], "p_yes": round(answer.p_yes, 3)} | ({"evidence": evidence} if evidence else {}) for item in told if isinstance(answer := decision.answers.get(item["id"]), BinaryAnswer)}
 
+
+def rejudge(drive: str, key: str, evidence: str) -> dict:
+    """Ask the premerge_question of one PR again at its head with a worker's evidence beside its title and files, and write the answer as its verdict, by team-lead's 9:34 PM ruling that a worker who thinks the verdict wrong reruns the judge and the new verdict decides. The verdict written, or a refusal when the model did not answer."""
+    read = view(drive)
+    answered = premerge_asked(drive, readable([key]), read, evidence)
+    if key not in answered:
+        raise store.Refused(f"the judge did not answer for {key}; its verdict stands")
+    verdict = answered[key] | {"rule": rule_key(drive)}
+    store.transact(drive, lambda lanes: written(lanes, read, {"premerge_work": {key: verdict}}, None))
+    return verdict
 
 def prove(drive: str, cut: str, stacks: dict[str, dict]) -> None:
     """Put each stack's cut result on the lane row of its top PR as its staging proof, {cut, head, result, target}, which landing.proven reads at that head only."""

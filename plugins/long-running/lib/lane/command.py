@@ -214,11 +214,15 @@ def main(argv: list[str] | None = None) -> int:
     config_set.add_argument("key")
     config_set.add_argument("value", help="JSON, such as false, 8 or {\"opus\": ...}; anything else is a string")
     config_set.add_argument("--by", required=True, help="who sets it, a lane or a person")
-    exempting = verbs_parser.add_parser("premerge-exempt", help="a PR of a premerge lane that is not the work its pre-merge test is for, at its head, so it takes no staging test before merge")
+    exempting = verbs_parser.add_parser("premerge-exempt", help="his word or the root only: a PR of a premerge lane that is not the work its pre-merge test is for, at its head, so it takes no staging test before merge; a queue worker or lane owner is refused and reruns lane-land rejudge with its evidence")
     exempting.add_argument("pr")
     exempting.add_argument("--head", required=True)
     exempting.add_argument("--why", required=True)
     exempting.add_argument("--by", required=True)
+    revoking = verbs_parser.add_parser("premerge-revoke", help="take a PR's premerge exemption away, so its verdict decides its test before merge again")
+    revoking.add_argument("pr")
+    revoking.add_argument("--why", required=True)
+    revoking.add_argument("--by", required=True)
     triaging = verbs_parser.add_parser("incident-triage", help="an alert's triage verdict: open an incident lane, join an open one, or drop it")
     triaging.add_argument("monitor")
     verdicts = triaging.add_mutually_exclusive_group(required=True)
@@ -445,7 +449,11 @@ def run(args: argparse.Namespace) -> int:
                 was = store.set_config(args.drive, args.key, value, args.by)
                 print(f"{args.key}: {json.dumps(was)} -> {json.dumps(value)}")
         case "premerge-exempt":
+            if os.environ.get("LANE_WORKER") or os.environ.get("LANE_OWNER"):
+                raise store.Refused("a queue worker or lane owner sets no premerge exemption, by team-lead's 9:34 PM ruling: only his word or the root does. If the verdict is wrong, rerun the judge with your evidence: lane-land --drive <drive> rejudge <pr> --evidence \"<what its files do>\"")
             print(" ".join(verbs.premerge_exempt(args.drive, *pr_ref(args.pr), args.head, args.why, args.by)))
+        case "premerge-revoke":
+            print(" ".join(verbs.premerge_revoke(args.drive, *pr_ref(args.pr), args.why, args.by)))
         case "incident-triage":
             from lane import incidents
 

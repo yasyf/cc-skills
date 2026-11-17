@@ -108,6 +108,21 @@ def premerge_exempt(drive: str, repo: str, number: int, head: str, why: str, by:
     store.kick(drive)
     return carrying
 
+def premerge_revoke(drive: str, repo: str, number: int, why: str, by: str) -> list[str]:
+    """Take one PR's premerge exemption away, so its premerge_question verdict decides again whether it is tested before merge. The lanes whose row lost a mark."""
+
+    def revoking(lane: dict) -> None:
+        for row in lane["prs"]:
+            if (row["repo"], row["number"]) == (repo, number) and row.pop("premerge_exempt", None):
+                store.note(lane, f"{repo}#{number} lost its premerge exemption, so its verdict decides its test before merge again: {why} ({by})")
+
+    marked = [lane_id for lane_id, lane in store.load_all(drive).items() if any((row["repo"], row["number"]) == (repo, number) and row.get("premerge_exempt") for row in lane["prs"])]
+    for lane_id in marked:
+        store.update(drive, lane_id, revoking, leaving_unreplied=True)
+    store.kick(drive)
+    return marked
+
+
 
 def open_lane(drive: str, lane_id: str, title: str, words: str | None = None, channel: str | None = None, thread: str | None = None, link: str | None = None, ts: str | None = None, parks: str | None = None, park_words: str | None = None, prs: list[tuple[str, int]] = (), worktree: str | None = None, next_step: str | None = None, incident: dict | None = None) -> dict:
     """Open a lane, woken at once so the same call starts its owner; at the cap it must name the lane it parks, with his words."""

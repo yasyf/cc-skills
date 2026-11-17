@@ -355,6 +355,11 @@ def premerge(args: argparse.Namespace) -> None:
         p_yes = answers.get(pr, {}).get("p_yes")
         print(f"{pr} {'unanswered' if p_yes is None else p_yes} {'moves' if p_yes is not None and p_yes <= rows.CLEARLY_NOT_PREMERGE else 'held'} {read[pr].get('title') or ''}")
 
+def rejudge(args: argparse.Namespace) -> None:
+    verdict = rows.rejudge(args.drive, args.pr, args.evidence)
+    print(f"{args.pr} at {verdict['head'][:12]}: p(yes) {verdict['p_yes']}, {'clear no, merges first and tests after' if verdict['p_yes'] <= rows.CLEARLY_NOT_PREMERGE else 'held for its test before merge'}")
+
+
 
 def verdicts(args: argparse.Namespace) -> None:
     read = rows.view(args.drive)
@@ -459,6 +464,10 @@ def main() -> int:
     verb.set_defaults(run=verdicts)
     verb = verbs.add_parser("premerge", help="ask the drive config's premerge_question of every open PR of a premerge lane now and print each answer and whether it would take its staging test before merge, writing nothing")
     verb.set_defaults(run=premerge)
+    verb = verbs.add_parser("rejudge", help="ask one PR's premerge_question again at its head with your evidence beside its files, and write the new verdict, which decides; the way a worker who thinks a verdict wrong corrects it")
+    verb.add_argument("pr")
+    verb.add_argument("--evidence", required=True, help="what its files do, read from them")
+    verb.set_defaults(run=rejudge)
     verb = verbs.add_parser("want", help="queue the staging test of the lane's pending stack as a work item; prints the event to wait on, work:<id>, or after_merge")
     verb.add_argument("--lane", required=True)
     verb.set_defaults(run=want)

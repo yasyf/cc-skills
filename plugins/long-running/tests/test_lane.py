@@ -1660,6 +1660,20 @@ def test_a_pr_of_a_sandsql_lane_marked_no_premerge_work_at_its_head_needs_no_sta
     assert rows.seen(lane, {"acme/app#58092": {"head": "newer"}}, "r", ["a"])["prs"][0]["premerge"] is True
 
 
+def test_a_queue_worker_or_lane_owner_cannot_exempt_a_pr_from_its_test_before_merge_and_a_revoked_mark_leaves_its_verdict_to_decide(world: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from lane import command, rows
+
+    opened("a", prs=[("acme/app", 57437)])
+    for name in ("LANE_WORKER", "LANE_OWNER"):
+        monkeypatch.setenv(name, "worker-1" if name == "LANE_WORKER" else f"{DRIVE}/a")
+        assert command.main(["--drive", DRIVE, "premerge-exempt", "acme/app#57437", "--head", "d64463d69", "--why", "test tooling", "--by", "worker-1"]) == 1
+        assert "rejudge" in capsys.readouterr().err and not store.load(DRIVE, "a")["prs"][0].get("premerge_exempt")
+        monkeypatch.delenv(name)
+    verbs.premerge_exempt(DRIVE, "acme/app", 57437, "d64463d69", "test tooling", "worker-1")
+    assert verbs.premerge_revoke(DRIVE, "acme/app", 57437, "a worker set it", "team-lead") == ["a"]
+    assert rows.seen(store.load(DRIVE, "a"), {"acme/app#57437": {"head": "d64463d69"}}, "r", ["a"])["prs"][0]["premerge"] is True
+
+
 def test_a_pr_above_one_he_approved_stands_as_its_own_stack_and_a_card_waits_on_no_name() -> None:
     from lane import approve
 

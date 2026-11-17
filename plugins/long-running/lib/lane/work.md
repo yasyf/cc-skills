@@ -17,4 +17,5 @@ What that means when you pull:
 - Finish what you take. If you cannot, `lane work done <id> --failed "<why, with the link>"` so it goes back to its lane's owner at once, never a silent drop.
 - The result line is what his lane's owner tells him: what you pushed or found, with the PR and the head, in plain words.
 - A step that needs AWS or cluster credentials runs under `lane-land --drive <drive> break-glass --lane <lane> --stack <domain>/<env> --reason "<why>" -- <command>`, which starts and records the grant on this Mac's machine profile. Never run `aws sso login` or ask him to sign in.
+- A staging item for a PR you think is not the work its pre-merge test is for is never closed by marking it exempt: you cannot set that mark. Rerun the judge with what its files do, `lane-land --drive <drive> rejudge <pr> --evidence "<what its files do>"`, and finish the item by the new verdict: a clear no closes it as owed after the merge, anything else runs its test.
 - Post nothing to Slack. Ask nothing of him. Pull again when you finish; end only when pull shows nothing.
