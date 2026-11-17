@@ -43,6 +43,7 @@ HOME_CI = "long-running CI"
 CI_ANCESTORS = 5
 KNOWN_RED = "known-red.json"
 HOLDS = "holds.json"
+LIFTS_HOLD = re.compile(r"^Lifts-Hold:\s*([0-9a-f]+)\s*$", re.M)
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 FAILED_TEST = re.compile(r"FAILED (plugins/\S+?\.py::\w+)")
 
@@ -566,12 +567,17 @@ def held_by(drive: str, version: str) -> str | None:
 
 
 def still_carried(sha: str, tag: str, paths: list[str]) -> bool:
-    """Whether the tag carries the held change: its history holds the commit, no commit after it says it reverts it, and the hold's paths do not all read at the tag as they read before the commit."""
+    """Whether the tag carries the held change: its history holds the commit, no commit after it says it reverts it or carries a `Lifts-Hold: <sha>` footer naming it, and the hold's paths do not all read at the tag as they read before the commit."""
     since = gh_json("api", f"repos/{HOME_REPO}/compare/{sha}...{tag}")
-    if since["status"] not in ("ahead", "identical") or any(f"This reverts commit {sha}" in commit["commit"]["message"] for commit in since["commits"]):
+    if since["status"] not in ("ahead", "identical") or any(f"This reverts commit {sha}" in commit["commit"]["message"] or lifts_hold(commit["commit"]["message"], sha) for commit in since["commits"]):
         return False
     before = gh_json("api", f"repos/{HOME_REPO}/commits/{sha}")["parents"][0]["sha"]
     return any(blob(path, before) != blob(path, tag) for path in paths)
+
+
+def lifts_hold(message: str, sha: str) -> bool:
+    """Whether a commit's `Lifts-Hold: <sha>` footer names the held commit, by a prefix of at least seven characters."""
+    return any(len(named) >= 7 and sha.startswith(named) for named in LIFTS_HOLD.findall(message))
 
 
 def blob(path: str, ref: str) -> str | None:
