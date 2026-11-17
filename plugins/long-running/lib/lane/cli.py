@@ -39,15 +39,30 @@ def queue_cli(drive: str) -> list[str]:
     return store.config(drive)["queue_cli"]
 
 
+def queue_repo(checkout: Path) -> str:
+    """The repository whose merge queue the drive's checkout serves, read from its origin remote."""
+    from drive import github
+
+    return github.repo_name(subprocess.run(["git", "-C", str(checkout), "remote", "get-url", "origin"], capture_output=True, text=True, check=True).stdout)
+
+
 def queued(drive: str, checkout: Path, numbers: list[str]) -> dict[str, dict]:
     """Each PR's merge queue row by number, read in one call: its state, its head and whether the queue holds it now."""
+    if not numbers:
+        return {}
     done = subprocess.run([*queue_cli(drive), "status", *numbers], cwd=checkout, capture_output=True, text=True, check=True, timeout=UNIT_SECONDS)
     return json.loads(done.stdout)
 
 
 def merged(drive: str, lane: dict, keys: list[str], checkout: Path, held: dict[str, dict], dry_run: bool) -> str:
     """Tell the merge queue to take one landing unit, as a person would: one submit of the unit's top PR, which the queue lands with every PR of its native stack below, and return; no worktree and no local build, since the queue's own CI grades the merge. A unit the queue already holds is left there, and its head is asked of the review bot once when the queue reads it notReady. Whether a submitted unit merged, failed or was ejected is read by the next pass, which submits it again while it stays ready."""
-    top = keys[-1].rpartition("#")[2]
+    repo, _, top = keys[-1].rpartition("#")
+    if repo != queue_repo(checkout):
+        if dry_run:
+            return f"would merge {', '.join(keys)} through GitHub, as {repo} has no merge queue the drive's checkout serves"
+        done = subprocess.run(["gh", "pr", "merge", top, "-R", repo, "--squash"], capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
+        said = " ".join((done.stdout + done.stderr).split())[:600]
+        return hold(drive, lane["id"], f"merged through GitHub: {', '.join(keys)}" if done.returncode == 0 else f"not landed: gh pr merge refused {keys[-1]}: {said}")
     if (row := held.get(top) or {}).get("isCurrentlySubmittedToQueue"):
         state = (row.get("queueEntry") or {}).get("state") or row.get("state")
         if state == "notReady":
@@ -127,7 +142,7 @@ def land(args: argparse.Namespace) -> None:
             print(f"a newer install than {here.name} landed; this pass ends and the next pass, on the new code, lands its units")
             return
         checkout = Path(store.config(args.drive)["checkout"])
-        held = queued(args.drive, checkout, [keys[-1].rpartition("#")[2] for _, keys in units])
+        held = queued(args.drive, checkout, [keys[-1].rpartition("#")[2] for _, keys in units if keys[-1].rpartition("#")[0] == queue_repo(checkout)])
 
         def one(unit: tuple[dict, list[str]]) -> str:
             lane, keys = unit
