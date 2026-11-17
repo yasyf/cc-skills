@@ -235,13 +235,13 @@ def test_the_sender_hands_the_owner_the_voices_warning(monkeypatch: pytest.Monke
     assert voice.send("demo", {"id": "cloud", "channel": "C1", "prs": []}, "No job carries these yet.") == "QUEUED g1; warning, posted: it names work nobody is doing yet"
 
 
-def test_a_cards_id_leaves_the_text_for_its_buttons_and_his_rulings_ride_a_question(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_his_rulings_ride_a_question_and_its_words_go_as_typed(monkeypatch: pytest.MonkeyPatch) -> None:
     sent = []
     monkeypatch.setattr(voice.urllib.request, "urlopen", lambda request, timeout: sent.append(json.loads(request.data)) or io.StringIO(json.dumps({"id": "c1"})))
     monkeypatch.setattr(voice.store, "shared_rulings", lambda drive: [{"at": "2026-11-16T16:58:00-08:00", "binds": "no staging hold"}])
     lane = {"id": "blobstore", "channel": "C1", "prs": [], "rulings": [{"words": "ship the pool", "at": "2026-11-16T12:00:00-08:00"}]}
-    voice.send("demo", lane, "13 PRs wait on your Approve (card 75976b).", None, ["Approve all 13", "Hold all"])
-    assert (sent[0]["card"], "75976b" in sent[0]["text"]) == ("75976b", False)
+    voice.send("demo", lane, "Ship the pool now?", None, ["Ship it", "Wait"])
+    assert ("card" in sent[0], sent[0]["text"], sent[0]["options"]) == (False, "Ship the pool now?", ["Ship it", "Wait"])
     assert sent[0]["rulings"] == [{"at": "4:58 PM", "binds": "no staging hold"}, {"at": "12:00 PM", "binds": "ship the pool"}]
 
 

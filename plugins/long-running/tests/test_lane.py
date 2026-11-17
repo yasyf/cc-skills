@@ -919,8 +919,9 @@ def test_a_lane_with_done_checks_names_the_one_each_step_serves_and_its_brief_le
     verbs.set_next(DRIVE, "a", token_of("a"), "watch", "Nothing left.")
 
 
-def test_the_supervisor_draws_one_card_per_lane_listing_its_ready_stacks_and_approve_all_lands_them(world: dict) -> None:
-    from lane import voice
+def test_the_supervisor_asks_cc_slack_for_a_pr_group_card_per_ready_stack_and_his_tap_lands_each(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import card, slack
+    from lane import approve
 
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     opened("a", prs=[("acme/app", 7), ("acme/app", 8), ("acme/app", 9)], channel="C1")
@@ -929,36 +930,49 @@ def test_the_supervisor_draws_one_card_per_lane_listing_its_ready_stacks_and_app
     world["prs"][("acme/app", 9)] = pull(state="MERGED", rollup="SUCCESS", head="0123456cccc", branch="b9") | {"review": "APPROVED"}
     supervisor.run_pass(DRIVE)
     supervisor.run_pass(DRIVE)
-    [card] = store.load(DRIVE, "a")["cards"]
-    assert card["stacks"] == [{"acme/app#7": "abc1234aaaa"}, {"acme/app#8": "def5678bbbb"}]
+    cards = store.load(DRIVE, "a")["cards"]
+    assert [kept["stacks"] for kept in cards] == [[{"acme/app#7": "abc1234aaaa"}], [{"acme/app#8": "def5678bbbb"}]]
     assert [row.get("carded", {}).get("head") if row.get("carded") else None for row in store.load(DRIVE, "a")["prs"]] == ["abc1234aaaa", "def5678bbbb", None]
+    called = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv, timeout: called.append(argv) or {"card_permalink": "https://x.slack.com/archives/C1/p1"})
+    approve.drawn(DRIVE, store.load(DRIVE, "a"), [kept["stacks"][0] for kept in cards])
+    assert called == [("dm-status", "--agent", "claude", "--drive", DRIVE, "--as-holder", "--channel", "C1", "--tap-pr", "https://github.com/acme/app/pull/7", "--tap-pr", "https://github.com/acme/app/pull/8")]
     asks = len(store.load(DRIVE, "a")["asks"])
-    told = voice.heard("C1", None, f'tapped "Approve all 2 (Recommended)" on "A: 2 PRs wait on your Approve, all green and reviewed (card {card['id']})."', None, "1794880000.000100")
-    assert told == "a: his tap on acme/app#7, acme/app#8; the lander started"
+    for number, head in ((7, "abc1234aaaa"), (8, "def5678bbbb")):
+        assert card.lane_tapped({"repo": "acme/app", "number": number, "label": "Approve", "heads": {f"acme/app#{number}": head}, "source": "his Slack card", "action_ts": "1794880000.000100"})
     lane = store.load(DRIVE, "a")
     assert ([row["approved_head"] for row in lane["prs"][:2]], len(lane["asks"])) == (["abc1234aaaa", "def5678bbbb"], asks)
+    assert [kept["tapped"]["label"] for kept in lane["cards"]] == ["Approve", "Approve"] and not facts.asking({"cards": lane["cards"], "asks": []})
     supervisor.run_pass(DRIVE)
-    assert len(store.load(DRIVE, "a")["cards"]) == 1
+    assert len(store.load(DRIVE, "a")["cards"]) == 2
     assert "a: 1 new" in voice.heard("C1", None, 'tapped "Approve" on "something else"', None, "1794880001.000100")
 
 
-def test_one_at_a_time_turns_a_lane_to_a_card_per_stack(world: dict) -> None:
-    from lane import approve, voice
+def test_the_card_command_draws_a_lane_stack_as_the_old_pr_group_card_ahead_of_any_old_drive_entry(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import card
 
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     opened("a", prs=[("acme/app", 7), ("acme/app", 8)], channel="C1")
     world["prs"][("acme/app", 7)] = pull(rollup="SUCCESS", head="abc1234aaaa", branch="b7") | {"review": "APPROVED"}
-    world["prs"][("acme/app", 8)] = pull(rollup="SUCCESS", head="def5678bbbb", branch="b8") | {"review": "APPROVED"}
+    world["prs"][("acme/app", 8)] = pull(rollup="SUCCESS", head="def5678bbbb", base="b7", branch="b8") | {"review": "APPROVED"}
     supervisor.run_pass(DRIVE)
-    [first] = store.load(DRIVE, "a")["cards"]
-    voice.heard("C1", None, f'tapped "{approve.ONE}" on "A: 2 PRs (card {first['id']})"', None, "1794880000.000100")
-    supervisor.run_pass(DRIVE)
-    second = store.load(DRIVE, "a")["cards"][-1]
-    assert second["stacks"] == [{"acme/app#7": "abc1234aaaa"}]
-    voice.heard("C1", None, f'tapped "Hold" on "Approve #7? (card {second['id']})"', None, "1794880001.000100")
-    supervisor.run_pass(DRIVE)
-    lane = store.load(DRIVE, "a")
-    assert lane["prs"][0]["held"] and lane["cards"][-1]["stacks"] == [{"acme/app#8": "def5678bbbb"}]
+    bodies = {7: "## The stack\nBlob pointers everywhere\nEvery value over 4 KB moves to the shared pool.\n\n## Summary\nWrites pointers.", 8: "## Summary\nReads pointers."}
+    heads = {7: "abc1234aaaa", 8: "def5678bbbb"}
+
+    def read(entries: dict, fresh: bool = False) -> dict:
+        return {key: {"title": f"feat: pointer step {key[-1]}", "body": bodies[int(key[-1])], "url": f"https://github.com/acme/app/pull/{key[-1]}", "headRefOid": heads[int(key[-1])], "state": "OPEN", "files": [], "changedFiles": 0, "comments": []} for key in entries}
+
+    monkeypatch.setattr(card, "github_reads", read)
+    monkeypatch.setattr(card, "drive_cards", lambda asked, redraw=False: pytest.fail(f"{asked} went to the old drive"))
+    [drawn] = card.cards([{"repo": "acme/app", "number": 8}])["cards"]
+    assert (drawn["repo"], drawn["number"], drawn["card"]["title"], drawn["card"]["options"]) == ("acme/app", 7, "Blob pointers everywhere", ["Approve", "Hold"])
+    assert [row["url"] for row in drawn["card"]["prs"]] == ["https://github.com/acme/app/pull/7", "https://github.com/acme/app/pull/8"]
+    assert "shared pool" in drawn["card"]["body"] and "card " not in json.dumps(drawn["card"]) and "2 PRs" not in drawn["card"]["title"]
+    heads[8] = "fff0000dddd"
+    assert card.cards([{"repo": "acme/app", "number": 8}], redraw=True)["cards"][0]["card"]["status"] == "needs_you"
+    store.update(DRIVE, "a", lambda lane: [row.__setitem__("approved_head", {7: "abc1234aaaa", 8: "def5678bbbb"}[row["number"]]) for row in lane["prs"]])
+    assert card.cards([{"repo": "acme/app", "number": 7}])["skipped"][0]["reason"] == card.LANE_UNTAPPED
+    assert "options" not in card.cards([{"repo": "acme/app", "number": 7}], redraw=True)["cards"][0]["card"]
 
 
 def test_a_lane_with_an_unmet_done_check_its_step_serves_not_is_woken_and_cannot_end_its_turn_unserved(world: dict) -> None:
@@ -1338,11 +1352,12 @@ def test_each_pass_drops_expired_leases_and_rows_of_resources_the_queue_no_longe
     assert [lease["holder"] for lease in left["leases"]["release"]] == ["y"] and "card" not in left["leases"] and "staging-env" not in left["requests"]
 
 
-def test_a_new_head_under_a_live_card_redraws_one_card_for_the_whole_lane_and_supersedes_the_old_one(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_new_head_under_a_live_card_draws_that_stack_again_and_supersedes_only_its_card(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     from lane import approve, page
 
-    posted = []
-    monkeypatch.setattr(saying, "SENDER", lambda drive, lane, words, about, options: posted.append(words) or f"QUEUED {len(posted)}")
+    drawn = []
+    monkeypatch.setattr(approve, "drawn", lambda drive, lane, stacks: drawn.append(stacks) or f"https://x.slack.com/archives/C1/p{len(drawn)}")
+    (store.drive_dir(DRIVE) / "config.json").write_text(json.dumps({"active": 3, "slots": 2, "posting": True}))
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     opened("a")
     stacks = [{"acme/app#1": "h1"}, {"acme/app#2": "h2"}]
@@ -1352,9 +1367,10 @@ def test_a_new_head_under_a_live_card_redraws_one_card_for_the_whole_lane_and_su
     approve.draw(DRIVE)
     stacks[1] = {"acme/app#2": "h3"}
     approve.draw(DRIVE)
-    first, second = store.load(DRIVE, "a")["cards"]
-    assert first["superseded"] == second["id"] and second["stacks"] == [{"acme/app#2": "h3"}, {"acme/app#1": "h1"}]
-    assert not facts.asking({"cards": [first], "asks": []})
+    first, second, third = store.load(DRIVE, "a")["cards"]
+    assert drawn == [[{"acme/app#1": "h1"}, {"acme/app#2": "h2"}], [{"acme/app#2": "h3"}]]
+    assert not first.get("superseded") and second["superseded"] == third["id"] and third["stacks"] == [{"acme/app#2": "h3"}]
+    assert not facts.asking({"cards": [second], "asks": []})
 
 
 def test_his_message_reaches_a_running_owner_with_a_builder_out_in_the_call_that_hears_it(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:

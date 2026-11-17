@@ -30,7 +30,6 @@ LINKED_PR = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|")
 PERMALINK_TS = re.compile(r"/p(\d{10})(\d{6})")
 SLACK_MESSAGE = re.compile(r"https://[\w-]+\.slack\.com/archives/(C\w+)/p(\d{10})(\d{6})")
 ATTACHED_APPROVE = re.compile(r"^Approve #(\d+)$")
-CARD_ID = re.compile(r"\s*\(card ([0-9a-f]{6})\)")
 RULINGS_SENT = 60
 TAPPED_PR = re.compile(r'^tapped "(Approve|Hold) #(\d+)"')
 
@@ -76,9 +75,6 @@ def edit_ts(edit: str | None) -> str | None:
 
 def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options: list[str] | None = None, edit: str | None = None, about: list[str] | None = None, pictures: list[str] | None = None) -> str:
     """lane.say's SENDER: queue one post in the lane's channel, in the thread of the ask it is about, with the role page beside it and a button for each option, and return QUEUED and its id."""
-    card = None
-    if options and (found := CARD_ID.search(text)):
-        text, card = CARD_ID.sub("", text, count=1), found[1]
     seen = page.view(drive)["prs"]
     drawn = linked(text, titled(lane.get("prs") or [], seen))
     body = {
@@ -93,7 +89,6 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         "asked": "",
         **({"options": options} if options else {}),
         **({"edit_ts": edit} if edit else {}),
-        **({"card": card} if card else {}),
         **({"rulings": rulings_of(drive, lane)} if options else {}),
         **({"files": [str(Path(picture).expanduser().resolve()) for picture in pictures]} if pictures else {}),
     }
@@ -217,11 +212,9 @@ def heard(channel: str, thread: str | None, words: str, link: str | None, ts: st
     chosen = fitting if len(fitting) == 1 else found
     if not chosen:
         return f"no lane holds {channel}"
-    from lane import approve, events
+    from lane import events
 
     for drive, lane_id, lane in chosen:
-        if (landed := approve.tapped(drive, lane, words, ts, link)) is not None:
-            return f"{lane_id}: {events.tapped(drive, landed)}"
         if tapped_pr(drive, lane, words, link, ts):
             events.tapped(drive, [words])
     return "; ".join(events.message(drive, lane_id, words, link, ts) for drive, lane_id, _ in chosen)

@@ -853,7 +853,81 @@ def on_his_card(known: dict[str, tuple[str, dict]], founds: dict[str, dict | Non
     return any(found is not None and view.card_for(found["pr_cards"], url) is not None for found, url in listed)
 
 
+LANE_UNTAPPED = "it waits on no tap of his in its lane now: approved, held, or not yet green and reviewed, so no PR card draws, since it would offer him no Approve"
+LANE_REFUSED = "it waits on no tap of his in its lane at this head"
+
+
 def cards(asked: list[dict], redraw: bool = False) -> dict:
+    """Each asked PR's card: one a live lane drive holds by lane_cards, ahead of any older drive's entry for it, as lane_tapped takes his tap on it first, and every other by drive_cards."""
+    held = lane_held(asked)
+    rest = [ask for ask in asked if f"{ask['repo']}#{ask['number']}".casefold() not in held]
+    lanes = lane_cards(held, redraw) if held else {"cards": [], "skipped": []}
+    drawn = drive_cards(rest, redraw) if rest else {"cards": [], "skipped": []}
+    return {"cards": lanes["cards"] + drawn["cards"], "skipped": lanes["skipped"] + drawn["skipped"]}
+
+
+def lane_held(asked: list[dict]) -> dict[str, tuple[str, str, dict]]:
+    """Each asked PR a lane of a live lane drive carries, by its key folded, with the key as the lane spells it, that drive and that lane."""
+    from lane import store as lanes
+
+    wanted = {f"{ask['repo']}#{ask['number']}".casefold() for ask in asked}
+    held: dict[str, tuple[str, str, dict]] = {}
+    root = lanes.root()
+    for drive in sorted(folder.name for folder in root.iterdir() if (folder / lanes.LIVE).exists()) if root.is_dir() else []:
+        for lane in lanes.load_all(drive).values():
+            for row in lane["prs"]:
+                if (key := f"{row['repo']}#{row['number']}").casefold() in wanted:
+                    held.setdefault(key.casefold(), (key, drive, lane))
+    return held
+
+
+def lane_cards(held: dict[str, tuple[str, str, dict]], redraw: bool = False) -> dict:
+    """The PR-group cards of the asked PRs live lane drives hold, the cards approve.draw asks cc-slack for: one per ready stack of the lane holding each, by approve.ready_stacks, bottom first, drawn by render or render_stack as the old drive's cards are, with Approve and Hold while its PRs ask his tap at the heads GitHub reads. A PR in no ready stack draws on a redraw as it stands now, with no Approve, on the stack the lane's card last asked it in, and is skipped on a fresh ask, since its card would offer him no Approve."""
+    from lane import approve, page
+
+    found, skipped = [], []
+    by_lane: dict[tuple[str, str], tuple[dict, list[str]]] = {}
+    for key, drive, lane in held.values():
+        by_lane.setdefault((drive, lane["id"]), (lane, []))[1].append(key)
+    for (drive, _), (lane, keys) in by_lane.items():
+        ready = approve.ready_stacks(lane, page.view(drive)["prs"])
+        asked_on = [list(heads) for card in reversed(lane.get("cards", [])) for heads in card["stacks"]]
+        stacks: list[list[str]] = []
+        for key in keys:
+            if any(key in stack for stack in stacks):
+                continue
+            if (stack := next((list(heads) for heads in ready if key in heads), None)) is None and not redraw:
+                skipped.append(skip(key, LANE_UNTAPPED))
+                continue
+            stacks.append(stack or next((mates for mates in asked_on if key in mates), [key]))
+        reads = github_reads(dict.fromkeys(key for stack in stacks for key in stack))
+        tappable = {key: head for heads in ready for key, head in heads.items()}
+        rows = {f"{row['repo']}#{row['number']}": row for row in lane["prs"]}
+        for stack in stacks:
+            skipped += [skip(key, "drive card could not read it from GitHub") for key in stack if key not in reads and key in keys]
+            if not (members := [key for key in stack if key in reads]):
+                continue
+            card = drawn_card([(reads[key], lane_entry(key, rows[key], reads[key], tappable), (), ()) for key in members], False)
+            repo, number = members[0].split("#")
+            found.append({"repo": repo, "number": int(number), "card": card})
+    return {"cards": found, "skipped": skipped}
+
+
+def lane_entry(key: str, row: dict, pr: dict, tappable: dict[str, str]) -> dict:
+    """A lane's PR row as render reads a drive's entry: asking his Approve while the PR sits in a ready stack of its lane at the head GitHub reads, headed by the row's own words, else its title's short words, so a stack with no `## The stack` section is never titled by its kind and count."""
+    from lane.words import pr_words
+
+    return {
+        "lead": {"headline": row.get("words") or pr_words(row["repo"], row["number"], pr["title"])},
+        "reviewed": [],
+        "staging": (),
+        "stored": [],
+        "tap": None,
+        "tap_refused": None if tappable.get(key) == pr["headRefOid"] else LANE_REFUSED,
+    }
+
+
+def drive_cards(asked: list[dict], redraw: bool = False) -> dict:
     """One card per stack the asked PRs form, by groups(), bottom PR first, with each PR reworked to his words and each PR on its branch above it refused by reworked(), since none of those lands without it, and the rest of the card drawn, each card drawn kept on its PRs and asking under ask_waits, so Approve lands exactly the PRs it asks, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order. The reply skips only PRs it was asked for, since cc-slack refuses a whole draw or redraw whose reply skips any PR, so a stack mate refused beside an asked PR, such as the reworked PR above it, never keeps the asked PR's card from drawing."""
     from drive import view
 
@@ -995,7 +1069,8 @@ def answered(ask: dict) -> dict:
 
 
 def lane_tapped(ask: dict) -> bool:
-    """Write his tap on each PR it covers, the tapped one and each member of its stack card by its heads, on each live lane drive carrying it, through lane's own verb, which wakes its lane, keeps his presence and leaves the landing to lane-land; false when no live lane drive carries any of them, so the old drive takes it."""
+    """Write his tap on each PR it covers, the tapped one and each member of its stack card by its heads, on each live lane drive carrying it, through lane's own verb, which wakes its lane, keeps his presence and leaves the landing to lane-land, and mark the lane's card asking about it at that head tapped; false when no live lane drive carries any of them, so the old drive takes it."""
+    from lane import approve
     from lane import verbs as lanes
 
     tapped = f"{ask['repo']}#{int(ask['number'])}"
@@ -1007,6 +1082,7 @@ def lane_tapped(ask: dict) -> bool:
             if not head:
                 raise state.DriveError(f"his {ask['label']} on {member} names no head")
             lanes.tapped(drive, repo, int(number), ask["label"], head, ask["source"], ask["action_ts"], named=member == tapped and bool(ask["action_ts"]))
+            approve.answered(drive, member, head, ask["label"], ask["action_ts"])
             landed = True
     return landed
 
