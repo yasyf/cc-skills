@@ -1246,7 +1246,7 @@ def test_every_session_the_lane_drive_starts_runs_light_on_its_roles_model_and_n
         assert "--strict-mcp-config" in argv and "--append-system-prompt-file" in argv and argv[-1] == "prompt"
         assert settings["autoMemoryEnabled"] is False and settings["env"]["LANE_OWNER"] == "d/a" and settings["permissions"]["deny"] == ["AskUserQuestion", "Bash(drive:*)"]
         assert ("CLAUDE_CODE_DISABLE_ADVISOR_TOOL" in settings["env"]) == (role not in session.ADVISED)
-    assert shown == {"owner": ("opus", "high", True), "builder": ("opus", "high", True), "stager": ("opus", "high", True), "auditor": ("sonnet", "high", False), "acker": ("haiku", None, False)}
+    assert shown == {"owner": ("opus", "high", True), "builder": ("opus", "high", True), "stager": ("opus", "high", True), "auditor": ("sonnet", "high", False), "acker": ("haiku", None, False), "intake": ("opus", "high", False)}
 
 
 def test_a_lane_whose_home_is_his_dm_posts_nothing_until_it_moves_to_a_project_channel(world: dict) -> None:
@@ -1390,7 +1390,7 @@ def test_a_new_head_under_a_live_card_draws_that_stack_again_and_supersedes_only
     stacks[1] = {"acme/app#2": "h3"}
     approve.draw(DRIVE)
     first, second, third = store.load(DRIVE, "a")["cards"]
-    assert drawn == [[{"acme/app#1": "h1"}, {"acme/app#2": "h2"}], [{"acme/app#2": "h3"}]]
+    assert drawn == [[{"acme/app#1": "h1"}], [{"acme/app#2": "h2"}], [{"acme/app#2": "h3"}]]
     assert not first.get("superseded") and second["superseded"] == third["id"] and third["stacks"] == [{"acme/app#2": "h3"}]
     assert not facts.asking({"cards": [second], "asks": []})
 

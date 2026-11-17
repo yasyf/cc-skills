@@ -114,12 +114,12 @@ def draw(drive: str) -> list[str]:
         if (lane.get("channel") or "").startswith(say.DIRECT):
             refused.append(f"{lane_id}: no Approve card, since its home is his DM; move it with `lane home`")
             continue
-        waiting = stacks_waiting(lane, seen)
-        for heads in waiting:
+        ready = ready_stacks(lane, seen)
+        for heads in ready:
             if not named(stack_name(lane, heads)):
                 ask_name(drive, lane_id, lane, heads)
-        if waiting:
-            asking.append((lane_id, lane, waiting, ready_stacks(lane, seen)))
+        if waiting := stacks_waiting(lane, seen):
+            asking.append((lane_id, lane, waiting, ready))
     if not asking:
         return refused
     with ThreadPoolExecutor(max_workers=DRAWERS) as pool:
