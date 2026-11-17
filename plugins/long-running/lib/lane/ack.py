@@ -31,24 +31,27 @@ def his(ask: dict) -> bool:
 REMOVES = {"construction": ["eyes"], "white_check_mark": ["construction", "eyes"]}
 
 
-def wanted(lane: dict, ask: dict) -> str | None:
+def wanted(lane: dict, ask: dict, working: bool = False) -> str | None:
     """The reaction his message takes from its lane's state now: none while it is unanswered, since the voice's 👀 shows it is being read; ✅ once done, or once answered with nothing left running, because the owner ended its turn waiting only on his reply; 🚧 while the owner runs or waits on work, such as a PR, a check or a staging test."""
     if ask.get("done"):
         return "white_check_mark"
     if not ask.get("replied"):
         return None
-    busy = lane.get("state") == store.RUNNING or any(event.get("kind") != "his_reply" for event in (lane.get("wait") or {}).get("on", []))
+    busy = working or lane.get("state") == store.RUNNING or any(event.get("kind") != "his_reply" for event in (lane.get("wait") or {}).get("on", []))
     return "construction" if busy else "white_check_mark"
 
 
 def working(drive: str) -> None:
     """Each pass, move the reaction on each message of his to what its lane's state wants now, once per change: 🚧 comes off when the work ends, whether or not its owner ran lane done, and an answer that needed no work goes straight to ✅. One message the voice cannot react to never stops the others, and is tried once per reaction: a refusal is kept on the ask, so no pass fails on it again."""
+    from lane import work
+
     refused = []
+    worked = {item["lane"] for item in work.items(drive) if item["kind"] == "ask" and item["state"] in (work.QUEUED, work.TAKEN)}
     for lane_id, lane in store.load_all(drive).items():
         moved, failed = {}, {}
         for ask in lane.get("asks", []):
             had = ask.get("reaction") or ("construction" if ask.get("picked") else "white_check_mark" if ask.get("done") else None)
-            if his(ask) and (want := wanted(lane, ask)) and want != had and ask.get("reaction_refused") != want:
+            if his(ask) and (want := wanted(lane, ask, lane_id in worked)) and want != had and ask.get("reaction_refused") != want:
                 try:
                     react(lane, ask, want, REMOVES[want])
                     moved[ask["ts"]] = want
