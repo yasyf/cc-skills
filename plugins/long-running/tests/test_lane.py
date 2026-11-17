@@ -652,13 +652,12 @@ def test_a_lane_in_line_wakes_when_its_grant_frees_whatever_its_wait_names(world
     assert supervisor.fired(DRIVE, store.load(DRIVE, "b"), {}, store.now()) == "the queue grants release to it now"
 
 
-def test_his_tap_list_keeps_every_carried_approve_through_our_own_pushes(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lane import page, rows
+def test_his_tap_list_holds_unapproved_and_revoked_prs_never_a_moved_head_still_being_judged(world: dict) -> None:
+    from lane import page
 
-    monkeypatch.setattr(rows, "ours", lambda: "lanes-bot")
     opened("a", prs=[("acme/app", 7), ("acme/app", 8), ("acme/app", 9)])
-    world["prs"][("acme/app", 7)] = pull(head="h7b") | {"commits": [("h7a", "him"), ("h7b", "lanes-bot")], "commit_count": 2}
-    world["prs"][("acme/app", 8)] = pull(head="h8b") | {"commits": [("h8a", "him"), ("h8b", "teammate")], "commit_count": 2}
+    world["prs"][("acme/app", 7)] = pull(head="h7b")
+    world["prs"][("acme/app", 8)] = pull(head="h8b")
     world["prs"][("acme/app", 9)] = pull(head="h9")
 
     def approving(lane: dict) -> None:
@@ -666,8 +665,9 @@ def test_his_tap_list_keeps_every_carried_approve_through_our_own_pushes(world: 
 
     store.update(DRIVE, "a", approving)
     supervisor.run_pass(DRIVE)
+    verbs.carry(DRIVE, "acme/app", 8, "h8b", False, "it now drops the retry")
     shown = {lane["id"]: lane for lane in page.model(DRIVE)["lanes"]}
-    assert [(row["number"], row["moved"]) for row in shown["a"]["tapless"]] == [(8, ["h8b by teammate"]), (9, None)]
+    assert [(row["number"], row["moved"]) for row in shown["a"]["tapless"]] == [(8, "it now drops the retry"), (9, None)]
 
 
 def test_a_lane_whose_owner_restarted_keeps_its_place_in_line_and_its_grant(world: dict) -> None:
@@ -1034,7 +1034,7 @@ def test_his_approved_prs_needing_a_fix_become_one_queue_item_each_pulled_by_wor
 
     def approving(lane: dict) -> None:
         for row in lane["prs"]:
-            row["approved_head"] = "old"
+            row["approved_head"] = f"h{row['number']}"
 
     store.update(DRIVE, "a", approving)
     moved = {"commits": [("old", "him")], "commit_count": 1}
