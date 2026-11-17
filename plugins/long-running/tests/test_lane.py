@@ -1771,3 +1771,13 @@ def test_an_overdue_defect_wakes_its_owning_lane_or_goes_back_to_its_owner_once_
     assert store.load(DRIVE, "a")["wait"]["fired_why"].startswith(f"OVERDUE defect {lane_defect.stem}")
     assert [to for to, _ in sent] == ["lane-voice"]
     assert audit.remind(DRIVE, timedelta(minutes=30)) == []
+
+
+def test_a_draw_supersedes_no_card_whose_stack_it_does_not_ask_about_and_a_superseded_stack_is_drawn_again() -> None:
+    from lane import approve
+
+    seen = {"acme/app#1": pull(rollup="SUCCESS", head="h1", branch="b1") | {"review": "APPROVED"}}
+    lane = {"prs": [{"repo": "acme/app", "number": 1, "carded": {"head": "h1", "by": "card old"}}], "cards": [{"id": "old", "stacks": [{"acme/app#1": "h1"}], "superseded": "other"}]}
+    assert approve.stacks_waiting(lane, seen) == [{"acme/app#1": "h1"}]
+    lane["cards"][0].pop("superseded")
+    assert approve.stacks_waiting(lane, seen) == []

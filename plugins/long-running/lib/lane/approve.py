@@ -21,8 +21,9 @@ def ready_stacks(lane: dict, seen: dict) -> list[dict[str, str]]:
 
 
 def stacks_waiting(lane: dict, seen: dict) -> list[dict[str, str]]:
-    """The ready stacks no post or card asked about at their heads yet, by each row's carded mark."""
-    carded = {f"{row['repo']}#{row['number']}": (row.get("carded") or {}).get("head") for row in lane["prs"]}
+    """The ready stacks no post or live card asked about at their heads yet, by each row's carded mark: a mark by a card since superseded asks nothing, so a stack whose card another draw replaced is drawn again."""
+    gone = {f"card {card['id']}" for card in lane.get("cards", []) if card.get("superseded")}
+    carded = {f"{row['repo']}#{row['number']}": (row.get("carded") or {}).get("head") for row in lane["prs"] if (row.get("carded") or {}).get("by") not in gone}
     return [heads for heads in ready_stacks(lane, seen) if any(carded.get(key) != head for key, head in heads.items())]
 
 
@@ -89,8 +90,8 @@ def asked(drive: str, lane_id: str, lane: dict, stacks: list[dict[str, str]], re
 
     def keeping(lane: dict) -> None:
         for older in lane.get("cards", []):
-            if not older.get("tapped") and not older.get("superseded") and (held := {key for heads in older["stacks"] for key in heads}) & open_keys <= keys:
-                older["superseded"] = next((card["id"] for card in drawn_cards if held & set(card["stacks"][0])), drawn_cards[0]["id"])
+            if not older.get("tapped") and not older.get("superseded") and (reasked := {key for heads in older["stacks"] for key in heads} & open_keys) and reasked <= keys:
+                older["superseded"] = next((card["id"] for card in drawn_cards if reasked & set(card["stacks"][0])), drawn_cards[0]["id"])
         lane["cards"] = [*lane.get("cards", []), *drawn_cards][-50:]
         for row in lane["prs"]:
             for card in drawn_cards:
