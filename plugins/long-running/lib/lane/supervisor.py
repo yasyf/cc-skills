@@ -290,6 +290,27 @@ def check(drive: str) -> tuple[bool, list[str]]:
     return good, lines
 
 
+def settled(drive: str, seconds: int) -> tuple[bool, list[str]]:
+    """Read the supervisor for seconds after an install: crash-looping when its log gains two tracebacks or no pass finishes, otherwise `lane check` and the last pass's errors at the end."""
+    folder = store.drive_dir(drive)
+    log, checks = folder / "supervisor.log", folder / "checks.jsonl"
+    logged, passes = log.stat().st_size, checks.stat().st_size
+    time.sleep(seconds)
+    with log.open("rb") as read:
+        read.seek(logged)
+        fresh = read.read().decode(errors="replace")
+    with checks.open("rb") as read:
+        read.seek(passes)
+        finished = [json.loads(line) for line in read.read().decode().splitlines()]
+    crashes = fresh.count("Traceback (most recent call last)")
+    if crashes >= 2 or not finished:
+        last = next((line for line in reversed(fresh.splitlines()) if line and not line.startswith(" ")), "no output")
+        return False, [f"supervisor CRASH-LOOPS: {crashes} tracebacks and {len(finished)} finished passes in {seconds}s after the install, the last line {last}"]
+    good, lines = check(drive)
+    errors = finished[-1]["errors"]
+    return good and not errors, [f"supervisor: {len(finished)} passes in {seconds}s after the install, {crashes} tracebacks", *(f"pass error: {error}" for error in errors), *lines]
+
+
 def describe(event: dict) -> str:
     return "his reply" if event["kind"] == "his_reply" else f"{event['kind']} {event['ref']}"
 
