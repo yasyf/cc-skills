@@ -1204,3 +1204,18 @@ def test_an_incident_lane_whose_monitor_starts_alerting_is_woken_that_pass(world
     states["7"] = "Alert"
     supervisor.run_pass(DRIVE)
     assert "monitor 7 is alerting" in store.load_all(DRIVE)["a"]["owner"]["woke"] or "monitor 7 is alerting" in store.log_path(DRIVE, "a").read_text()
+
+
+def test_his_page_shows_each_lanes_last_hour_of_spend_from_its_transcripts(world: dict, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from lane import cost
+
+    opened("a")
+    supervisor.run_pass(DRIVE)
+    transcript = tmp_path / "owner.jsonl"
+    turn = lambda at, model: json.dumps({"timestamp": at, "message": {"model": model, "usage": {"input_tokens": 1000, "output_tokens": 2000, "cache_read_input_tokens": 1_000_000, "cache_creation_input_tokens": 0}}})
+    transcript.write_text("\n".join([turn(store.stamp(store.now() - timedelta(hours=2)), "claude-opus-5-5"), turn(store.stamp(), "claude-opus-5-5"), turn(store.stamp(), "claude-haiku-4-5")]) + "\n")
+    monkeypatch.setattr(owners, "transcript", lambda session: transcript)
+    spent = cost.hourly(DRIVE, store.load(DRIVE, "a"))
+    assert spent == {"tokens": {"claude-opus-5-5": {"input": 1000, "output": 2000, "cache_read": 1_000_000, "cache_write": 0}, "claude-haiku-4-5": {"input": 1000, "output": 2000, "cache_read": 1_000_000, "cache_write": 0}}, "dollars_per_hour": None}
+    (store.drive_dir(DRIVE) / "config.json").write_text(json.dumps({"active": 3, "slots": 2, "posting": False, "prices": {"opus": {"input": 5, "output": 25, "cache_read": 0.5}}}))
+    assert cost.hourly(DRIVE, store.load(DRIVE, "a"))["dollars_per_hour"] == round(0.005 + 0.05 + 0.5, 2)

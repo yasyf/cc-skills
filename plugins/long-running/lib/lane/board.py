@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 
 from lane import owner as owners
-from lane import page, rank, store
+from lane import cost, page, rank, store
 from lane.rows import CHECKS
 
 STAMPED = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) (.*)$")
@@ -96,7 +96,7 @@ def screens(drive: str) -> dict | None:
             "waits": waits_plainly(lane["wait"]) if lane["state"] == store.WAITING else None, "parked": (lane.get("parked") or {}).get("words"), "says": lane.get("says"), "next": lane.get("next"), "until": (lane.get("wait") or {}).get("until"), "why": (lane.get("wait") or {}).get("why"),
             "asks": [{"words": ask["words"], "link": ask.get("link"), "at": ask["at"]} for ask in store.unreplied(lane)],
             "replies": [{"words": ask["words"], "link": ask.get("link"), "minutes": round((store.parse(ask["replied_at"]).timestamp() - float(ask["ts"])) / 60, 1)} for ask in lane.get("asks", [])[-10:] if ask.get("replied_at") and ask.get("ts") and not ask["words"].startswith("tapped ")],
-            "defect": lane.get("defect"), "blocked": [entry["words"].removeprefix("blocked, from ") for entry in entries(drive, lane_id) if entry["words"].startswith("blocked, from ")][-3:],
+            "cost": cost.hourly(drive, lane), "defect": lane.get("defect"), "blocked": [entry["words"].removeprefix("blocked, from ") for entry in entries(drive, lane_id) if entry["words"].startswith("blocked, from ")][-3:],
             "done": [{"words": check["words"], "met": bool(check.get("met_at")), "how": check.get("how")} for check in lane.get("done", [])],
             "stacks": [{"key": f"{row['repo']}#{row['number']}", "url": url(f"{row['repo']}#{row['number']}"), "title": row.get("words") or seen[f"{row['repo']}#{row['number']}"].get("title") or "", "above": len(row["above"])} for row in stacks],
             "rest": rest, "channel": lane.get("channel"), "thread": lane.get("thread"),

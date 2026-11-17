@@ -2196,11 +2196,18 @@ function laneNowScreen() {
     <ol class="lane-list">${lanes.map(laneNowCard).join('')}</ol>`;
 }
 
+function laneCost(cost) {
+  if (!cost) return '';
+  if (cost.dollars_per_hour != null) return ` · $${cost.dollars_per_hour.toFixed(2)}/hr`;
+  const total = Object.values(cost.tokens ?? {}).reduce((sum, kinds) => sum + Object.values(kinds).reduce((a, b) => a + b, 0), 0);
+  return total ? ` · ${(total / 1e6).toFixed(1)}M tokens/hr` : '';
+}
+
 function laneNowCard(lane) {
   const [word, tone] = lane.hurting ? ['Hurting users', 'bad'] : LANE_TONES[lane.state];
   const rest = Object.entries(lane.rest ?? {}).map(([why, count]) => `${count} ${why}`).join(', ');
   return `<li class="card lane-card"><div class="card-content">
-      <div class="card-top"><span class="eyebrow">${lane.position} · ${esc(lane.id)}</span><span class="pill t-${tone}">${word}</span></div>
+      <div class="card-top"><span class="eyebrow">${lane.position} · ${esc(lane.id)}${laneCost(lane.cost)}</span><span class="pill t-${tone}">${word}</span></div>
       <h2 class="lane-title">${esc(lane.title)}</h2>
       ${lane.defect || lane.blocked?.length ? `<div class="lane-block"><div class="eyebrow">Stuck, and why</div><ul>${lane.defect ? `<li>${esc(lane.defect)}</li>` : ''}${(lane.blocked ?? []).map((line) => `<li>${esc(line)}</li>`).join('')}</ul></div>` : ''}
       ${lane.replies?.length ? `<div class="lane-block"><div class="eyebrow">How fast you heard back</div><ul>${lane.replies.map((reply) => `<li>${reply.minutes} min · ${reply.link ? `<a href="${esc(reply.link)}" target="_blank" rel="noopener">${esc(reply.words.slice(0, 80))}</a>` : esc(reply.words.slice(0, 80))}</li>`).join('')}</ul></div>` : ''}
