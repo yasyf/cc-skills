@@ -1728,3 +1728,14 @@ def test_a_step_beside_the_pass_never_holds_it_and_its_errors_stand_in_the_heart
     supervisor.RUNNING_STEPS[f"{DRIVE}:slow"].join(5)
     assert supervisor.beside_errors(DRIVE) == ["no card for #7"]
     supervisor.BESIDE_ERRORS.clear()
+
+
+def test_only_point_moves_the_launcher_so_an_old_process_repointing_the_lane_symlink_moves_nothing(world: dict, tmp_path: Path) -> None:
+    newer = tmp_path / "long-running" / "1.0.9999" / "bin" / "lane"
+    first = store.taken(DRIVE)
+    (store.drive_dir(DRIVE) / "lane").unlink()
+    (store.drive_dir(DRIVE) / "lane").symlink_to(tmp_path / "long-running" / "1.0.1712" / "bin" / "lane")
+    assert store.taken(DRIVE) == first
+    store.point(DRIVE, newer)
+    assert store.taken(DRIVE) == newer and (store.drive_dir(DRIVE) / "lane").readlink() == newer
+    assert store.launcher(DRIVE).read_text().startswith("#!/bin/sh\nexec ")

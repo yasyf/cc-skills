@@ -54,7 +54,7 @@ def heartbeat(drive: str, moment: datetime, errors: list[str]) -> None:
     path = store.drive_dir(drive) / "supervisor.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     fresh = path.with_name(".supervisor.json.tmp")
-    fresh.write_text(json.dumps({"pid": os.getpid(), "at": store.stamp(moment), "install": Path(__file__).resolve().parents[2].name, "link": store.launcher(drive).resolve().parents[1].name, "errors": errors}) + "\n")
+    fresh.write_text(json.dumps({"pid": os.getpid(), "at": store.stamp(moment), "install": Path(__file__).resolve().parents[2].name, "link": store.taken(drive).parents[1].name, "errors": errors}) + "\n")
     fresh.replace(path)
 
 
@@ -617,7 +617,7 @@ def blob(path: str, ref: str) -> str | None:
 
 def installs_beside(drive: str) -> list[Path]:
     """Every install in the plugin cache the drive's link points into, whichever checkout or install runs this."""
-    return [folder for folder in store.launcher(drive).resolve().parents[2].iterdir() if (folder / "bin" / "lane").is_file()]
+    return [folder for folder in store.taken(drive).parents[2].iterdir() if (folder / "bin" / "lane").is_file()]
 
 
 def installs_held(drive: str) -> dict[str, dict]:
@@ -799,11 +799,7 @@ def supervise(drive: str) -> None:
     while code_stamp() == loaded:
         run_pass(drive, read_outside=False)
         if (newest := newest_install()) != here and preflighted(drive, newest):
-            link = store.drive_dir(drive) / "lane"
-            fresh = link.with_name(f".lane.{os.getpid()}")
-            fresh.unlink(missing_ok=True)
-            fresh.symlink_to(newest / "bin" / "lane")
-            fresh.replace(link)
+            store.point(drive, newest / "bin" / "lane")
             for still in list(RUNNING_STEPS.values()):
                 still.join(STEP_SECONDS)
             return

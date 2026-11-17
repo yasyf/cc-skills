@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
@@ -50,6 +51,7 @@ class Refused(Exception):
 
 PARSE_SECONDS = 60
 PARSE_CHECK = "LANE_PARSE_CHECK"
+RUN = "lane-run"
 
 
 def root() -> Path:
@@ -357,18 +359,29 @@ def install_version(path: Path) -> tuple[int, ...]:
 
 
 def launcher(drive: str) -> Path:
-    """The drive's stable path to the lane command, a symlink in its state folder pointing at an install's bin/lane, so launchd's plist and every owner's hooks outlive the versioned plugin folder they started from. A process points it at the newest install beside its own that the supervisor took, never at its own when a newer one was taken, and never back, so a link an older process pulled back, as 1.0.1706's and 1.0.1712's did at 20:23 and 20:25, comes forward at the next call instead of flapping."""
-    path = drive_dir(drive) / "lane"
-    if os.environ.get(PARSE_CHECK):
-        return path
-    target = newest_taken(drive)
-    if not path.is_symlink() or path.resolve() != target and install_version(target) > install_version(path.resolve()):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fresh = path.with_name(f".lane.{os.getpid()}")
-        fresh.unlink(missing_ok=True)
-        fresh.symlink_to(target)
-        fresh.replace(path)
+    """The drive's stable path to the lane command, a script in its state folder that runs the install the supervisor took, so launchd's plists and every owner's hooks outlive the versioned plugin folder they started from. Only point() writes it, when the supervisor takes an install or the first call finds none; the old `lane` symlink beside it, which every process of 1.0.1712 and before repoints at its own install, as one did at 20:39, is read by nothing written since but plists from before `lane install` rewrites them, so point() keeps it with the script."""
+    path = drive_dir(drive) / RUN
+    return path if os.environ.get(PARSE_CHECK) or path.is_file() else point(drive, newest_taken(drive))
+
+
+def point(drive: str, lane: Path) -> Path:
+    path = drive_dir(drive) / RUN
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fresh = path.with_name(f".{RUN}.{os.getpid()}")
+    fresh.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} -I {shlex.quote(str(lane))} "$@"\n')
+    fresh.chmod(0o755)
+    fresh.replace(path)
+    legacy = path.with_name("lane")
+    linked = legacy.with_name(f".lane.{os.getpid()}")
+    linked.unlink(missing_ok=True)
+    linked.symlink_to(lane)
+    linked.replace(legacy)
     return path
+
+
+def taken(drive: str) -> Path:
+    """The install's lane command the launcher runs."""
+    return Path(shlex.split(launcher(drive).read_text().splitlines()[1])[3])
 
 
 def newest_taken(drive: str) -> Path:

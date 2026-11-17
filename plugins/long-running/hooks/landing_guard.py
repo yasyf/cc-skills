@@ -912,6 +912,8 @@ def verdict() -> dict | None:
         return None
     except github.GithubError as error:
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": UNREAD.format(error=error)}}
+    except providers.ProviderError as error:
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": PROVIDERS_UNREAD.format(command=payload["tool_input"]["command"], error=error)}}
     if reason:
         return denial(reason) if os.environ.get(state.OWN_JOB_ENV) else denial(reason) | {"judged": bool(judged)} | agents.ruled(reason)
     agents.hold(payload)
