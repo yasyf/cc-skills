@@ -461,6 +461,9 @@ def preflighted(drive: str, install: Path) -> bool:
         return passed.exists()
     running = PREFLIGHTS.get(install.name)
     if running is None:
+        if not store.parses(drive, install / "bin" / "lane"):
+            refused.write_text(f"{install.name}'s lane command does not parse: {(store.drive_dir(drive) / 'parses' / install.name).read_text()}")
+            return False
         if not (folder / f"{install.name}.p0").exists() and (red := regressed(drive, install)):
             output.write_text(f"waiting: {red}; mark one known-red with `lane --drive {drive} known-red <test> --lane <owner>`, or take a fix for live harm is taken anyway with `lane --drive {drive} take {install.name} --p0 \"<why>\"`\n")
             return False

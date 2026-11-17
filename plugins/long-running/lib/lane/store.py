@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -44,6 +45,10 @@ RULINGS = "rulings.shared.json"
 
 class Refused(Exception):
     """A verb the lane model does not allow, with the reason the caller is shown."""
+
+
+PARSE_SECONDS = 60
+PARSE_CHECK = "LANE_PARSE_CHECK"
 
 
 def root() -> Path:
@@ -354,13 +359,23 @@ def launcher(drive: str) -> Path:
     """The drive's stable path to the lane command, a symlink in its state folder pointing at an install's bin/lane, so launchd's plist and every owner's hooks outlive the versioned plugin folder they started from. A process moves it only forward, to its own install when that is newer than the link's, so an owner, worker or lander still running an older install never points the drive back at its own, as 1.0.1706's processes did to 1.0.1711's link."""
     path = drive_dir(drive) / "lane"
     target = Path(__file__).resolve().parents[2] / "bin" / "lane"
-    if not path.is_symlink() or path.resolve() != target and install_version(target) > install_version(path.resolve()):
+    if not os.environ.get(PARSE_CHECK) and (not path.is_symlink() or path.resolve() != target and install_version(target) > install_version(path.resolve())) and parses(drive, target):
         path.parent.mkdir(parents=True, exist_ok=True)
         fresh = path.with_name(f".lane.{os.getpid()}")
         fresh.unlink(missing_ok=True)
         fresh.symlink_to(target)
         fresh.replace(path)
     return path
+
+
+def parses(drive: str, lane: Path) -> bool:
+    """Whether an install's lane command reads the drive with no traceback, checked once per install by `lane --drive <drive> check`: nothing points the drive's link at a command that cannot parse, as 1.0.1718's duplicate `page` verb crashed every lane command."""
+    mark = drive_dir(drive) / "parses" / ".".join(map(str, install_version(lane)))
+    if not mark.is_file():
+        ran = subprocess.run([str(lane), "--drive", drive, "check"], capture_output=True, text=True, timeout=PARSE_SECONDS, check=False, env=os.environ | {PARSE_CHECK: "1"})
+        mark.parent.mkdir(parents=True, exist_ok=True)
+        mark.write_text("broken\n" + ran.stderr[-2000:] if "Traceback (most recent call last)" in ran.stderr else "ok\n")
+    return mark.read_text().startswith("ok")
 
 
 def asks_path(drive: str, lane_id: str) -> Path:
