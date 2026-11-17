@@ -183,9 +183,24 @@ def unserved(drive: str) -> dict[str, dict]:
     return {lane: asked for lane, asked in wants(drive).items() if not asked.get("claimed") or moment - store.parse(asked["claimed"]) > timedelta(minutes=STAGER_MINUTES)}
 
 
+def running(drive: str) -> int:
+    """How many stagers run now: the distinct claims on open asks younger than STAGER_MINUTES, one per stager start."""
+    moment = store.now()
+    return len({asked["claimed"] for asked in wants(drive).values() if asked.get("claimed") and moment - store.parse(asked["claimed"]) <= timedelta(minutes=STAGER_MINUTES)})
+
+
+def block(drive: str, lane_id: str, why: str) -> Path:
+    """End a lane's ask the stager will not run, writing `blocked` with its why in full to the lane's own cut file, the file its staging_result wait reads, which wakes it at once; a stager never sends cci to a lane, since a lane is a file no cci session reads."""
+    refuse_in_shadow(drive, "blocking a lane's cut")
+    asked = wants(drive)[lane_id]
+    path = written(lanes_dir(drive) / CUTS / f"{asked['cut']}.json", {"lane": lane_id, "cut": asked["cut"], "result": "blocked", "stacks": {}, "why": why})
+    (lanes_dir(drive) / WANTS / f"{lane_id}.json").unlink()
+    return path
+
+
 def start(drive: str) -> str | None:
-    """Start a stager session for every lane ask no live stager has taken, with no hold on staging: cuts run in parallel, each on a staging target of the drive config's staging_targets that no other running cut uses, by his 17:00 ruling "we dont need a staging hold to test on the 3rd and 4th clusters on staging"; None when every ask is taken."""
-    if not live(drive) or not (asked := unserved(drive)):
+    """Start a stager session for every lane ask no live stager has taken, with no hold on staging: cuts run in parallel, each on a staging target of the drive config's staging_targets that no other running cut uses, by his 17:00 ruling "we dont need a staging hold to test on the 3rd and 4th clusters on staging"; None when every ask is taken, or a stager already runs on every target, so one target serves one cut at a time and the next stager starts when it frees."""
+    if not live(drive) or not (asked := unserved(drive)) or running(drive) >= len(store.config(drive)["staging_targets"]):
         return None
     order = {lane: index for index, lane in enumerate(json.loads((lanes_dir(drive) / RANK).read_text())["order"])} if (lanes_dir(drive) / RANK).is_file() else {}
     first = min(asked, key=lambda lane: (order.get(lane, len(order)), asked[lane]["at"]))

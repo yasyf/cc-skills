@@ -113,7 +113,7 @@ def land(args: argparse.Namespace) -> None:
     from drive import land as old_land
 
     here = Path(__file__).resolve().parents[2]
-    with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}{'-' + '-'.join(args.lane) if args.lane else ''}.lock") as mine:
+    with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}{'-' + '-'.join(args.lane) if args.lane else ''}{'-guarded' if args.guarded else ''}.lock") as mine:
         if not mine:
             print("another landing pass runs; this one ends")
             return
@@ -129,7 +129,8 @@ def land(args: argparse.Namespace) -> None:
             for verdict in landing.verdicts(lane, heard(args.drive), moment):
                 print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
                 if verdict.lands and (stager.live(args.drive) or args.dry_run):
-                    units.append((lane, list(verdict.keys), any(landing.guarded(by_key[key]) for key in verdict.keys)))
+                    if not args.guarded or any(landing.guarded(by_key[key]) for key in verdict.keys):
+                        units.append((lane, list(verdict.keys), any(landing.guarded(by_key[key]) for key in verdict.keys)))
         if landing.present(heard(args.drive), moment):
             units.sort(key=lambda unit: not unit[2])
         if not units:
@@ -179,6 +180,10 @@ def decide(args: argparse.Namespace) -> None:
     print(stager.decide(args.drive, args.cut, json.loads(Path(args.file).read_text() if args.file != "-" else input())))
 
 
+def block(args: argparse.Namespace) -> None:
+    print(stager.block(args.drive, args.lane, args.why))
+
+
 def result(args: argparse.Namespace) -> None:
     print(stager.result(args.drive, args.cut, json.loads(Path(args.file).read_text())))
 
@@ -189,6 +194,7 @@ def main() -> int:
     verbs = parser.add_subparsers(required=True)
     verb = verbs.add_parser("land", help="what his Approve lands now, queued only once live")
     verb.add_argument("--dry-run", action="store_true", help="run the merge queue's --check for each landing unit and queue nothing")
+    verb.add_argument("--guarded", action="store_true", help="land only the units his presence lets land, beside any other pass, as his word or tap starts it")
     verb.add_argument("--lane", action="append", help="land only this lane's units, beside any whole-drive pass, as when his presence window is short; repeatable")
     verb.set_defaults(run=land)
     verb = verbs.add_parser("verdicts", help="each lane stack's verdict now, read from GitHub, with no pass lock, no judging and no merge queue call")
@@ -206,6 +212,10 @@ def main() -> int:
     verb.add_argument("--cut", required=True)
     verb.add_argument("file")
     verb.set_defaults(run=decide)
+    verb = verbs.add_parser("block", help="end a lane's staging ask the stager will not run, with its why in full, which wakes the lane")
+    verb.add_argument("--lane", required=True)
+    verb.add_argument("--why", required=True)
+    verb.set_defaults(run=block)
     verb = verbs.add_parser("result", help="write each stack's result for a cut, which wakes its lane")
     verb.add_argument("--cut", required=True)
     verb.add_argument("file")

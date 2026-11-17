@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -290,7 +291,7 @@ def write_lane(drive: str, lane: dict) -> None:
 
 
 def heard(drive: str, asks: list[dict]) -> None:
-    """Keep when he was last present: the newest Slack ts among his own messages and taps reaching a lane, only ever moving forward, so a dangerous land reads his 15 minutes from his words alone. take_messages is its one caller."""
+    """Keep when he was last present: the newest Slack ts among his own messages and taps reaching a lane, only ever moving forward, so a dangerous land reads his 15 minutes from his words alone, and start a landing pass of the units only his presence lets land at once, ahead of the periodic pass, once the drive is live. take_messages is its one caller."""
     if not (stamped := [ask for ask in asks if ask.get("ts")]):
         return
     newest = max(stamped, key=lambda ask: float(ask["ts"]))
@@ -300,6 +301,8 @@ def heard(drive: str, asks: list[dict]) -> None:
     fresh = path.with_name(f".presence.{os.getpid()}.tmp")
     fresh.write_text(json.dumps({"at": stamp(datetime.fromtimestamp(float(newest["ts"]), UTC)), "ts": newest["ts"], "link": newest.get("link")}) + "\n")
     fresh.replace(path)
+    if live(drive):
+        subprocess.Popen([str(Path(__file__).resolve().parents[2] / "bin" / "lane-land"), "--drive", drive, "land", "--guarded"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def present(drive: str, words: str, at: datetime, source: str) -> bool:
