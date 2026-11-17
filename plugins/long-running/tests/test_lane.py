@@ -1070,9 +1070,9 @@ def test_his_approved_prs_needing_a_fix_become_one_queue_item_each_pulled_by_wor
     store.update(DRIVE, "a", approving)
     moved = {"commits": [("old", "him")], "commit_count": 1}
     world["prs"][("acme/app", 1)] = pull(rollup="SUCCESS", head="h1", branch="b1") | {**moved, "mergeable": "CONFLICTING"}
-    world["prs"][("acme/app", 2)] = pull(rollup="FAILURE", head="h2", branch="b2") | {**moved, "failing": ["lint"], "mergeable": "MERGEABLE"}
+    world["prs"][("acme/app", 2)] = pull(rollup="FAILURE", head="h2", branch="b2") | {**moved, "failing": [{"name": "lint", "says": ""}], "mergeable": "MERGEABLE"}
     world["prs"][("acme/app", 3)] = pull(rollup="SUCCESS", head="h3", branch="b3") | {**moved, "mergeable": "MERGEABLE", "reviewed_heads": []}
-    world["prs"][("acme/app", 4)] = pull(rollup="FAILURE", head="h4", branch="b4") | {**moved, "failing": ["unit"], "mergeable": "MERGEABLE"}
+    world["prs"][("acme/app", 4)] = pull(rollup="FAILURE", head="h4", branch="b4") | {**moved, "failing": [{"name": "unit", "says": ""}], "mergeable": "MERGEABLE"}
     world["prs"][("acme/app", 5)] = pull(state="MERGED", rollup="FAILURE", head="h5", branch="b5")
     supervisor.run_pass(DRIVE)
     queued = {item["subject"]: item for item in work.items(DRIVE)}
@@ -1528,3 +1528,12 @@ def test_an_alerting_monitor_no_lane_holds_opens_an_incident_lane_past_the_cap_w
     assert [item["subject"] for item in work.items(DRIVE)] == ["diagnose monitor 345323874"]
     assert paged and paged[0][0] == "incident-345323874"
     assert incidents.intake(DRIVE) == []
+
+
+def test_the_merge_queues_own_check_is_never_a_red_item_and_its_conflict_verdict_is_a_rebase() -> None:
+    from lane import fixes
+
+    queue_cancelled = {"rollup": "FAILURE", "head": "h", "failing": [{"name": "Trunk Merge Queue (dev)", "says": "cancelled"}]}
+    queue_conflict = {"rollup": "FAILURE", "head": "h", "failing": [{"name": "Trunk Merge Queue (dev)", "says": "merge conflict"}]}
+    lint = {"rollup": "FAILURE", "head": "h", "failing": [{"name": "lint", "says": ""}, {"name": "Trunk Merge Queue (dev)", "says": ""}]}
+    assert fixes.kind({}, queue_cancelled) is None and fixes.kind({}, queue_conflict) == "conflict" and fixes.kind({}, lint) == "red"

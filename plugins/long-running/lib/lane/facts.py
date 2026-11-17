@@ -56,7 +56,34 @@ def read_prs(keys: set[tuple[str, int]], commits: int = COMMITS_READ, failed: li
         failed += lost
     if chunks and len(lost) == len(chunks):
         raise store.Refused(f"GitHub read failed for every chunk: {lost[0]}")
-    return {key: pull for read in reads if isinstance(read, dict) for key, pull in read.items()}
+    found = {key: pull for read in reads if isinstance(read, dict) for key, pull in read.items()}
+    red = sorted(key for key, pull in found.items() if pull["state"] == "OPEN" and pull["rollup"] in ("FAILURE", "ERROR"))
+    for start in range(0, len(red), PRS_PER_QUERY):
+        try:
+            for key, failing in failing_checks(red[start : start + PRS_PER_QUERY]).items():
+                found[key]["failing"] = failing
+        except (store.Refused, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+            if failed is not None:
+                failed.append(f"failing checks of {len(red[start : start + PRS_PER_QUERY])} red PRs: {type(error).__name__}: {str(error)[:200]}")
+    return found
+
+
+def failing_checks(ordered: list[tuple[str, int]]) -> dict[tuple[str, int], list[dict]]:
+    """Each red PR's failing checks at its head, by name, with what each says, read for the red PRs alone so the pass's big read carries no check contexts; a merge queue's own check is told apart from the PR's CI by its name."""
+    parts = []
+    for index, (repo, number) in enumerate(ordered):
+        owner, name = repo.split("/", 1)
+        parts.append(f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ contexts(first: 100) {{ nodes {{ __typename ... on CheckRun {{ name conclusion title }} ... on StatusContext {{ context state description }} }} }} }} }} }} }} }} }}')
+    done = subprocess.run([os.environ.get(GH_ENV) or "gh", "api", "graphql", "-f", f"query={{ {' '.join(parts)} }}"], capture_output=True, text=True, check=False, timeout=CHUNK_SECONDS)
+    if done.returncode:
+        raise store.Refused(f"GitHub read failed: {done.stderr.strip()[:300]}")
+    data = json.loads(done.stdout)["data"]
+    found = {}
+    for index, key in enumerate(ordered):
+        nodes = (((data.get(f"p{index}") or {}).get("pullRequest") or {}).get("commits") or {}).get("nodes") or []
+        contexts = ((nodes[-1]["commit"].get("statusCheckRollup") or {}).get("contexts") or {}).get("nodes") or [] if nodes else []
+        found[key] = [{"name": node.get("name") or node.get("context"), "says": node.get("title") or node.get("description") or ""} for node in contexts if node.get("conclusion") in ("FAILURE", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED") or node.get("state") in ("FAILURE", "ERROR")]
+    return found
 
 
 def read_chunk(ordered: list[tuple[str, int]], commits: int = COMMITS_READ) -> dict[tuple[str, int], dict]:

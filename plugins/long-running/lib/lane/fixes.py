@@ -1,16 +1,23 @@
 """What an approved PR needs fixed before it lands, and the brief a worker follows for it: a PR he approved, or one a card asks him about at its head, that conflicts with its base, has a red check, or has no review at its head becomes one work-queue item (lane.work). The fix jobs from before the queue are still read here until each ends, so the lander and the queue leave their PRs alone."""
 
+import re
+
 from lane import owner as owners
 
 ENDED = ("done", "stopped", "failed")
 DENY = ["Bash(drive:*)", "Bash(drive *)", "mcp__plugin_long-running_drive", "Bash(cci post:*)", "Bash(cc-slack send:*)", "Bash(cc-slack reply:*)", "Bash(cc-slack dm-status:*)", "mcp__plugin_cc-slack_cc-slack__slack_send", "mcp__plugin_cc-slack_cc-slack__slack_reply", "mcp__plugin_cc-slack_cc-slack__slack_dm_status", "mcp__plugin_cc-inbox_cci__post"]
 
 
+MERGE_QUEUE = re.compile(r"merge queue", re.I)
+
+
 def kind(row: dict, pull: dict) -> str | None:
-    """What one open lane PR needs fixed before it can land, or None: a conflict with its base first, then a red check, then a review at its head."""
-    if pull.get("mergeable") == "CONFLICTING":
+    """What one open lane PR needs fixed before it can land, or None: a conflict with its base first, the merge queue's own conflict verdict included, then a red check of the PR's CI, never the merge queue's own check, then a review at its head."""
+    failing = pull.get("failing") or []
+    queue_says = " ".join(check["says"] for check in failing if MERGE_QUEUE.search(check["name"] or ""))
+    if pull.get("mergeable") == "CONFLICTING" or "conflict" in queue_says.lower():
         return "conflict"
-    if pull.get("rollup") in ("FAILURE", "ERROR"):
+    if pull.get("rollup") in ("FAILURE", "ERROR") and any(not MERGE_QUEUE.search(check["name"] or "") for check in failing):
         return "red"
     if pull.get("rollup") == "SUCCESS" and pull.get("review") != "APPROVED" and pull["head"] not in (pull.get("reviewed_heads") or []):
         return "review"
@@ -34,7 +41,7 @@ def brief(kind_of: str, repo: str, number: int, pull: dict) -> str:
         case "conflict":
             return f"Rebase {repo}#{number} (branch {pull['branch']}) onto origin/{pull['base']} and push it, resolving each conflict so both sides' changes stand. {where}"
         case "red":
-            names = ", ".join(pull.get("failing") or []) or "its failing checks"
+            names = ", ".join(check["name"] for check in pull.get("failing") or [] if not MERGE_QUEUE.search(check["name"] or "")) or "its failing checks"
             return f"Fix the failing checks on {repo}#{number} (branch {pull['branch']}): {names}. Read each one's log first (`gh pr checks {number} --repo {repo}`); fix the cause the log names, or, for a failure the log shows has nothing to do with this change, rerun it once with `gh run rerun --failed`. {where}"
         case _:
             return f"Ask for a review of {repo}#{number} at its head {pull['head'][:7]}: post, once, the review request comment the `review_ask` of this checkout's .claude/long-running.toml names, with `gh pr comment {number} --repo {repo} --body '<that text>'`. Push nothing. End with one line: the comment's link."
