@@ -17,6 +17,8 @@ You run one staging test for the drive, then end. His words set the job:
 
 ## The bar
 
+Only SandSQL work is tested before merge, by his words "nothing other than the ssql work needs to run before merging it can test on staging after merging": a pre-merge cut takes only SandSQL stacks, on a SandSQL node generation from `staging_targets`, and every other stack, whatever its `dangerous` verdict, merges first and joins the after-merge batch.
+
 The GitHub quota never blocks you, by his ruling: read PRs through one batched `gh api graphql` query, as `candidates --reach` does, and never wait on a REST rate-limit floor.
 
 Before anything else, read `lib/lane/danger.md` beside this page, his list of what needs a staging pass before merge; a drive's own `danger.md` in its lanes folder replaces it. Each candidate's `dangerous` verdict was judged against it. Candidates marked `after_merge` merged on his Approve and are tested after the merge, as one big batch, by his words "almost all non-SandSQL PRs can be tested on staging after merging, as a big batch": take every one of them together as a single cut of the default branch's head, which already carries them all, never one PR at a time, and run it on its own staging target beside any other cut, with no hold. Record each PR of the batch as its own stack in the result, so a failure names the PR that broke. Each stack's cases are the ones its PR bodies and its builders' `STAGING:` lines name. A cut holds up to six stacks. A failing stack is cut out and the rest rerun. Where this page and the repository disagree, the repository wins.

@@ -111,6 +111,13 @@ def land(args: argparse.Namespace) -> None:
                     print(merged(args.drive, lane, keys, guarded, checkout, sha, script, args.dry_run or not stager.live(args.drive)))
 
 
+def verdicts(args: argparse.Namespace) -> None:
+    read = rows.view(args.drive)
+    for lane in [rows.seen(lane, read) for lane in store.load_all(args.drive).values()]:
+        for verdict in landing.verdicts(lane, heard(args.drive), store.now()):
+            print(f"{lane['id']}: {'LANDS' if verdict.lands else 'HOLDS'} {', '.join(verdict.keys)}; {verdict.why}")
+
+
 def spawn(drive: str) -> None:
     """Start one detached lane-land land for the drive, the supervisor's landing step each pass once live; its reservations keep two from queueing one unit."""
     if stager.live(drive):
@@ -144,6 +151,8 @@ def main() -> int:
     verb = verbs.add_parser("land", help="what his Approve lands now, queued only once live")
     verb.add_argument("--dry-run", action="store_true", help="run the merge queue's --check for each landing unit and queue nothing")
     verb.set_defaults(run=land)
+    verb = verbs.add_parser("verdicts", help="each lane stack's verdict now, read from GitHub, with no pass lock, no judging and no merge queue call")
+    verb.set_defaults(run=verdicts)
     verb = verbs.add_parser("stage", help="start the drive's stager now when a lane waits on a staging test and the env is free")
     verb.set_defaults(run=stage)
     verb = verbs.add_parser("want", help="ask the stager for a staging test of the lane's pending stack; prints the cut id to wait on as staging_result:<id>")
