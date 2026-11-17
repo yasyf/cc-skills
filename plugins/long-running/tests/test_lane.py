@@ -668,7 +668,7 @@ def test_his_tap_list_holds_unapproved_and_revoked_prs_never_a_moved_head_still_
     supervisor.run_pass(DRIVE)
     verbs.carry(DRIVE, "acme/app", 8, "h8b", False, "it now drops the retry")
     shown = page.tapless(store.load(DRIVE, "a"), page.view(DRIVE)["prs"])
-    assert [(row["number"], row["moved"]) for row in shown] == [(8, "it now drops the retry"), (9, None)]
+    assert [(row["number"], row["moved"]) for row in shown] == [(8, "it now drops the retry"), (9, None)], (page.view(DRIVE), store.load(DRIVE, "a")["prs"])
 
 
 def test_a_lane_whose_owner_restarted_keeps_its_place_in_line_and_its_grant(world: dict) -> None:
