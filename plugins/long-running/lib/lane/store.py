@@ -356,16 +356,28 @@ def install_version(path: Path) -> tuple[int, ...]:
 
 
 def launcher(drive: str) -> Path:
-    """The drive's stable path to the lane command, a symlink in its state folder pointing at an install's bin/lane, so launchd's plist and every owner's hooks outlive the versioned plugin folder they started from. A process moves it only forward, to its own install when that is newer than the link's, so an owner, worker or lander still running an older install never points the drive back at its own, as 1.0.1706's processes did to 1.0.1711's link."""
+    """The drive's stable path to the lane command, a symlink in its state folder pointing at an install's bin/lane, so launchd's plist and every owner's hooks outlive the versioned plugin folder they started from. A process points it at the newest install beside its own that the supervisor took, never at its own when a newer one was taken, and never back, so a link an older process pulled back, as 1.0.1706's and 1.0.1712's did at 20:23 and 20:25, comes forward at the next call instead of flapping."""
     path = drive_dir(drive) / "lane"
-    target = Path(__file__).resolve().parents[2] / "bin" / "lane"
-    if not os.environ.get(PARSE_CHECK) and (not path.is_symlink() or path.resolve() != target and install_version(target) > install_version(path.resolve())) and parses(drive, target):
+    if os.environ.get(PARSE_CHECK):
+        return path
+    target = newest_taken(drive)
+    if not path.is_symlink() or path.resolve() != target and install_version(target) > install_version(path.resolve()):
         path.parent.mkdir(parents=True, exist_ok=True)
         fresh = path.with_name(f".lane.{os.getpid()}")
         fresh.unlink(missing_ok=True)
         fresh.symlink_to(target)
         fresh.replace(path)
     return path
+
+
+def newest_taken(drive: str) -> Path:
+    """The lane command of the newest install beside this one that the supervisor took, its preflight passed and its command parsing, or this one's when it runs from a checkout or none newer was taken: owners move with the supervisor, never onto an install its gate holds."""
+    own = Path(__file__).resolve().parents[2] / "bin" / "lane"
+    if not install_version(own):
+        return own
+    passed = drive_dir(drive) / "preflight"
+    newer = sorted((lane for folder in own.parents[2].iterdir() if (lane := folder / "bin" / "lane").is_file() and install_version(lane) > install_version(own) and (passed / f"{folder.name}.passed").exists()), key=install_version, reverse=True)
+    return next((lane.resolve() for lane in newer if parses(drive, lane)), own)
 
 
 def parses(drive: str, lane: Path) -> bool:
