@@ -41,7 +41,7 @@ DEFAULTS = {
     "hotfix_cli": None,
 }
 LIVE = "live"
-NOT_LANES = ("rank", "config", "supervisor", "presence", "rulings", "queue", "view", "github", "settled")
+NOT_LANES = ("rank", "config", "supervisor", "presence", "rulings", "queue", "view", "github", "settled", "card-lines")
 RULINGS = "rulings.shared.json"
 
 
