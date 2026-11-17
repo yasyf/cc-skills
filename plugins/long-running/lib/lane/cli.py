@@ -116,13 +116,37 @@ def reviewed(drive: str, key: str, head: str) -> None:
 
 
 def conflicted(drive: str, lane: dict, keys: list[str], said: Callable[[], str]) -> None:
-    """Queue a rebase item for each PR of a unit that conflicts with the default branch, in this call, for a queue worker to run, and tell the lane's owner in one line, once per set of heads, that the rebase is in flight, so the owner does no rebase and waits on nothing for it."""
+    """Rebase each PR of a unit that conflicts with the default branch in this call with no model session, by replayed(), and queue a rebase item for a queue worker only for a PR whose commits do not replay cleanly; tell the lane's owner in one line, once per set of heads, which was done, so the owner does no rebase and waits on nothing for it."""
+    checkout = Path(store.config(drive)["checkout"])
+    rows_of = {landing.key(row): row for row in lane["prs"]}
     seen = page.view(drive)["prs"]
+    done, queued_keys = [], []
     for key in keys:
-        if pull := seen.get(key):
+        if (row := rows_of.get(key)) and row.get("branch") and (head := replayed(checkout, lane, row)):
+            done.append(f"{key} to {head[:12]}")
+        elif pull := seen.get(key):
             repo, _, number = key.rpartition("#")
             work.add(drive, "rebase", lane["id"], key, fixes.brief("conflict", repo, int(number), pull), head=pull["head"], touches=[repo], by="lane-land")
-    woken(drive, lane, keys, "conflicts", lambda: f"{', '.join(keys)} conflicts with the default branch {said()}; a rebase item is queued for a worker and the next landing pass queues it once rebased, so it needs nothing from you.", block=False)
+            queued_keys.append(key)
+    what = "; ".join(part for part in (f"rebased mechanically {', '.join(done)}" if done else "", f"a rebase item is queued for a worker for {', '.join(queued_keys)}" if queued_keys else "") if part)
+    woken(drive, lane, keys, "conflicts", lambda: f"{', '.join(keys)} conflicts with the default branch {said()}; {what or 'it could not be read to rebase'}, and the next landing pass queues it once rebased, so it needs nothing from you.", block=False)
+
+
+def replayed(checkout: Path, lane: dict, row: dict) -> str | None:
+    """Rebase one PR onto its base with git replay, no worktree and no model, pushing the new head over the one read only if the branch has not moved since: its commits after the newest merged PR of its lane it still carries, or after its merge base when it carries none, as a squash merge below it leaves them. The new head, or None when its commits do not replay cleanly or the push is refused."""
+    git = ["git", "-C", str(checkout)]
+    number = row["number"]
+    fetched = subprocess.run([*git, "fetch", "-q", "--no-tags", "origin", f"+refs/heads/{row['base']}:refs/remotes/origin/{row['base']}", f"+refs/pull/{number}/head:refs/lane-land/{number}"], capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
+    if fetched.returncode:
+        return None
+    below = [other["head"] for other in lane["prs"] if other.get("merged") and other.get("head") and subprocess.run([*git, "merge-base", "--is-ancestor", other["head"], f"refs/lane-land/{number}"], capture_output=True, check=False).returncode == 0]
+    upstream = below[-1] if below else subprocess.run([*git, "merge-base", f"origin/{row['base']}", f"refs/lane-land/{number}"], capture_output=True, text=True, check=True).stdout.strip()
+    replay = subprocess.run([*git, "replay", f"--onto=origin/{row['base']}", f"{upstream}..refs/lane-land/{number}"], capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
+    if replay.returncode or not (lines := replay.stdout.split()):
+        return None
+    head = lines[2]
+    pushed = subprocess.run([*git, "push", "-q", f"--force-with-lease=refs/heads/{row['branch']}:{row['head']}", "origin", f"{head}:refs/heads/{row['branch']}"], capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
+    return head if pushed.returncode == 0 else None
 
 
 def frozen(drive: str, lanes: list[dict]) -> list[str]:

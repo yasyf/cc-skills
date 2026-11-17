@@ -190,6 +190,8 @@ def test_53810s_conflict_queues_a_rebase_item_and_tells_run_page_v3_once_with_no
     monkeypatch.setattr(verbs, "handover", lambda drive, lane_id, text, by: noted.append((lane_id, text)))
     items = []
     monkeypatch.setattr(cli.page, "view", lambda drive: {"prs": {"Forge-AI/monorepo#53810": {"head": "h", "branch": "j8342", "base": "dev"}}})
+    monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path)})
+    monkeypatch.setattr(cli, "replayed", lambda checkout, lane, row: None)
     monkeypatch.setattr(cli.work, "add", lambda drive, kind, lane_id, subject, words, head=None, touches=None, by="owner": items.append((kind, lane_id, subject, head, touches, by)))
     v3 = lane(conflicting) | {"id": "run-page-v3"}
     said = "in go/sand/next/internal/runtime-api/runs/stepnames_test.go"
@@ -442,3 +444,18 @@ def test_a_lane_break_glass_records_its_grant_before_the_command_runs(monkeypatc
     args = argparse.Namespace(drive="durable-agents", lane="sandsql-engine", stack="sandsql/plat-usw2-prod", reason="count the table copies, read only", command=["psql", "-c", "select 1"])
     assert cli.break_glass(args) == 0
     assert ran == [(["psql", "-c", "select 1"], "https://buildkite.com/forge/break-glass/builds/7")]
+
+
+def test_a_conflict_whose_commits_replay_cleanly_is_rebased_with_no_work_item(monkeypatch, tmp_path) -> None:
+    from lane import cli, verbs
+
+    items, noted = [], []
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path)})
+    monkeypatch.setattr(cli.page, "view", lambda drive: {"prs": {}})
+    monkeypatch.setattr(cli.work, "add", lambda *args, **kwargs: items.append(args))
+    monkeypatch.setattr(cli, "replayed", lambda checkout, lane, row: "c" * 40)
+    monkeypatch.setattr(verbs, "handover", lambda drive, lane_id, text, by: noted.append(text))
+    pr = row(57177, mergeable="CONFLICTING", branch="ha-3-tail", base="dev")
+    cli.conflicted("durable-agents", lane(pr), ["Forge-AI/monorepo#57177"], lambda: "in rust/crates/x.rs")
+    assert items == [] and "rebased mechanically Forge-AI/monorepo#57177 to cccccccccccc" in noted[0]
