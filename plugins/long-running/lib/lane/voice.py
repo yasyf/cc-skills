@@ -49,11 +49,26 @@ def owner_say(drive: str, lane_id: str, arguments: dict) -> str:
     """The MCP say of a lane's owner: lane.say with its promise, and when the promise's shape is refused, the post alone, since the owner never sees a post refused."""
     token = os.environ.get(TOKEN_ENV) or None
     try:
-        return say.say(drive, lane_id, arguments["text"], arguments.get("next"), arguments.get("by"), token, arguments.get("answers"), arguments.get("re"), arguments.get("options"), edit_ts(arguments.get("edit")), arguments.get("subjects"))
+        return say.say(drive, lane_id, arguments["text"], arguments.get("next"), arguments.get("by"), token, arguments.get("answers"), arguments.get("re"), arguments.get("options"), edit_ts(arguments.get("edit")), arguments.get("subjects"), arguments.get("pictures"))
     except store.Refused as refused:
         if not (arguments.get("next") or arguments.get("by")):
             raise
-        return f"{say.say(drive, lane_id, arguments['text'], token=token, answers=arguments.get('answers'), re=arguments.get('re'), options=arguments.get('options'), edit=edit_ts(arguments.get('edit')), about=arguments.get('subjects'))}; its promise was not kept: {refused}"
+        return f"{say.say(drive, lane_id, arguments['text'], token=token, answers=arguments.get('answers'), re=arguments.get('re'), options=arguments.get('options'), edit=edit_ts(arguments.get('edit')), about=arguments.get('subjects'), pictures=arguments.get('pictures'))}; its promise was not kept: {refused}"
+
+
+def status(drive: str, lane_id: str, line: str, about_ts: str | None) -> str:
+    """Set the loader line under the thread of his ask, where a status update belongs in place of a whole message, by his words "these kind of status updates should just be in the spinner/loader slack agent thing"; Slack draws it only in his DM's threads, and a refusal says so."""
+    lane = store.load(drive, lane_id)
+    if not (thread := asked_thread(lane, about_ts)):
+        raise store.Refused("a loader line goes under a thread of his: pass --re <his ask's ts>")
+    body = json.dumps({"channel_id": lane["channel"], "thread_ts": thread, "status": line}).encode()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(STATUS_URL, body, {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())}), timeout=ENQUEUE_SECONDS * 5):
+            return f"loader set under {thread}"
+    except urllib.error.HTTPError as refused:
+        if refused.code == 422:
+            raise store.Refused(refused.read().decode().strip()) from refused
+        raise
 
 
 def edit_ts(edit: str | None) -> str | None:
@@ -61,7 +76,7 @@ def edit_ts(edit: str | None) -> str | None:
     return f"{found[1]}.{found[2]}" if edit and (found := PERMALINK_TS.search(edit)) else edit
 
 
-def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options: list[str] | None = None, edit: str | None = None, about: list[str] | None = None) -> str:
+def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options: list[str] | None = None, edit: str | None = None, about: list[str] | None = None, pictures: list[str] | None = None) -> str:
     """lane.say's SENDER: queue one post in the lane's channel, in the thread of the ask it is about, with the role page beside it and a button for each option, and return QUEUED and its id."""
     if options:
         text, options = buttoned(text, options)
@@ -79,6 +94,7 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         "asked": "",
         **({"options": options} if options else {}),
         **({"edit_ts": edit} if edit else {}),
+        **({"files": [str(Path(picture).expanduser().resolve()) for picture in pictures]} if pictures else {}),
     }
     request = urllib.request.Request(VOICE_URL, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())})
     try:
@@ -237,6 +253,7 @@ def tapped_pr(drive: str, lane: dict, words: str, link: str | None, ts: str) -> 
 
 
 POSTS_URL = VOICE_URL + "/posts"
+STATUS_URL = VOICE_URL + "/status"
 SETTLE_URL = VOICE_URL + "/settle"
 FOLLOWED_HOURS = 24
 SETTLED_FILE = "settled.json"

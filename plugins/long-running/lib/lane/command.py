@@ -198,7 +198,9 @@ def main(argv: list[str] | None = None) -> int:
     ending.add_argument("--next")
 
     said = verbs_parser.add_parser("say", help="a line to him; --next with --by writes the promise as the lane's bound")
-    said.add_argument("text")
+    said.add_argument("text", nargs="?")
+    said.add_argument("--picture", action="append", help="a PNG or other file to attach, such as the visual a post owes him")
+    said.add_argument("--status", help="a status line for the loader under his thread in place of a post, cleared when your answer posts")
     said.add_argument("--lane")
     said.add_argument("--next")
     said.add_argument("--by")
@@ -325,7 +327,12 @@ def run(args: argparse.Namespace) -> int:
             print(f"waiting until {lane['wait']['until']}; end your turn now")
         case "say":
             drive, lane_id = where(args)
-            print(voice.owner_say(drive, lane_id, {"text": args.text, "next": args.next, "by": args.by, "answers": args.answers, "re": args.re, "options": args.options, "edit": args.edit, "about": args.about}))
+            if args.status:
+                print(voice.status(drive, lane_id, args.status, args.re))
+            elif not args.text:
+                raise store.Refused("lane say takes the post's text, or --status for the loader line")
+            else:
+                print(voice.owner_say(drive, lane_id, {"text": args.text, "next": args.next, "by": args.by, "answers": args.answers, "re": args.re, "options": args.options, "edit": args.edit, "subjects": args.about, "pictures": args.picture}))
         case "log":
             verbs.log(*where(args), token(), args.text)
         case "next":

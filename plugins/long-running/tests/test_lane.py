@@ -1124,3 +1124,13 @@ def test_the_pr_read_of_300_prs_goes_in_chunks_of_40_and_a_failed_chunk_drops_on
     monkeypatch.setattr(facts, "read_chunk", lambda chunk, commits: (_ for _ in ()).throw(store.Refused("GitHub read failed: unexpected end of JSON input")))
     with pytest.raises(store.Refused, match="every chunk"):
         facts.read_prs(keys, commits=1)
+
+
+def test_a_reply_after_his_approve_tap_keeps_the_approved_state(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    opened("a", prs=[("acme/app", 7)])
+    monkeypatch.setattr(voice.page, "view", lambda drive: {"prs": {"acme/app#7": {"head": "h7", "state": "OPEN"}}})
+    voice.tapped_pr(DRIVE, store.load(DRIVE, "a"), 'tapped "Approve #7" on "Approve #7?"', "https://x/p1", "1794880000.000100")
+    assert store.load(DRIVE, "a")["prs"][0]["approved_head"] == "h7"
+    answered("a")
+    saying.say(DRIVE, "a", "Landing #7 now.", token=token_of("a"))
+    assert store.load(DRIVE, "a")["prs"][0]["approved_head"] == "h7"
