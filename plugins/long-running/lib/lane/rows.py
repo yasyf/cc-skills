@@ -83,20 +83,21 @@ def judge(drive: str, read: dict[str, dict]) -> int:
         for answered in pool.map(lambda chunk: asked(drive, chunk, read), chunks):
             verdicts |= {pr: verdict | {"rule": key} for pr, verdict in answered.items()}
     marks = presence(drive, files, key)
+    return store.transact(drive, lambda lanes: written(lanes, read, {"guarded": marks, "dangerous": verdicts}, key))
 
-    def written(lanes: dict[str, dict]) -> int:
-        count = 0
-        for lane in lanes.values():
-            for row in lane["prs"]:
-                if (mark := marks.get(landing.key(row))) and mark["head"] == read[landing.key(row)]["head"] and (row.get("guarded") or {}).get("rule") != key:
-                    row["guarded"] = mark
-                    count += 1
-                if (verdict := verdicts.get(landing.key(row))) and verdict["head"] == read[landing.key(row)]["head"] and (row.get("dangerous") or {}).get("rule") != key:
-                    row["dangerous"] = verdict
-                    count += 1
-        return count
 
-    return store.transact(drive, written)
+def written(lanes: dict[str, dict], read: dict[str, dict], judged: dict[str, dict[str, dict]], key: str) -> int:
+    """Write each gate's verdict at a PR's current head on its row, unless the row already holds one at that head under this rule, so a head that moved since its last verdict is judged again. The count written."""
+    count = 0
+    for lane in lanes.values():
+        for row in lane["prs"]:
+            head = read[landing.key(row)]["head"]
+            for gate, verdicts in judged.items():
+                kept = row.get(gate) or {}
+                if (verdict := verdicts.get(landing.key(row))) and verdict["head"] == head and (kept.get("head"), kept.get("rule")) != (head, key):
+                    row[gate] = verdict
+                    count += 1
+    return count
 
 
 def rule(drive: str) -> str:
