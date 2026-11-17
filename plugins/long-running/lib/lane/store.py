@@ -35,6 +35,7 @@ DEFAULTS = {
     "staging_targets": [],
     "staging_env_file": None,
     "after_merge_since": None,
+    "hotfix_cli": None,
 }
 LIVE = "live"
 NOT_LANES = ("rank", "config", "supervisor", "presence", "rulings", "queue", "view", "github", "settled")

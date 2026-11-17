@@ -334,3 +334,22 @@ def test_a_merge_queue_refusal_that_is_no_conflict_tells_the_owner_once_with_the
         said = cli.merged("durable-agents", lane(pr), ["Forge-AI/monorepo#57335"], tmp_path, {}, False)
     assert said.startswith("not landed: the merge queue refused #57335: readiness")
     assert len(woken) == 1 and "release-pr-check is missing" in woken[0]
+
+
+def test_an_open_incidents_fix_merges_outside_the_queue_and_starts_its_hotfix_with_the_components_its_owner_named(monkeypatch, tmp_path) -> None:
+    import subprocess
+
+    from lane import cli, verbs
+
+    ran, woken = [], []
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(store, "update", lambda drive, lane_id, change: None)
+    monkeypatch.setattr(store, "config", lambda drive: {"hotfix_cli": ["ci", "release", "hotfix"]})
+    monkeypatch.setattr(cli, "queue_repo", lambda checkout: "Forge-AI/monorepo")
+    monkeypatch.setattr(verbs, "blocked", lambda drive, lane_id, what, by: woken.append(what))
+    monkeypatch.setattr(verbs, "handover", lambda drive, lane_id, text, by: None)
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: ran.append(argv) or subprocess.CompletedProcess(argv, 0, "build 18900 started", ""))
+    fix = lane(row(58100)) | {"id": "runtime-api-next-app-errors", "incident": {"link": "l", "monitor": "345323874", "fix_live": None, "hotfix_only": "runtime-api-next"}}
+    said = cli.merged("durable-agents", fix, ["Forge-AI/monorepo#58100"], tmp_path, {}, False)
+    assert ran == [["gh", "pr", "merge", "58100", "-R", "Forge-AI/monorepo", "--squash"], ["ci", "release", "hotfix", "58100", "--only", "runtime-api-next"]]
+    assert "build 18900 started" in said and len(woken) == 1

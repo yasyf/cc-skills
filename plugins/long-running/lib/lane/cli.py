@@ -84,6 +84,8 @@ def merged(drive: str, lane: dict, keys: list[str], checkout: Path, held: dict[s
         return f"{lane['id']}: the merge queue holds {', '.join(keys)} ({state})"
     if (row.get("queueEntry") or {}).get("state") == "failed" and row["sha"] == next(pr["head"] for pr in lane["prs"] if landing.key(pr) == keys[-1]):
         return ejected(drive, lane, keys, row) if not dry_run else f"would leave {', '.join(keys)} out: the merge queue failed it at {row['sha'][:12]}"
+    if (incident := lane.get("incident")) and not incident.get("fix_live"):
+        return f"would merge {', '.join(keys)} outside the merge queue and hotfix it, as the fix of an open incident" if dry_run else hotfixed(drive, lane, keys, checkout, incident)
     if dry_run:
         return f"would submit {', '.join(keys)} through #{top}"
     done = subprocess.run([*queue_cli(drive), "submit", top], cwd=checkout, capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
@@ -118,6 +120,25 @@ def conflicted(drive: str, lane: dict, keys: list[str], said: Callable[[], str])
             repo, _, number = key.rpartition("#")
             work.add(drive, "rebase", lane["id"], key, fixes.brief("conflict", repo, int(number), pull), head=pull["head"], touches=[repo], by="lane-land")
     woken(drive, lane, keys, "conflicts", lambda: f"{', '.join(keys)} conflicts with the default branch {said()}; a rebase item is queued for a worker and the next landing pass queues it once rebased, so it needs nothing from you.", block=False)
+
+
+def hotfixed(drive: str, lane: dict, keys: list[str], checkout: Path, incident: dict) -> str:
+    """Land an open incident's fix as the incident rule says: merge it with `gh pr merge --squash`, skipping the merge queue, then start the drive config's hotfix_cli on it with the components the incident names under hotfix_only as --only, and tell the owner what started, with the release tool's own words. With no components named, the owner is told once to name them, since a hotfix with no --only ships every component the release tool pairs with the fix."""
+    repo, _, top = keys[-1].rpartition("#")
+    if not store.config(drive)["hotfix_cli"]:
+        return refused(drive, lane, keys, "it is an open incident's fix, and the drive config names no hotfix_cli to release it with")
+    done = subprocess.run(["gh", "pr", "merge", top, "-R", repo, "--squash"], capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
+    if done.returncode:
+        return refused(drive, lane, keys, f"gh pr merge refused the incident fix {keys[-1]}: {' '.join((done.stdout + done.stderr).split())[:600]}")
+    hold(drive, lane["id"], f"merged the incident fix {', '.join(keys)} outside the merge queue")
+    if not (only := incident.get("hotfix_only")):
+        woken(drive, lane, keys, "hotfix", lambda: f"the incident fix {', '.join(keys)} merged outside the merge queue; name the components its hotfix releases with `lane incident --hotfix-only <a,b>`, and the lander starts the hotfix of each fix it merges from then on. Start this one with `{' '.join(store.config(drive)['hotfix_cli'])} {top} --only <a,b>`.", block=True)
+        return f"{lane['id']}: merged the incident fix {', '.join(keys)}; its hotfix waits on the components its owner names"
+    started = subprocess.run([*store.config(drive)["hotfix_cli"], top, "--only", only], cwd=checkout, capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
+    said = " ".join((started.stdout + started.stderr).split())[:600]
+    what = f"the hotfix of the incident fix {', '.join(keys)} with --only {only} started: {said}" if started.returncode == 0 else f"the hotfix of the incident fix {', '.join(keys)} with --only {only} was refused: {said}"
+    woken(drive, lane, keys, "hotfix", lambda: f"{what}. Watch it to live and record the proof with `lane incident --fix-live <link>`.", block=True)
+    return hold(drive, lane["id"], what)
 
 
 def refused(drive: str, lane: dict, keys: list[str], why: str) -> str:

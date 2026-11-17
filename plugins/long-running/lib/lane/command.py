@@ -296,6 +296,7 @@ def main(argv: list[str] | None = None) -> int:
     incident.add_argument("--link")
     incident.add_argument("--monitor")
     incident.add_argument("--fix-live", help="the proof the fix is live: a permalink or release link, which ends its first rank")
+    incident.add_argument("--hotfix-only", help="the components the fix's hotfix releases, comma-separated, which the lander passes as --only when it hotfixes the fix it merged")
     incident.add_argument("--lane")
 
     verbs_parser.add_parser("show").add_argument("--lane")
@@ -456,7 +457,7 @@ def run(args: argparse.Namespace) -> int:
             print(", ".join(verbs.tapped(drive, *pr_ref(args.ref), args.verb.title(), args.head, args.source)))
         case "incident":
             drive, lane_id = where(args)
-            verbs.set_incident(drive, lane_id, token(), args.link, args.monitor, args.fix_live)
+            verbs.set_incident(drive, lane_id, token(), args.link, args.monitor, args.fix_live, args.hotfix_only)
         case "show":
             print(show(store.load(*where(args))))
         case "list" | "check":
