@@ -195,8 +195,9 @@ def workers(drive: str) -> list[dict]:
 
 
 def alive(worker: dict) -> bool:
+    """Whether a worker still holds one of the drive's `workers` slots: a job that ended, or reported itself blocked after sending its items back, frees its slot at once, so a worker waiting on something only he can clear never keeps queued work from being staffed."""
     job = owners.record(owners.config_dir() / "jobs" / worker["job"] / "state.json") if worker.get("job") else None
-    if job is not None and job.get("state") in ("done", "stopped", "failed"):
+    if job is not None and job.get("state") in ("done", "stopped", "failed", "blocked"):
         return False
     active = owners.active_at({"session": worker["session"]}) if worker.get("session") else None
     return active is None and store.now() - store.parse(worker["started"]) < QUIET or active is not None and store.now() - active < QUIET

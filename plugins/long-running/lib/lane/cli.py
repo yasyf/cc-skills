@@ -344,6 +344,18 @@ def judge(args: argparse.Namespace) -> None:
         print(f"judged {rows.judge(args.drive, rows.view(args.drive))} verdicts")
 
 
+def sandsql(args: argparse.Namespace) -> None:
+    """Print each open premerge-lane PR's SandSQL-work answer at its head, read now and written nowhere, as moves when a clear no lets it merge before its staging test and held otherwise."""
+    read = rows.view(args.drive)
+    key = rows.rule_key(args.drive)
+    premerge = store.config(args.drive)["premerge_lanes"]
+    candidates = [landing.key(row) for lane_id, lane in store.load_all(args.drive).items() if lane_id in premerge for row in rows.seen(lane, read, key, premerge)["prs"] if row["head"] and not row.get("merged")]
+    answers = rows.sandsql_work(args.drive, read, candidates)
+    for pr in candidates:
+        p_yes = answers.get(pr, {}).get("p_yes")
+        print(f"{pr} {'unanswered' if p_yes is None else p_yes} {'moves' if p_yes is not None and p_yes <= rows.CLEARLY_NOT_SANDSQL else 'held'} {read[pr].get('title') or ''}")
+
+
 def verdicts(args: argparse.Namespace) -> None:
     read = rows.view(args.drive)
     rule = rows.rule_key(args.drive)
@@ -445,6 +457,8 @@ def main() -> int:
     verb.set_defaults(run=judge)
     verb = verbs.add_parser("verdicts", help="each lane stack's verdict now, read from GitHub, with no pass lock, no judging and no merge queue call")
     verb.set_defaults(run=verdicts)
+    verb = verbs.add_parser("sandsql", help="ask the SandSQL-work question of every open PR of a premerge lane now and print each answer and whether it would take its staging test before merge, writing nothing")
+    verb.set_defaults(run=sandsql)
     verb = verbs.add_parser("want", help="queue the staging test of the lane's pending stack as a work item; prints the event to wait on, work:<id>, or after_merge")
     verb.add_argument("--lane", required=True)
     verb.set_defaults(run=want)

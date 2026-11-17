@@ -494,3 +494,12 @@ def test_with_no_promotion_known_no_merge_is_queued_for_the_after_merge_batch(mo
     stager.queue("durable-agents", [lane(row(56967, merged=True, merged_at="2026-11-17T00:30:00Z"))])
     stager.queue("durable-agents", [lane(row(56967, merged=True, merged_at="2026-11-17T00:30:00Z"))])
     assert added == [] and (tmp_path / stager.NO_PROMOTION).exists()
+
+
+def test_a_premerge_lane_pr_skips_its_test_before_merge_only_on_a_clear_no_to_whether_it_is_sandsql_work_at_its_head() -> None:
+    def candidate(number: int, p_yes: float, head: str = "h", rule: str = "r") -> dict:
+        return {"repo": "Forge-AI/monorepo", "number": number, "prs_head": head, "sandsql_work": {"head": head, "p_yes": p_yes, "rule": rule}}
+
+    lane_of = {"id": "sandsql-engine", "prs": [candidate(57931, 0.09), candidate(56519, 0.54), candidate(56950, 0.1, head="old"), candidate(57401, 0.05, rule="older")]}
+    read = {f"Forge-AI/monorepo#{number}": {"head": "h"} for number in (57931, 56519, 56950, 57401)}
+    assert [pr["premerge"] for pr in rows.seen(lane_of, read, "r", ["sandsql-engine"])["prs"]] == [False, True, True, True]
