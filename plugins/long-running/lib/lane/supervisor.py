@@ -207,6 +207,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
 
     starts = store.transact(drive, deciding, leaving_unreplied=True)
     alone(drive, errors, "no owner was nudged", lambda: nudge(drive, store.now()))
+    alone(drive, errors, "queue.json kept stale rows", lambda: queue.prune(drive))
     if store.live(drive):
         alone(drive, errors, "no late ask was redelivered", lambda: redeliver(drive, store.now()))
         alone(drive, errors, "no overdue promise was raised", lambda: overdue(drive, store.now()))

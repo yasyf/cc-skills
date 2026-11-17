@@ -1272,3 +1272,15 @@ def test_replaying_the_ringo_thread_a_promised_pr_by_345_with_nothing_after_wake
     assert len(filed) == 1 and filed[0][1] == "lane-core" and "broke a promise" in filed[0][0]
     supervisor.run_pass(DRIVE)
     assert len(filed) == 1
+
+
+def test_each_pass_drops_expired_leases_and_rows_of_resources_the_queue_no_longer_grants(world: dict) -> None:
+    from lane import queue
+
+    opened("a")
+    stale = (store.now() - timedelta(minutes=5)).isoformat()
+    fresh = (store.now() + timedelta(minutes=30)).isoformat()
+    queue.written(DRIVE, {"leases": {"release": [{"holder": "x", "lane": "a", "until": stale}, {"holder": "y", "lane": "a", "until": fresh}], "card": [{"holder": "z", "lane": "a", "until": fresh}]}, "requests": {"staging-env": {"w": {"lane": "a", "at": stale}}}})
+    supervisor.run_pass(DRIVE)
+    left = queue.kept(DRIVE)
+    assert [lease["holder"] for lease in left["leases"]["release"]] == ["y"] and "card" not in left["leases"] and "staging-env" not in left["requests"]

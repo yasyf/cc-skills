@@ -60,6 +60,20 @@ def holding(drive: str, lane_id: str) -> list[str]:
     return [resource for resource, leases in kept(drive)["leases"].items() if resource in CAPACITY and any(lease["lane"] == lane_id and store.parse(lease["until"]) > moment for lease in leases)]
 
 
+def prune(drive: str) -> int:
+    """Drop every lease past its bound and every lease or request of a resource the queue no longer grants, such as the card and staging-env units, so no stale row stands in queue.json; how many went."""
+    moment = store.now()
+    with store.locked(drive):
+        queue = kept(drive)
+        before = sum(len(leases) for leases in queue["leases"].values()) + sum(len(asked) for asked in queue["requests"].values())
+        queue["leases"] = {resource: [lease for lease in leases if store.parse(lease["until"]) > moment] for resource, leases in queue["leases"].items() if resource in CAPACITY}
+        queue["requests"] = {resource: asked for resource, asked in queue["requests"].items() if resource in CAPACITY}
+        after = sum(len(leases) for leases in queue["leases"].values()) + sum(len(asked) for asked in queue["requests"].values())
+        if after != before:
+            written(drive, queue)
+    return before - after
+
+
 def take(drive: str, resource: str, holder: str, lane_id: str, ttl_minutes: int) -> dict:
     """Ask for one of resource for holder, on lane_id's behalf: granted with its bound when a unit is free and no better-ranked lane is asking; else the holder's place in line."""
     if resource not in CAPACITY:

@@ -182,6 +182,7 @@ def view(drive: str) -> dict[str, dict]:
 
 
 @cache
+@cache
 def owner_user() -> dict:
     done = subprocess.run(["cc-slack", "whoami"], capture_output=True, text=True, check=True, timeout=30)
     return json.loads(done.stdout)
