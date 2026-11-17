@@ -1033,3 +1033,20 @@ def test_a_destructive_command_refuses_once_naming_the_withdrawal_and_open_recor
     assert bash_guard.deny_reason(bash("scripts/list-writers -n plat-usw2-staging", cwd=str(cwd))) is None
     inbox.update(mail="", recent=[asked])
     assert bash_guard.deny_reason(bash("scripts/drop-writer -n plat-usw2-staging --now", cwd=str(cwd))) is None
+
+
+def test_a_lane_session_still_meets_the_team_data_guard_and_a_destructive_command_waits_on_his_unanswered_words(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from lane import store as lane_store
+
+    monkeypatch.setattr(bash_guard, "team_data", lambda command, cwd, drives: "refused: a team's data" if "kubectl" in command else None)
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "long-running.toml").write_text('[[destructive]]\nclass = "pod delete"\nmatch = "kubectl delete pod"\n')
+    payload = {"tool_name": "Bash", "tool_input": {"command": "kubectl get secret -n team-a"}, "cwd": str(tmp_path), "hook_event_name": "PreToolUse"}
+    assert bash_guard.lane_reason(payload) == "refused: a team's data"
+    monkeypatch.setattr(bash_guard, "team_data", lambda command, cwd, drives: None)
+    monkeypatch.setenv("LANE_OWNER", "d/a")
+    monkeypatch.setattr(lane_store, "load", lambda drive, lane_id: {"asks": [{"words": "stop deleting pods", "replied": None}]})
+    payload["tool_input"]["command"] = "kubectl delete pod writer-0"
+    assert "stop deleting pods" in bash_guard.lane_reason(payload)
+    monkeypatch.setattr(lane_store, "load", lambda drive, lane_id: {"asks": []})
+    assert bash_guard.lane_reason(payload) is None

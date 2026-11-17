@@ -870,6 +870,22 @@ def deny_reason(payload: dict) -> str | None:
     return next(filter(None, (reason() for reason in reasons)), None)
 
 
+def lane_reason(payload: dict) -> str | agents.Unjudged | None:
+    """The old drive's hard guards, kept for a lane's owner, worker or builder, whose drive calls the lane hook judges instead: a call reading or writing a team's data or reaching a team's namespace through `kubectl`, by team_data, and a destructive command a `[[destructive]]` table of the repository's .claude/long-running.toml matches while his words to the lane wait unanswered, refused until it answers them."""
+    if payload.get("hook_event_name") == "PermissionRequest" or payload["tool_name"] != "Bash":
+        return None
+    command, cwd = payload["tool_input"]["command"], payload.get("cwd") or os.getcwd()
+    if touched := team_data(command, cwd, []):
+        return touched
+    rules = next((folder / state.REPO_RULES for folder in [Path(cwd), *Path(cwd).parents] if (folder / state.REPO_RULES).is_file()), None)
+    if rules is None or not (tables := [table for table in tomllib.loads(rules.read_text()).get("destructive", []) if re.search(table["match"], command)]):
+        return None
+    drive, _, lane_id = os.environ.get("LANE_OWNER", "").partition("/")
+    if not lane_id or not (waiting := lane_store.unreplied(lane_store.load(drive, lane_id))):
+        return None
+    return f"refused: a {tables[0]['class']} command waits while his words to this lane are unanswered, since one of them may stop it: {'; '.join(ask['words'][:200] for ask in waiting)}. Answer them with `lane say` first."
+
+
 def foreground(payload: dict) -> dict | None:
     """A drive session's or drive agent's Bash call running `drive job resume`, set to the one shape it runs in: the foreground with `timeout: 20000`, since a send returns in about 5 seconds and a relaunch moves itself to the background at 20; None when it already runs so."""
     call = payload["tool_input"]
@@ -888,9 +904,10 @@ def main() -> None:
     try:
         payload = agents.seen(json.load(sys.stdin))
         if payload.get("session_id") in lane_store.owner_sessions():
-            return
-        reason = deny_reason(payload)
-        made = foreground(payload)
+            reason, made = lane_reason(payload), None
+        else:
+            reason = deny_reason(payload)
+            made = foreground(payload)
     except ValueError:
         return
     if reason and payload.get("hook_event_name") == "PermissionRequest":
