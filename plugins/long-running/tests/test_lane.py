@@ -1104,3 +1104,23 @@ def test_the_supervisor_starts_an_audit_every_15_minutes_that_files_defects_for_
     assert "a card asking him to merge PRs he already approved" in argv[-1] and "voice.md" in argv[-1] and "defect --what" in argv[-1]
     filed = json.loads(audit.defect(DRIVE, "no 👀 on his 6:25 PM ask", "https://x/p1", "no ack on receipt", "lane-core").read_text())
     assert (filed["kind"], filed["owner"]) == ("fix the system", "lane-core")
+
+
+def test_the_pr_read_of_300_prs_goes_in_chunks_of_40_and_a_failed_chunk_drops_only_its_own(monkeypatch: pytest.MonkeyPatch) -> None:
+    keys = {("acme/app", number) for number in range(1, 301)}
+    asked = []
+
+    def reading(chunk: list[tuple[str, int]], commits: int) -> dict:
+        asked.append(len(chunk))
+        if chunk[0] == ("acme/app", 1):
+            raise subprocess.TimeoutExpired("gh", 45)
+        return {key: {"state": "OPEN"} for key in chunk}
+
+    monkeypatch.setattr(facts, "read_chunk", reading)
+    lost: list[str] = []
+    read = facts.read_prs(keys, commits=1, failed=lost)
+    assert max(asked) == 40 and len(read) == 260 and len(lost) == 1 and "TimeoutExpired" in lost[0]
+    assert asked.count(40) >= 8
+    monkeypatch.setattr(facts, "read_chunk", lambda chunk, commits: (_ for _ in ()).throw(store.Refused("GitHub read failed: unexpected end of JSON input")))
+    with pytest.raises(store.Refused, match="every chunk"):
+        facts.read_prs(keys, commits=1)

@@ -12,9 +12,11 @@ from pathlib import Path
 from lane import store
 
 DONE_ROLLUPS = ("SUCCESS", "FAILURE", "ERROR")
-PRS_PER_QUERY = 50
+PRS_PER_QUERY = 40
+CHUNK_SECONDS = 45
+CHUNK_TRIES = 2
+GH_ENV = "LONG_RUNNING_GH"
 COMMITS_READ = 50
-LIGHT_PRS_PER_QUERY = 100
 READERS = 8
 ALERTING = ("Alert", "Warn", "No Data")
 CHANNEL_EVENT = re.compile(r"^(<@\w+> has (joined|left) the channel|set the channel (description|topic|purpose|name)|renamed the channel)")
@@ -33,13 +35,28 @@ def pr_keys(lanes: dict[str, dict]) -> set[tuple[str, int]]:
     return keys | {pr_ref(event["ref"]) for lane in lanes.values() for event in (lane.get("wait") or {}).get("on", []) if event["kind"] in ("pr_merged", "check")}
 
 
-def read_prs(keys: set[tuple[str, int]], commits: int = COMMITS_READ) -> dict[tuple[str, int], dict]:
-    """Each pull request's state, merged flag, head, base and head branches, its repository's default branch, review decision and check rollup, and its last `commits` commits with their authors, in GraphQL requests of PRS_PER_QUERY run READERS at a time, since one request for the ~490 PRs of twelve lanes outran its 60 seconds. The supervisor's pass asks for one commit, the head's, which is all a wait or the rank reads, so its read stays light; lane-land asks for COMMITS_READ."""
+def read_prs(keys: set[tuple[str, int]], commits: int = COMMITS_READ, failed: list[str] | None = None) -> dict[tuple[str, int], dict]:
+    """Each pull request's state, merged flag, head, base and head branches, its repository's default branch, review decision and check rollup, and its last `commits` commits with their authors, in GraphQL requests of PRS_PER_QUERY run READERS at a time, each with its own timeout and CHUNK_TRIES tries, since the ~516 PRs of twelve lanes timed out or came back cut in bigger requests. A chunk that still fails drops only its own PRs, its why added to failed; refused only when every chunk failed. The supervisor's pass asks for one commit, the head's; lane-land asks for COMMITS_READ."""
     ordered = sorted(keys)
-    size = PRS_PER_QUERY if commits > 1 else LIGHT_PRS_PER_QUERY
-    chunks = [ordered[start : start + size] for start in range(0, len(ordered), size)]
+    chunks = [ordered[start : start + PRS_PER_QUERY] for start in range(0, len(ordered), PRS_PER_QUERY)]
+
+    def tried(chunk: list[tuple[str, int]]) -> dict | str:
+        why = ""
+        for _ in range(CHUNK_TRIES):
+            try:
+                return read_chunk(chunk, commits)
+            except (store.Refused, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+                why = f"{len(chunk)} PRs from {chunk[0][0]}#{chunk[0][1]}: {type(error).__name__}: {str(error)[:200]}"
+        return why
+
     with ThreadPoolExecutor(max_workers=READERS) as pool:
-        return {key: pull for read in pool.map(lambda chunk: read_chunk(chunk, commits), chunks) for key, pull in read.items()}
+        reads = list(pool.map(tried, chunks))
+    lost = [read for read in reads if isinstance(read, str)]
+    if failed is not None:
+        failed += lost
+    if chunks and len(lost) == len(chunks):
+        raise store.Refused(f"GitHub read failed for every chunk: {lost[0]}")
+    return {key: pull for read in reads if isinstance(read, dict) for key, pull in read.items()}
 
 
 def read_chunk(ordered: list[tuple[str, int]], commits: int = COMMITS_READ) -> dict[tuple[str, int], dict]:
@@ -49,7 +66,7 @@ def read_chunk(ordered: list[tuple[str, int]], commits: int = COMMITS_READ) -> d
         parts.append(
             f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ title state merged mergedAt closedAt mergeable headRefOid baseRefName headRefName repository {{ defaultBranchRef {{ name }} }} reviewDecision latestReviews(first: 20) {{ nodes {{ state author {{ login }} commit {{ oid }} }} }} commits(last: {commits}) {{ totalCount nodes {{ commit {{ oid author {{ user {{ login }} }} statusCheckRollup {{ state }} }} }} }} }} }}'
         )
-    done = subprocess.run(["gh", "api", "graphql", "-f", f"query={{ {' '.join(parts)} }}"], capture_output=True, text=True, check=False, timeout=60)
+    done = subprocess.run([os.environ.get(GH_ENV) or "gh", "api", "graphql", "-f", f"query={{ {' '.join(parts)} }}"], capture_output=True, text=True, check=False, timeout=CHUNK_SECONDS)
     if done.returncode:
         raise store.Refused(f"GitHub read failed: {done.stderr.strip()[:300]}")
     data = json.loads(done.stdout)["data"]

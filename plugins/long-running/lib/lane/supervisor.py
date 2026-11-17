@@ -19,6 +19,7 @@ RESTART_WINDOW = timedelta(minutes=30)
 QUIET_BEFORE_NUDGE = timedelta(seconds=60)
 NUDGE_EVERY = timedelta(minutes=10)
 ALERTS = "alerts.jsonl"
+GITHUB = "github.json"
 UNPRODUCED = "nothing is producing what it waits on"
 READERS = 6
 BOOTOUT_SECONDS = 30
@@ -86,6 +87,13 @@ def backoff(lane: dict, moment: datetime, shape: dict) -> timedelta | None:
     return timedelta(minutes=min(60, 5 * 2**over)) if over >= 0 else None
 
 
+def github_read(drive: str, whole: bool) -> None:
+    """Count the passes in a row whose GitHub read failed or came back short, which `lane check` shows red."""
+    path = store.drive_dir(drive) / GITHUB
+    kept = json.loads(path.read_text()) if path.is_file() else {"failed": 0}
+    path.write_text(json.dumps({"failed": 0 if whole else kept["failed"] + 1, "at": store.stamp()}) + "\n")
+
+
 def alone(drive: str, errors: list[str], what: str, step):
     """Run one step of a pass on its own: what it returns, or, when it raises anything, None, with what failed and why in the pass's errors and in the drive's alerts.jsonl, which `lane check` shows, so no step stops another again, as the Approve card's 403 stopped every pass of 1.0.1691."""
     try:
@@ -127,7 +135,11 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         if heard:
             alone(drive, errors, "his words reached no lane", lambda: store.transact(drive, lambda lanes: [verbs.take_messages(drive, lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()]))
         posts = alone(drive, errors, "the voice listed no posts to follow", lambda: voice.followed(drive, moment)) or []
-        prs = alone(drive, errors, "GitHub read failed", lambda: facts.read_prs(facts.pr_keys(store.load_all(drive)) | voice.subject_keys(posts), commits=1)) or {}
+        lost: list[str] = []
+        keys = facts.pr_keys(store.load_all(drive)) | voice.subject_keys(posts)
+        prs = alone(drive, errors, "GitHub read failed", lambda: facts.read_prs(keys, commits=1, failed=lost)) or {}
+        errors += [f"GitHub read dropped {why}" for why in lost]
+        github_read(drive, not lost and (bool(prs) or not keys))
         if prs:
             alone(drive, errors, "his GitHub reviews were not read", lambda: reviewed(drive, prs, facts.his_login(drive)))
         if prs and posts:
@@ -298,6 +310,10 @@ def check(drive: str) -> tuple[bool, list[str]]:
         blocked = [entry for entry in board.entries(drive, lane_id) if entry["words"].startswith("blocked, from ")]
         if blocked and moment - store.parse(blocked[-1]["at"]) < timedelta(hours=1):
             lines.append(f"{lane_id}: BLOCKED {blocked[-1]['words'].removeprefix('blocked, from ')}")
+    read = store.drive_dir(drive) / GITHUB
+    if read.is_file() and (failed := json.loads(read.read_text())["failed"]):
+        good = False
+        lines.append(f"GitHub read failed {failed} pass{'es' * (failed != 1)} in a row")
     alerts = store.drive_dir(drive) / ALERTS
     for row in [json.loads(line) for line in alerts.read_text().splitlines()[-20:]] if alerts.is_file() else []:
         if moment - store.parse(row["at"]) < timedelta(minutes=15):
@@ -346,6 +362,8 @@ def supervise(drive: str) -> None:
     here = Path(__file__).resolve().parents[2]
     store.launcher(drive)
     loaded = code_stamp()
+    if gh := store.config(drive).get("gh"):
+        os.environ[facts.GH_ENV] = gh
     heartbeat(drive, store.now(), [])
     if store.live(drive):
         try:
