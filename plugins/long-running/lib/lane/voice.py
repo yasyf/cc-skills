@@ -6,6 +6,7 @@ The owner never waits on Jev or Slack. The daemon formats the post, has Jev move
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -59,8 +60,13 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         **({"options": options} if options else {}),
     }
     request = urllib.request.Request(VOICE_URL, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getppid())})
-    with urllib.request.urlopen(request, timeout=ENQUEUE_SECONDS) as answer:
-        return f"QUEUED {json.load(answer)['id']}"
+    try:
+        with urllib.request.urlopen(request, timeout=ENQUEUE_SECONDS) as answer:
+            return f"QUEUED {json.load(answer)['id']}"
+    except urllib.error.HTTPError as refused:
+        if refused.code == 422:
+            raise store.Refused(refused.read().decode().strip()) from refused
+        raise
 
 
 def asked_thread(lane: dict, about_ts: str | None) -> str:
