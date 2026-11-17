@@ -1,0 +1,169 @@
+{
+  "_about": "Each quote the pages attribute to him, with where he said it: a rulings.shared.json row by its at, a lane ask, an old-drive feedback item, a Slack permalink or a session and time. ours lists quoted passages on those pages that are our own examples, never his. tests/test_his_words.py fails a page quoting him with a passage in neither list and no source written beside it.",
+  "his": [
+    {
+      "passage": "a page always comes with 1) a channel message in a drive channel, and 2) in parallel needs to start working on a fix",
+      "source": "ruling 2026-11-16T16:53:36Z https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794848016034749?thread_ts=1794847681.824529&cid=C0CHZM7A478"
+    },
+    {
+      "passage": "a queue of jobs to be done and then workers (local or mac box or sprite) pulling groups of appropriate work off the queue continuously",
+      "source": "feedback item 151 (2026-11-16 11:43:55 UTC)"
+    },
+    {
+      "passage": "ack and pause makes no sense here, and why is it asking me to confirm in general when I literally just said it",
+      "source": "feedback item 138 (2026-11-16 11:22:54 UTC)"
+    },
+    {
+      "passage": "all the ones I've approved you can carry over the approvals, let's just get stuff moving",
+      "source": "ruling 2026-11-16T22:13:00Z relayed"
+    },
+    {
+      "passage": "be over communicative about it, ai-oncall style",
+      "source": "ruling 2026-11-16T16:53:36Z https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794848016034749?thread_ts=1794847681.824529&cid=C0CHZM7A478"
+    },
+    {
+      "passage": "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model",
+      "source": "feedback item 40 (2026-11-16 07:07:05 UTC)"
+    },
+    {
+      "passage": "do you expect me to go find that myself? it should be embedded or reproduced here, reproduced probably to make it easy, it always needs to be thinking about how to make my life easier",
+      "source": "feedback item 97 (2026-11-16 09:45:06 UTC)"
+    },
+    {
+      "passage": "flesh out what that will look like not just wave your hands",
+      "source": "ask 1794565882.586299"
+    },
+    {
+      "passage": "for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages",
+      "source": "feedback item 106 (2026-11-16 10:09:39 UTC)"
+    },
+    {
+      "passage": "how can you say this new version is working if its been 6 hours and those two still aren't assigned?",
+      "source": "ruling 2026-11-17T03:27:11Z relayed"
+    },
+    {
+      "passage": "if I approve something its approved",
+      "source": "ruling 2026-11-17T02:14:24Z relayed"
+    },
+    {
+      "passage": "imagine ur a human, is that useful at all?",
+      "source": "feedback item 189 (2026-11-16 21:12:40 UTC)"
+    },
+    {
+      "passage": "it should be eyes when reading/responding, construction if doing something async, and none otherwise, and checkmark if handled (if there was something to handle, else none)",
+      "source": "feedback item 185 (2026-11-16 20:33:50 UTC)"
+    },
+    {
+      "passage": "it would be good to move to lower-volume of slack messages and have it link to the dashboard for more granular things",
+      "source": "feedback item 58 (2026-11-16 08:10:11 UTC)"
+    },
+    {
+      "passage": "just land this then do a follow up",
+      "source": "ask 1794472678.942439"
+    },
+    {
+      "passage": "let me check if there's anything else pending I can pull in",
+      "source": "feedback item 198 (2026-11-16 21:29:40 UTC)"
+    },
+    {
+      "passage": "make this a prio lane",
+      "source": "ask 1794863488.099589"
+    },
+    {
+      "passage": "messages should be tagged such that when the thing underneath them (such as an approval) changes they change state, automatically or by agent depending on the situation",
+      "source": "feedback item 226 (2026-11-17 02:19:43 UTC)"
+    },
+    {
+      "passage": "most of the messages in this thread should be channel messages; for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages",
+      "source": "feedback item 106 (2026-11-16 10:09:39 UTC)"
+    },
+    {
+      "passage": "most things that aren't immediate replies to the thread or directly relevant should be channel messages",
+      "source": "feedback item 106 (2026-11-16 10:09:39 UTC)"
+    },
+    {
+      "passage": "needs more formatting, don't make this hard-coded, teach the communicator better the right preferences and way to think about things",
+      "source": "feedback item 143 (2026-11-16 11:28:02 UTC)"
+    },
+    {
+      "passage": "no one looks at those",
+      "source": "feedback item 125 (2026-11-16 11:00:56 UTC)"
+    },
+    {
+      "passage": "since I explicitly asked for the testing to be done (this is an example, dont hard code to testing), it should send regular updates on the progress and bugs it found or things its validated",
+      "source": "feedback item 149 (2026-11-16 11:40:57 UTC)"
+    },
+    {
+      "passage": "since I explicitly asked for the testing to be done … it should send regular updates",
+      "source": "feedback item 149 (2026-11-16 11:40:57 UTC)"
+    },
+    {
+      "passage": "spin up another prio lane on cloud agents",
+      "source": "ask 1794828864.620649"
+    },
+    {
+      "passage": "still has raw URLs, should use block kit to show more formatting/dynamic elements, and probably a visual of progress would have helped here too. it also could have embedded the [release tool's] release card from 1 and done other things I might find useful without being spammy",
+      "source": "feedback item 97 (2026-11-16 09:45:06 UTC)"
+    },
+    {
+      "passage": "teach the communicator better the right preferences and way to think about things",
+      "source": "feedback item 143 (2026-11-16 11:28:02 UTC)"
+    },
+    {
+      "passage": "the 3rd and 4th clusters",
+      "source": "ruling 2026-11-17T00:58:15Z relayed"
+    },
+    {
+      "passage": "the buttons are all cut off I have no idea what they're saying",
+      "source": "ruling 2026-11-17T03:37:56Z relayed"
+    },
+    {
+      "passage": "the eyes emoji never came off the root post of that thread, probably should change to a 'work in progress' emoji",
+      "source": "feedback item 144 (2026-11-16 11:28:02 UTC)"
+    },
+    {
+      "passage": "the true generative UI pages (one should always be created for a priority project, and then as deemed fit by the communicator any other times, but it should be a tool that is used)",
+      "source": "feedback item 77 (2026-11-16 09:01:46 UTC)"
+    },
+    {
+      "passage": "these kind of status updates should just be in the spinner/loader slack agent thing",
+      "source": "ask https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794480690614589"
+    },
+    {
+      "passage": "these kind of status updates should just be in the spinner/loader slack agent thing … instead of needing to be whole messages",
+      "source": "feedback item 61 (2026-11-16 08:14:55 UTC)"
+    },
+    {
+      "passage": "this is only cloud agents? No real users? Then shouldn't have paged me. If it's real users and it's impacting runs or local chats / agents page me",
+      "source": "ruling 2026-11-16T12:25:01Z https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794831901020669"
+    },
+    {
+      "passage": "this message is terrible. don't follow our standards at all; the URL is not even a hyperlink on text, it's just pasted in",
+      "source": "feedback item 94 (2026-11-16 09:36:53 UTC)"
+    },
+    {
+      "passage": "we dont have a literal freeze on but no releases…",
+      "source": "ruling 2026-11-13T19:09:39Z https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794596979308939"
+    },
+    {
+      "passage": "we dont need a staging hold to test on the 3rd and 4th clusters on staging",
+      "source": "ruling 2026-11-17T00:58:15Z relayed"
+    },
+    {
+      "passage": "we need to find a better balance; first it was always using subagents, now never, it needs to strike the balance of replying quickly when it has the context at hand, but handing off to a subagent (with the relevant context handed to it) to do some further research then respond when it's more involved so it can be freed up for the next incoming message",
+      "source": "feedback item 122 (2026-11-16 10:43:29 UTC)"
+    },
+    {
+      "passage": "why is it asking me to confirm in general when I literally just said it",
+      "source": "feedback item 138 (2026-11-16 11:22:54 UTC)"
+    },
+    {
+      "passage": "your messages need to be way shorter rewrite this for a human",
+      "source": "ruling 2026-11-10T05:33:48Z https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794288828013049"
+    }
+  ],
+  "ours": [
+    "Staging is testing the journal stack; results by 3:38 PM.",
+    "the run page and its step fill read a run journal's kept rows only, pricing its token sums: the run page reads a run's kept journal rows only"
+  ]
+}

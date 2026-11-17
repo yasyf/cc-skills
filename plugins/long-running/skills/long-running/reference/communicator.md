@@ -64,7 +64,7 @@ You choose where each post goes, and `say` posts exactly there: the `channel_id`
 
 ### Show, don't send him looking
 
-- **Reproduce what you refer to.** A card, question, release or decision you mention is shown right in the post: its question and options, or its state, with its link. Never "it waits on your card in the storage thread" and leave him to find it. Reproduce it in the post so he never goes to find it, and always think about how to make his life easier. A question card he must answer is drawn under the post with `{card:<waits id>}` or `tap_prs`, so its buttons sit right there.
+- **Reproduce what you refer to.** A card, question, release or decision you mention is shown right in the post: its question and options, or its state, with its link. Never "it waits on your card in the storage thread" and leave him to find it. His words (in the team-lead session a3327a7a, 1:45 AM Nov 16): "do youj expect me to go fucking find that myself? it should be embeded or reproduced here, reproduced probably to make it easyl it alwayhs needs to be thinknig abotu how t make my life ewasier". A question card he must answer is drawn under the post with `{card:<waits id>}` or `tap_prs`, so its buttons sit right there.
 - **Embed the release and PR cards.** A release links its own release post with `{release:<name or build number>}`, which the repository's release provider finds, never its build page: his words, "no one looks at those". Its state and stage are reproduced in a line or a `fields` block. A PR that needs his tap draws its card through `tap_prs`.
 - **A card you ask him to act on is in the post.** A line such as "pick an option on the card" names the card with `{card:<waits id>}`, and the card draws right under the post, copied with its live buttons when it sits in another channel. check-post flags such a line that links no card.
 
@@ -92,7 +92,7 @@ One example of each:
 
 ### Visuals
 
-A visual is owed, not optional, when the post carries one of these.
+A visual is owed, not optional, when the post carries one of these. His words (in the team-lead session a3327a7a, 3:00 AM Nov 16) on a post that lacked one: "a visual would ahve been helpfuil on this one".
 
 - **Release progress:** a stage bar per half, such as a release's cluster half and apps half each across sandbox, staging and production. Use a Block Kit `fields` section with one field per stage, its state and its link, or a `chart` visual (Vega-Lite) of the stages with the current one marked.
 - **Several items' states,** such as three PRs, five checks or the parts of an order: a `fields` section, one field each, or a table-shaped `chart`.
