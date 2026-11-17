@@ -118,7 +118,7 @@ def exclusive(path: Path) -> Iterator[bool]:
 
 
 def land(args: argparse.Namespace) -> None:
-    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, writes each unjudged head's verdict by rows.judge, prints what his Approve lands now in each lane, reads the merge queue's row for every unit in one call, and in live mode submits every unit the queue does not hold by merged(), UNITS_AT_ONCE at a time, and exits; the next pass reads what came of each."""
+    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, uses each head's verdict the judge worker already wrote, never judging inside the pass, prints what his Approve lands now in each lane, reads the merge queue's row for every unit in one call, and in live mode submits every unit the queue does not hold by merged(), UNITS_AT_ONCE at a time, and exits; the next pass reads what came of each."""
 
     here = Path(__file__).resolve().parents[2]
     with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}{'-' + '-'.join(args.lane) if args.lane else ''}.lock") as mine:
@@ -129,7 +129,6 @@ def land(args: argparse.Namespace) -> None:
         releases.write(args.drive)
         read = rows.view(args.drive)
         rule = rows.rule_key(args.drive)
-        rows.judge(args.drive, read)
         units = []
         for lane in [rows.seen(lane, read, rule) for lane in store.load_all(args.drive).values() if not args.lane or lane["id"] in args.lane]:
             for verdict in landing.verdicts(lane):
@@ -158,6 +157,15 @@ def land(args: argparse.Namespace) -> None:
                 print(said)
 
 
+def judge(args: argparse.Namespace) -> None:
+    """Write each unjudged head's danger verdict and repository mark, by rows.judge, as a worker of its own beside the landing pass, never inside it: a pass reads the verdicts already written, and a head judged after the pass read it lands on the next."""
+    with exclusive(store.drive_dir(args.drive) / LANDING / "judge.lock") as mine:
+        if not mine:
+            print("another judge runs; this one ends")
+            return
+        print(f"judged {rows.judge(args.drive, rows.view(args.drive))} verdicts")
+
+
 def verdicts(args: argparse.Namespace) -> None:
     read = rows.view(args.drive)
     rule = rows.rule_key(args.drive)
@@ -167,15 +175,16 @@ def verdicts(args: argparse.Namespace) -> None:
 
 
 def spawn(drive: str) -> None:
-    """Start one detached lane-land land for the drive, the supervisor's landing step each pass once live, after reap() ends the landers it started that an install has superseded or that ran past PASS_SECONDS; its reservations keep two from queueing one unit, and each start is recorded under landing/landers so the supervisor that started it can end it."""
+    """Start one detached lane-land land and one lane-land judge for the drive, the supervisor's landing step each pass once live, each under its own lock so neither piles up, after reap() ends the landers it started that an install has superseded or that ran past PASS_SECONDS; its reservations keep two from queueing one unit, and each start is recorded under landing/landers so the supervisor that started it can end it."""
     if not stager.live(drive):
         return
     reap(drive)
     here = Path(__file__).resolve().parents[2]
-    started = subprocess.Popen([str(here / "bin" / "lane-land"), "--drive", drive, "land"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     folder = store.drive_dir(drive) / LANDING / LANDERS
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / f"{started.pid}.json").write_text(json.dumps({"pid": started.pid, "install": here.name, "at": store.stamp()}) + "\n")
+    for verb in ("land", "judge"):
+        started = subprocess.Popen([str(here / "bin" / "lane-land"), "--drive", drive, verb], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        (folder / f"{started.pid}.json").write_text(json.dumps({"pid": started.pid, "install": here.name, "at": store.stamp(), "verb": verb}) + "\n")
 
 
 def reap(drive: str) -> list[int]:
@@ -186,7 +195,7 @@ def reap(drive: str) -> list[int]:
     for record in sorted(folder.glob("*.json")) if folder.is_dir() else []:
         started = json.loads(record.read_text())
         command = subprocess.run(["ps", "-o", "command=", "-p", str(started["pid"])], capture_output=True, text=True, check=False).stdout
-        if f"lane-land --drive {drive} land" not in command:
+        if f"lane-land --drive {drive} {started.get('verb', 'land')}" not in command:
             record.unlink()
             continue
         if started["install"] == newest and store.now() - store.parse(started["at"]) <= timedelta(seconds=PASS_SECONDS):
@@ -234,6 +243,8 @@ def main() -> int:
     verb.add_argument("--dry-run", action="store_true", help="run the merge queue's --check for each landing unit and queue nothing")
     verb.add_argument("--lane", action="append", help="land only this lane's units, beside any whole-drive pass; repeatable")
     verb.set_defaults(run=land)
+    verb = verbs.add_parser("judge", help="write each unjudged head's danger verdict and repository mark, as its own worker beside the landing pass")
+    verb.set_defaults(run=judge)
     verb = verbs.add_parser("verdicts", help="each lane stack's verdict now, read from GitHub, with no pass lock, no judging and no merge queue call")
     verb.set_defaults(run=verdicts)
     verb = verbs.add_parser("stage", help="start the drive's stager now when a lane waits on a staging test and the env is free")
