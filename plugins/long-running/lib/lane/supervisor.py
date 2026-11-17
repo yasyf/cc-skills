@@ -40,6 +40,9 @@ PREFLIGHT = "preflight"
 PREFLIGHT_SECONDS = 300
 REPLAY = timedelta(hours=1)
 PREFLIGHTS: dict[str, tuple[subprocess.Popen, float]] = {}
+FETCHING: dict[str, subprocess.Popen] = {}
+RELEASE_FILE = "release.json"
+BEHIND = timedelta(minutes=10)
 HOME_REPO = "yasyf/cc-skills"
 HOME_CI = "long-running CI"
 CI_ANCESTORS = 5
@@ -437,6 +440,9 @@ def check(drive: str) -> tuple[bool, list[str]]:
         stale = (moment - at).total_seconds() > 3 * shape["pass_seconds"] + 60
         good &= not stale
         lines.append(f"supervisor: last pass {store.stamp(at)}{' STALE' if stale else ''}")
+    if late := behind(drive):
+        good = False
+        lines.append(f"install: {late}")
     lanes = store.load_all(drive)
     if len(store.active(lanes)) > shape["active"]:
         lines.append(f"queue: {len(store.active(lanes))} lanes active, over the cap of {shape['active']}; the lowest ranked is {next((lane_id for lane_id in reversed(rank.last(drive).get('order', [])) if lane_id in store.active(lanes)), '?')}, for him to park")
@@ -773,6 +779,36 @@ def code_stamp() -> float:
     return max(path.stat().st_mtime for path in Path(__file__).parent.iterdir() if path.suffix in (".py", ".md"))
 
 
+def fetch_release(here: Path) -> None:
+    """Start one background fetch of the plugin's newest release, the marketplace's update then the plugin's, when none is running, so a tag cut on main installs within a pass whether or not Claude Code's own auto-update runs; the gate still decides whether the drive takes it."""
+    if not store.install_version(here / "bin" / "lane") or (running := FETCHING.get("release")) and running.poll() is None:
+        return
+    plugin, marketplace = here.parent.name, here.parent.parent.name
+    FETCHING["release"] = subprocess.Popen(["sh", "-c", f"claude plugin marketplace update {marketplace} && claude plugin update {plugin}@{marketplace} --scope user"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def released(here: Path) -> str | None:
+    """The newest release the plugin's marketplace names, as its last update read it."""
+    manifest = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "plugins" / "marketplaces" / here.parent.parent.name / "plugins" / here.parent.name / ".claude-plugin" / "plugin.json"
+    return json.loads(manifest.read_text())["version"] if manifest.is_file() else None
+
+
+def behind(drive: str) -> str | None:
+    """Why the drive runs behind the plugin's newest release for longer than BEHIND, the first time a check saw that release uninstalled kept in the drive's release file; None while it is installed or newer than BEHIND."""
+    here = newest_install()
+    path = store.drive_dir(drive) / RELEASE_FILE
+    newest = released(here)
+    if newest is None or store.install_version(here / "bin" / "lane") >= tuple(int(piece) for piece in newest.split(".")):
+        path.unlink(missing_ok=True)
+        return None
+    seen = json.loads(path.read_text()) if path.is_file() else {}
+    if seen.get("version") != newest:
+        seen = {"version": newest, "since": store.stamp()}
+        path.write_text(json.dumps(seen) + "\n")
+    waited = store.now() - store.parse(seen["since"])
+    return f"release {newest} has gone uninstalled for {int(waited.total_seconds() // 60)} min; the newest install is {here.name}" if waited > BEHIND else None
+
+
 def newest_install() -> Path:
     """The newest installed copy of this plugin, as its hooks resolve it, or this copy when it runs from a checkout."""
     return Path(runpy.run_path(str(Path(__file__).resolve().parents[2] / "hooks" / "installed.py"))["root"]()).resolve()
@@ -798,6 +834,7 @@ def supervise(drive: str) -> None:
             print(f"his dashboard was not reloaded: {failed}", flush=True)
     while code_stamp() == loaded:
         run_pass(drive, read_outside=False)
+        fetch_release(here)
         if (newest := newest_install()) != here and preflighted(drive, newest):
             store.point(drive, newest / "bin" / "lane")
             for still in list(RUNNING_STEPS.values()):
