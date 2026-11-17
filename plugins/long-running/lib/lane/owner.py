@@ -105,6 +105,23 @@ def active_at(owner: dict) -> datetime | None:
     return datetime.fromtimestamp(max(path.stat().st_mtime for path in paths), UTC)
 
 
+def quiet_since(owner: dict) -> datetime | None:
+    """Since when the owner's session has been between turns, idle or waiting on its own builders, from its session record; None while it works or before its record exists."""
+    kept = record(config_dir() / "sessions" / f"{owner['pid']}.json") if owner.get("pid") else None
+    if not kept or kept.get("sessionId") != owner.get("session") or kept.get("status") == "busy":
+        return None
+    return datetime.fromtimestamp(kept["statusUpdatedAt"] / 1000, UTC)
+
+
+def deliver(owner: dict, text: str) -> None:
+    """Put text before the owner's session as a message from another of his sessions, which starts a turn in a session between turns, so words reach an owner whose hooks would only show them at a tool call it is not making: a one-call `claude -p` in the owners' permission class sends it with SendMessage, by the session name its job carries, in the background."""
+    job = record(config_dir() / "jobs" / owner["job"] / "state.json") if owner.get("job") else None
+    if not job or not job.get("name"):
+        return
+    prompt = f'Call the SendMessage tool exactly once, with to set to "{job["name"]}" and message set to the text between the markers, verbatim. Do nothing else.\n<<<\n{text}\n>>>'
+    subprocess.Popen(["claude", "-p", "--model", "haiku", "--permission-mode", "bypassPermissions", "--strict-mcp-config", "--", prompt], cwd=store.root(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
 def in_flight(owner: dict) -> int:
     """How many background agents and tasks the owner's own session runs now, from its job's record."""
     job = record(config_dir() / "jobs" / owner["job"] / "state.json") if owner.get("job") else None
@@ -166,6 +183,7 @@ def settings(drive: str, lane_id: str, token: str) -> dict:
     }
     shaped["permissions"] = {"deny": OLD_DRIVE_DENY + ([] if store.live(drive) else SHADOW_DENY)}
     shaped["enabledPlugins"] = {key: False for key in old_drive_plugins()}
+    shaped["crossSessionInbound"] = "accept"
     return shaped
 
 

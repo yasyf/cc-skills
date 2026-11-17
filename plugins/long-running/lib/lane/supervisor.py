@@ -15,6 +15,8 @@ from lane import facts, page, queue, rank, store, verbs
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
+QUIET_BEFORE_NUDGE = timedelta(seconds=60)
+NUDGE_EVERY = timedelta(minutes=10)
 READERS = 6
 BOOTOUT_SECONDS = 30
 BOOTSTRAP_TRIES = 10
@@ -171,12 +173,37 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         return starts
 
     starts = store.transact(drive, deciding, leaving_unreplied=True)
+    nudge(drive, store.now())
     with ThreadPoolExecutor(max_workers=READERS) as pool:
         errors += [error for error in pool.map(lambda start: launching(drive, start, shape), starts) if error]
     if read_outside:
         heartbeat(drive, store.now(), errors)
         lane_land.spawn(drive)
     return {"started": [start["lane"] for start in starts if start["token"]], "errors": errors}
+
+
+def nudge(drive: str, moment: datetime) -> None:
+    """Put his unanswered words and a note set while it runs before each running owner that has sat between turns for QUIET_BEFORE_NUDGE, at most once a NUDGE_EVERY each, as a message that starts its turn: its hooks show them only at a tool call, which an owner waiting on its builders is not making."""
+
+    def nudging(lane: dict) -> str | None:
+        owner = lane["owner"]
+        waiting = store.unreplied(lane)
+        note = store.note_path(drive, lane["id"])
+        if not (waiting or note.is_file() and note.read_text().strip()):
+            return None
+        if not (quiet := owners.quiet_since(owner)) or moment - quiet < QUIET_BEFORE_NUDGE:
+            return None
+        if (last := owner.get("nudged")) and moment - store.parse(last) < NUDGE_EVERY:
+            return None
+        owner["nudged"] = store.stamp(moment)
+        said = "".join(f"His words to lane {lane['id']} at {ask['at']}{', ' + ask['link'] if ask.get('link') else ''}, not answered yet; answer them with `lane say` before anything else:\n{ask['words']}\n\n" for ask in waiting)
+        return said + (f"A note for lane {lane['id']}, set while you run; any words of his in it are owed an answer with `lane say`:\n{note.read_text()}" if note.is_file() else "")
+
+    for lane_id, lane in store.load_all(drive).items():
+        if lane["state"] != store.RUNNING or not nudging(dict(lane, owner=dict(lane["owner"]))):
+            continue
+        if text := store.update(drive, lane_id, lambda lane: nudging(lane) if lane["state"] == store.RUNNING else None, leaving_unreplied=True):
+            owners.deliver(store.load(drive, lane_id)["owner"], text)
 
 
 def launching(drive: str, start: dict, shape: dict) -> str | None:

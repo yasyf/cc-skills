@@ -833,3 +833,19 @@ def test_an_owner_whose_session_and_builders_wrote_nothing_for_half_an_hour_is_s
     assert store.now() - owners.active_at({"session": "s1"}) > owners.STALLED_AFTER
     builder.write_text("{}\n{}\n")
     assert store.now() - owners.active_at({"session": "s1"}) < owners.STALLED_AFTER
+
+
+def test_his_word_to_an_owner_between_turns_is_put_before_it_as_a_message_once_in_a_while(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = []
+    quiet = {"at": None}
+    monkeypatch.setattr(owners, "quiet_since", lambda owner: quiet["at"])
+    monkeypatch.setattr(owners, "deliver", lambda owner, text: sent.append(text))
+    opened("a")
+    answered("a")
+    verbs.message(DRIVE, "a", "where does #57961 stand?", None, "1794876000.000100")
+    supervisor.run_pass(DRIVE)
+    assert sent == []
+    quiet["at"] = store.now() - timedelta(minutes=2)
+    supervisor.run_pass(DRIVE)
+    supervisor.run_pass(DRIVE)
+    assert len(sent) == 1 and "where does #57961 stand?" in sent[0]
