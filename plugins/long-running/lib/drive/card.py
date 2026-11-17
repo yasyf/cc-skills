@@ -854,7 +854,6 @@ def on_his_card(known: dict[str, tuple[str, dict]], founds: dict[str, dict | Non
 
 
 LANE_UNTAPPED = "it waits on no tap of his in its lane now: approved, held, or not yet green and reviewed, so no PR card draws, since it would offer him no Approve"
-LANE_UNNAMED = "its lane has not named its stack in a few words yet, which titles the card, so no PR card draws until it does"
 LANE_REFUSED = "it waits on no tap of his in its lane at this head"
 
 
@@ -883,7 +882,7 @@ def lane_held(asked: list[dict]) -> dict[str, tuple[str, str, dict]]:
 
 
 def lane_cards(held: dict[str, tuple[str, str, dict]], redraw: bool = False) -> dict:
-    """The PR-group cards of the asked PRs live lane drives hold, the cards approve.draw asks cc-slack for: one per ready stack of the lane holding each, by approve.ready_stacks, bottom first, drawn by render or render_stack as the old drive's cards are, titled whole by the lane's name for the stack, approve.stack_name, and never drawn for a stack with no name that fits the title, with Approve and Hold while its PRs ask his tap at the heads GitHub reads. A PR in no ready stack draws on a redraw as it stands now, with no Approve, on the stack the lane's card last asked it in, and is skipped on a fresh ask, since its card would offer him no Approve."""
+    """The PR-group cards of the asked PRs live lane drives hold, the cards approve.draw asks cc-slack for: one per ready stack of the lane holding each, by approve.ready_stacks, bottom first, drawn by render or render_stack as the old drive's cards are, titled whole by the lane's name for the stack, or its bottom PR's GitHub title while it has none, by approve.card_title, its body led by the lane's own line on what the stack changes and what waits on it, lane_why, with Approve and Hold while its PRs ask his tap at the heads GitHub reads. A PR in no ready stack draws on a redraw as it stands now, with no Approve, on the stack the lane's card last asked it in, and is skipped on a fresh ask, since its card would offer him no Approve."""
     from lane import approve, page
 
     found, skipped = [], []
@@ -908,13 +907,26 @@ def lane_cards(held: dict[str, tuple[str, str, dict]], redraw: bool = False) -> 
             skipped += [skip(key, "drive card could not read it from GitHub") for key in stack if key not in reads and key in keys]
             if not (members := [key for key in stack if key in reads]):
                 continue
-            if not approve.named(name := approve.stack_name(lane, dict.fromkeys(members))):
-                skipped += [skip(key, LANE_UNNAMED) for key in stack if key in keys]
-                continue
-            card = drawn_card([(reads[key], lane_entry(key, rows[key], reads[key], tappable), (), ()) for key in members], False) | {"title": name}
+            card = drawn_card([(reads[key], lane_entry(key, rows[key], reads[key], tappable), (), ()) for key in members], False)
+            card["title"] = approve.card_title(lane, dict.fromkeys(members), page.view(drive)["prs"])
+            card["body"] = "\n\n".join(filter(None, [lane_why(lane, members, page.view(drive)["prs"]), card.get("body")]))
             repo, number = members[0].split("#")
             found.append({"repo": repo, "number": int(number), "card": card})
     return {"cards": found, "skipped": skipped}
+
+
+def lane_why(lane: dict, members: list[str], seen: dict) -> str:
+    """The card's first line, in the owner's own words from the lane: its plain plan, what its wait says the stack's merge lets go, and the approved PRs under it that his tap lands it on."""
+    from lane import page
+
+    numbers = {key.rpartition("#")[2] for key in members}
+    wait = (lane.get("wait") or {}).get("why") or ""
+    branches = {(key.rpartition("#")[0], pull.get("branch")): key for key, pull in seen.items() if pull["state"] == "OPEN"}
+    under, key = [], members[0]
+    while (key := branches.get((key.rpartition("#")[0], (seen.get(key) or {}).get("base")))) and key in page.approved(lane) and key not in under:
+        under.append(key)
+    under = [f"#{key.rpartition('#')[2]}" for key in under]
+    return " ".join(filter(None, [lane.get("says"), wait if any(f"#{number}" in wait for number in numbers) else "", f"It lands on {', '.join(under)}, which you approved." if under else ""]))
 
 
 def lane_entry(key: str, row: dict, pr: dict, tappable: dict[str, str]) -> dict:

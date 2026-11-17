@@ -936,7 +936,7 @@ def test_the_supervisor_asks_cc_slack_for_a_pr_group_card_per_ready_stack_and_hi
     supervisor.run_pass(DRIVE)
     supervisor.run_pass(DRIVE)
     lane = store.load(DRIVE, "a")
-    assert not lane.get("cards") and [lane["handover"].count(approve.NAME_ASK.format(key=key)) for key in ("acme/app#7", "acme/app#8")] == [1, 1]
+    assert len(lane["cards"]) == 2 and [lane["handover"].count(approve.NAME_ASK.format(key=key)) for key in ("acme/app#7", "acme/app#8")] == [1, 1]
     verbs.add_pr(DRIVE, "a", token_of("a"), "acme/app", 7, "Readers take a file with no mint row")
     verbs.add_pr(DRIVE, "a", token_of("a"), "acme/app", 8, "x" * (approve.NAME_CHARS + 1))
     supervisor.run_pass(DRIVE)
@@ -977,7 +977,7 @@ def test_the_card_command_draws_a_lane_stack_as_the_old_pr_group_card_ahead_of_a
 
     monkeypatch.setattr(card, "github_reads", read)
     monkeypatch.setattr(card, "drive_cards", lambda asked, redraw=False: pytest.fail(f"{asked} went to the old drive"))
-    assert card.cards([{"repo": "acme/app", "number": 8}])["skipped"][0]["reason"] == card.LANE_UNNAMED
+    assert card.cards([{"repo": "acme/app", "number": 8}])["cards"][0]["card"]["title"] == "acme/app#7"
     name = "Every file goes through blobstore, cells hold pointers, and SandSQL keeps no per-file bookkeeping of its own anywhere: one shared pool"
     store.update(DRIVE, "a", lambda lane: lane["prs"][0].__setitem__("words", name))
     [drawn] = card.cards([{"repo": "acme/app", "number": 8}])["cards"]
@@ -1643,3 +1643,15 @@ def test_a_pr_of_a_sandsql_lane_marked_no_sandsql_work_at_its_head_needs_no_stag
     read = {"acme/app#58092": {"head": "2eaba576e"}}
     assert rows.seen(lane, read, "r", ["a"])["prs"][0]["premerge"] is False
     assert rows.seen(lane, {"acme/app#58092": {"head": "newer"}}, "r", ["a"])["prs"][0]["premerge"] is True
+
+
+def test_a_pr_above_one_he_approved_stands_as_its_own_stack_and_a_card_waits_on_no_name() -> None:
+    from lane import approve
+
+    seen = {
+        "acme/app#53833": pull(rollup="SUCCESS", head="a" * 40, branch="b1") | {"review": "APPROVED", "title": "Run page reads v3 journals"},
+        "acme/app#54225": pull(rollup="SUCCESS", head="b" * 40, base="b1", branch="b2") | {"review": "APPROVED", "title": "Run page shows each step's kept rows"},
+    }
+    lane = {"prs": [{"repo": "acme/app", "number": 53833, "approved_head": "a" * 40}, {"repo": "acme/app", "number": 54225}]}
+    assert approve.ready_stacks(lane, seen) == [{"acme/app#54225": "b" * 40}]
+    assert approve.card_title(lane, {"acme/app#54225": "b" * 40}, seen) == "Run page shows each step's kept rows"

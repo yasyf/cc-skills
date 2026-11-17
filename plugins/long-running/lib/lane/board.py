@@ -24,7 +24,7 @@ def taps(drive: str) -> list[dict] | None:
     seen = page.view(drive)["prs"]
     found = []
     for position, lane_id in enumerate(order, 1):
-        stacks, _ = page.ready(page.tapless(lanes[lane_id], seen), seen)
+        stacks, _ = page.ready(page.tapless(lanes[lane_id], seen), seen, page.approved(lanes[lane_id]))
         for row in stacks:
             key = f"{row['repo']}#{row['number']}"
             found.append({
@@ -90,7 +90,7 @@ def screens(drive: str) -> dict | None:
     now, work, history = [], [], []
     for position, lane_id in enumerate(order, 1):
         lane = lanes[lane_id]
-        stacks, rest = page.ready(page.tapless(lane, seen), seen)
+        stacks, rest = page.ready(page.tapless(lane, seen), seen, page.approved(lane))
         now.append({
             "id": lane_id, "title": lane["title"], "position": position, "state": lane["state"], "hurting": lane_id in hurting,
             "waits": waits_plainly(lane["wait"]) if lane["state"] == store.WAITING else None, "parked": (lane.get("parked") or {}).get("words"), "says": lane.get("says"), "next": lane.get("next"), "until": (lane.get("wait") or {}).get("until"), "why": (lane.get("wait") or {}).get("why"),

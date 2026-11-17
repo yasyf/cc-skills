@@ -70,16 +70,28 @@ def tapless(lane: dict, seen: dict) -> list[dict]:
     return rows
 
 
-def ready(taps: list[dict], seen: dict) -> tuple[list[dict], dict[str, int]]:
-    """Of a lane's PRs waiting on his tap, the stacks he can tap now, one per bottom PR that is green, reviewed and on no open PR, each with its tapless PRs above it, `above`, bottom first, and the rest counted by why each is not ready: behind a parent, red, CI running or no review."""
+def approved(lane: dict) -> set[str]:
+    """The lane's PRs carrying his Approve and no Hold, which a tapless PR above them does not wait behind."""
+    return {f"{row['repo']}#{row['number']}" for row in lane.get("prs", []) if row.get("approved_head") and not row.get("held")}
+
+
+def ready(taps: list[dict], seen: dict, approved: set[str] = frozenset()) -> tuple[list[dict], dict[str, int]]:
+    """Of a lane's PRs waiting on his tap, the stacks he can tap now, one per bottom PR that is green, reviewed and on no open PR, each with its tapless PRs above it, `above`, bottom first, and the rest counted by why each is not ready: behind a parent, red, CI running or no review. A PR whose parents he approved stands as its own stack's bottom, since his Approve on it lands it once they merge."""
     branches = {(key.rpartition("#")[0], pull.get("branch")): key for key, pull in seen.items() if pull["state"] == "OPEN"}
 
     def parent(key: str) -> str | None:
         return branches.get((key.rpartition("#")[0], seen[key].get("base")))
 
+    def waiting(key: str) -> str | None:
+        above, walked = parent(key), {key}
+        while above and above in approved and above not in walked:
+            walked.add(above)
+            above = parent(above)
+        return above
+
     def bottom(key: str) -> str:
         walked = {key}
-        while (above := parent(key)) and above not in walked:
+        while (above := waiting(key)) and above not in walked:
             walked.add(key := above)
         return key
 
@@ -87,7 +99,7 @@ def ready(taps: list[dict], seen: dict) -> tuple[list[dict], dict[str, int]]:
     keyed = {f"{row['repo']}#{row['number']}": row for row in taps}
     for key, row in keyed.items():
         pull = seen[key]
-        if parent(key):
+        if waiting(key):
             counts["behind a parent"] += 1
         elif pull["rollup"] in ("FAILURE", "ERROR"):
             counts["red"] += 1
@@ -98,7 +110,7 @@ def ready(taps: list[dict], seen: dict) -> tuple[list[dict], dict[str, int]]:
         else:
             stacks[key] = {**row, "above": []}
     for key in keyed:
-        if parent(key) and (base := bottom(key)) in stacks:
+        if waiting(key) and (base := bottom(key)) in stacks:
             stacks[base]["above"].append(key)
     return list(stacks.values()), {why: count for why, count in counts.items() if count}
 
