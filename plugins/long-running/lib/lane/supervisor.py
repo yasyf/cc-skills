@@ -186,16 +186,13 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
 
     starts = store.transact(drive, deciding, leaving_unreplied=True)
     nudge(drive, store.now())
-    if read_outside and prs:
-        try:
-            approve.draw(drive)
-        except store.Refused as failed:
-            errors.append(f"an Approve card was refused: {failed}")
     with ThreadPoolExecutor(max_workers=READERS) as pool:
         errors += [error for error in pool.map(lambda start: launching(drive, start, shape), starts) if error]
     if read_outside:
-        heartbeat(drive, store.now(), errors)
         lane_land.spawn(drive)
+        if prs:
+            errors += approve.draw(drive)
+        heartbeat(drive, store.now(), errors)
     return {"started": [start["lane"] for start in starts if start["token"]], "errors": errors}
 
 

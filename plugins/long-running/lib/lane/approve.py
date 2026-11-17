@@ -2,6 +2,7 @@
 
 import re
 import secrets
+import urllib.error
 
 from lane import page, say, store, verbs, voice  # noqa: F401  voice sets say.SENDER
 
@@ -44,16 +45,16 @@ def stack_text(heads: dict[str, str], card: str) -> str:
 
 
 def draw(drive: str) -> list[str]:
-    """Post each lane's card when it has stacks waiting and no live card of its own: one listing them all, or, once he chose One at a time, one for its first stack. The ids of the cards posted."""
+    """Post each lane's card the pass its stacks turn ready, for the stacks no card or post asked about at their heads yet: one listing them all, or, once he chose One at a time, one for its first stack while no card of its own is live. Why each card that did not post failed, which never stops the pass."""
     if not store.live(drive):
         return []
     seen = page.view(drive)["prs"]
-    posted = []
+    refused = []
     for lane_id, lane in store.load_all(drive).items():
         waiting = stacks_waiting(lane, seen)
         ready = ready_stacks(lane, seen)
         live = [card for card in lane.get("cards", []) if not card.get("tapped") and any(heads in ready for heads in card["stacks"])]
-        if not waiting or live:
+        if not waiting or live and lane.get("card_mode") == ONE:
             continue
         card = secrets.token_hex(3)
         if lane.get("card_mode") == ONE:
@@ -61,7 +62,11 @@ def draw(drive: str) -> list[str]:
         else:
             count = sum(len(heads) for heads in waiting)
             stacks, words, labels = waiting, lane_text(lane, waiting, card), [f"Approve all {count} (Recommended)", ONE, HOLD_ALL]
-        sent = say.SENDER(drive, lane, words, None, labels) if store.config(drive)["posting"] else say.logged(drive, lane, words, None, labels)
+        try:
+            sent = say.SENDER(drive, lane, words, None, labels) if store.config(drive)["posting"] else say.logged(drive, lane, words, None, labels)
+        except (store.Refused, urllib.error.URLError) as failed:
+            refused.append(f"{lane_id}: its Approve card was not posted: {failed}")
+            continue
 
         def keeping(lane: dict, card: str = card, stacks: list[dict[str, str]] = stacks, sent: str = sent) -> None:
             lane["cards"] = [*lane.get("cards", []), {"id": card, "stacks": stacks, "at": store.stamp(), "sent": sent}][-50:]
@@ -72,8 +77,7 @@ def draw(drive: str) -> list[str]:
             store.note(lane, f"his Approve card {card} asked about {', '.join(key for heads in stacks for key in heads)} ({sent})")
 
         store.update(drive, lane_id, keeping)
-        posted.append(card)
-    return posted
+    return refused
 
 
 def tapped(drive: str, lane: dict, words: str, ts: str, link: str | None) -> list[str] | None:
