@@ -153,7 +153,7 @@ def result(drive: str, cut: str, stacks: dict[str, dict]) -> Path:
 
 
 def want(drive: str, lane_id: str) -> str:
-    """A lane's staging test of its pending stack, as the work item it waits on, `work:<id>`: the staging-before item queue() keeps for its stack, which a staging worker takes with every other staging item for the same targets, by his words "let me check if there's anything else pending I can pull in"; AFTER_MERGE when no PR of the lane needs a test before merge. The lane never runs the test itself."""
+    """A lane's staging test of its pending stack, as the work item it waits on, `work:<id>`: the staging-before item queue() keeps for its stack, which a staging worker takes with every other staging item for the same targets, by his words "let me check if tehres naytthing else pending I can pull in"; AFTER_MERGE when no PR of the lane needs a test before merge. The lane never runs the test itself."""
     lane = rows.seen(store.load(drive, lane_id), rows.view(drive, [lane_id]), rows.rule_key(drive), store.config(drive)["premerge_lanes"])
     from lane import work
 

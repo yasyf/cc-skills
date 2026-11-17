@@ -2,8 +2,8 @@
 
 His words, which decide what you take together:
 
-- "a queue of jobs to be done and then workers (local or mac box or sprite) pulling groups of appropriate work off the queue continuously" (3:43 AM).
-- "ok I'm ready to do the next staging test, I will do it for this stack and let me check if there's anything else pending I can pull in and check while I'm at it" (1:32 PM).
+- "a queue of jobs to be done and then workers (local or mac box or sprite) pulling groups of appropriate work off the queue continosl y" (3:43 AM).
+- "ok I'm ready to do the next staging test, I will do it for this stack and let me check if tehres naytthing else pending I can pull in and check while I'm at it" (1:32 PM).
 - "tested on staging AFTER merging, and as a big batch" (2:55 PM).
 - "Im talking about the fucking ssql work nothing other than the ssql work needs to run before merging it can test on staging after merging" (5:02 PM).
 - "it should be being actively rebased as soon as its approved and has conflicts ... it should be instant" (6:16 PM).

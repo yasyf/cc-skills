@@ -20,3 +20,19 @@ def test_every_quote_a_page_gives_as_his_names_where_he_said_it() -> None:
             if found[1] not in listed and not SOURCED.search(beside):
                 unsourced.append(f"{page.relative_to(ROOT)}: {found[1]!r}")
     assert not unsourced, "quotes given as his with no source: add each to his-words.json with where he said it, write its permalink or session beside it, or list it under ours if it is our own example:\n" + "\n".join(unsourced)
+
+
+def plain(text: str) -> str:
+    return " ".join(text.translate(str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'"})).split())
+
+
+def test_every_listed_quote_is_his_words_verbatim_with_an_ellipsis_at_each_cut() -> None:
+    paraphrased = []
+    for row in json.loads((ROOT / "his-words.json").read_text())["his"]:
+        said, at = plain(row["said"]), 0
+        for piece in filter(None, (plain(part) for part in row["passage"].split("…"))):
+            if (at := said.find(piece, at)) < 0:
+                paraphrased.append(f"{row['source']}: {row['passage']!r}")
+                break
+            at += len(piece)
+    assert not paraphrased, "quotes listed as his that are not his words as he typed them; quote his message exactly, typos kept, with … where you cut:\n" + "\n".join(paraphrased)

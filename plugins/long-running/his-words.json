@@ -1,165 +1,205 @@
 {
-  "_about": "Each quote the pages attribute to him, with where he said it: a rulings.shared.json row by its at, a lane ask, an old-drive feedback item, a Slack permalink or a session and time. ours lists quoted passages on those pages that are our own examples, never his. tests/test_his_words.py fails a page quoting him with a passage in neither list and no source written beside it.",
+  "_about": "Each quote the pages attribute to him, with where he said it (a rulings.shared.json row by its at, a lane ask by its ts, an old-drive feedback item, a Slack permalink or a session and time) and said, his whole message as he typed it, typos kept. ours lists quoted passages on those pages that are our own examples, never his. tests/test_his_words.py fails a page quoting him with a passage in neither list and no source written beside it, and a listed passage that is not his words verbatim, an ellipsis marking each cut.",
   "his": [
     {
       "passage": "a page always comes with 1) a channel message in a drive channel, and 2) in parallel needs to start working on a fix",
-      "source": "ruling 2026-11-16T16:53:36Z https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794848016034749?thread_ts=1794847681.824529&cid=C0CHZM7A478"
+      "source": "ruling 2026-11-16T16:53:36Z https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794848016034749?thread_ts=1794847681.824529&cid=C0CHZM7A478",
+      "said": "It was good that you paged me but in the future update the tooling so a page always comes with 1) a channel message in a drive channel, and 2) in parallel needs to start working on a fix and be over communicative about it, ai-oncall style"
     },
     {
-      "passage": "a queue of jobs to be done and then workers (local or mac box or sprite) pulling groups of appropriate work off the queue continuously",
-      "source": "feedback item 151 (2026-11-16 11:43:55 UTC)"
+      "passage": "a queue of jobs to be done and then workers (local or mac box or sprite) pulling groups of appropriate work off the queue continosl y",
+      "source": "feedback item 151 (2026-11-16 11:43:55 UTC)",
+      "said": "also the jobs can be combined right we dont need one per PR, in gernal make this less hard coded and think through haicvng a queue of jobs to be done and then workers (local or mac box or sprite) pulling groups of appropriate work off the queue continosl y"
     },
     {
-      "passage": "ack and pause makes no sense here, and why is it asking me to confirm in general when I literally just said it",
-      "source": "feedback item 138 (2026-11-16 11:22:54 UTC)"
+      "passage": "ack and puse makes no sense here, and why is it asking me to confirm in general when I ltieally just sasid it",
+      "source": "feedback item 138 (2026-11-16 11:22:54 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794827713569029?thread_ts=1794827701.310319&cid=C0CHZM7A478 ack and puse makes no sense here, and why is it asking me to confirm in general when I ltieally just sasid it."
     },
     {
       "passage": "all the ones I've approved you can carry over the approvals, let's just get stuff moving",
-      "source": "ruling 2026-11-16T22:13:00Z relayed"
+      "source": "ruling 2026-11-16T22:13:00Z relayed",
+      "said": "all the ones I've approved you can carry over the approvals, let's just get stuff moving"
     },
     {
       "passage": "be over communicative about it, ai-oncall style",
-      "source": "ruling 2026-11-16T16:53:36Z https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794848016034749?thread_ts=1794847681.824529&cid=C0CHZM7A478"
+      "source": "ruling 2026-11-16T16:53:36Z https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794848016034749?thread_ts=1794847681.824529&cid=C0CHZM7A478",
+      "said": "It was good that you paged me but in the future update the tooling so a page always comes with 1) a channel message in a drive channel, and 2) in parallel needs to start working on a fix and be over communicative about it, ai-oncall style"
     },
     {
-      "passage": "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model",
-      "source": "feedback item 40 (2026-11-16 07:07:05 UTC)"
+      "passage": "clearly these reports are useles / not valuable/spammy, so remove them enritely or rethink the whole model",
+      "source": "feedback item 40 (2026-11-16 07:07:05 UTC)",
+      "said": "> he drive's own reports were. youre not doing what I asked. I asked uoiu to actually use youir brain. clearly these reports are useles / not valuable/spammy, so remove them enritely or rethink the whole model, you keep seeing opportunities for this and then just ignoring them"
     },
     {
-      "passage": "do you expect me to go find that myself? it should be embedded or reproduced here, reproduced probably to make it easy, it always needs to be thinking about how to make my life easier",
-      "source": "feedback item 97 (2026-11-16 09:45:06 UTC)"
+      "passage": "do youj expect me to go fucking find that myself? it should be embeded or reproduced here, reproduced probably to make it easyl it alwayhs needs to be thinknig abotu how t make my life ewasier",
+      "source": "feedback item 97 (2026-11-16 09:45:06 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794821848049439 this is a godo exam,ple where the post is bad, still has raw URLs, should use block kit to show more formatting/dynmam,ci elements, and pronably a visual of progress would haqve helped here too. iot also could have embedded the palty rlease card from 1 and done other things that I might find useful without being spammy. it also says \"its staging rehearsal waits on your card in the SandSQL thread.\" do youj expect me to go fucking find that myself? it should be embeded or reproduced here, reproduced probably to make it easyl it alwayhs needs to be thinknig abotu how t make my life ewasier. dont make any of these ltieral fixes yhouriself fix all teh issues in the commiucator and get it to fix then, asap"
     },
     {
       "passage": "flesh out what that will look like not just wave your hands",
-      "source": "ask 1794565882.586299"
+      "source": "ask 1794565882.586299",
+      "said": "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3"
     },
     {
-      "passage": "for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages",
-      "source": "feedback item 106 (2026-11-16 10:09:39 UTC)"
+      "passage": "for prio lanes most things that arent immeeidate replies to the thread or direectly relevant should be channel messages",
+      "source": "feedback item 106 (2026-11-16 10:09:39 UTC)",
+      "said": "sldo drrmd likkr mody of tyhre messdages in this threasd: https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794821848049439 should be channel messages, for prio lanes most things that arent immeeidate replies to the thread or direectly relevant should be channel messages"
     },
     {
       "passage": "how can you say this new version is working if its been 6 hours and those two still aren't assigned?",
-      "source": "ruling 2026-11-17T03:27:11Z relayed"
+      "source": "ruling 2026-11-17T03:27:11Z relayed",
+      "said": "how can you say this new version is working if its been 6 hours and those two still aren't assigned?"
     },
     {
       "passage": "if I approve something its approved",
-      "source": "ruling 2026-11-17T02:14:24Z relayed"
+      "source": "ruling 2026-11-17T02:14:24Z relayed",
+      "said": "get rid of this fucking presence bullshit if I approve something its approved"
     },
     {
       "passage": "imagine ur a human, is that useful at all?",
-      "source": "feedback item 189 (2026-11-16 21:12:40 UTC)"
+      "source": "feedback item 189 (2026-11-16 21:12:40 UTC)",
+      "said": "and [Image #13] this is not a messag that looks like you have taught teh comucator how to effectively commicate and format, take a look at that and imagine ur a human, is that useful at all? stop fodusing on indicvual fixes, treahc the sytem to be agentic and have the right taste, and fundamentally fix the fact that its very slow to make forward progress and just thrashes"
     },
     {
-      "passage": "it should be eyes when reading/responding, construction if doing something async, and none otherwise, and checkmark if handled (if there was something to handle, else none)",
-      "source": "feedback item 185 (2026-11-16 20:33:50 UTC)"
+      "passage": "it should be eyes when reaidng/respiondin, constgrutcion if doing somehting async, and none otherwise, and checkmark if handled (if there was something to handle, else none)",
+      "source": "feedback item 185 (2026-11-16 20:33:50 UTC)",
+      "said": "also in that thread its keepiong the constucton emoji even after its done answerfing. it should be eyes when reaidng/respiondin, constgrutcion if doing somehting async, and none otherwise, and checkmark if handled (if there was something to handle, else none), and ofr cost caps are fine but more important is decreassing the per-unit cost of work in the whole setup, bring me suggestions for that after deeeply analyhsing the system and also specifdic transcirpts, inboxes,back-and-forths, etc. kick that all off and then do a pre-compact handoff"
     },
     {
-      "passage": "it would be good to move to lower-volume of slack messages and have it link to the dashboard for more granular things",
-      "source": "feedback item 58 (2026-11-16 08:10:11 UTC)"
+      "passage": "it would be good to move to lower-volume of slack messages snf have it link to the dashboard for more granular things",
+      "source": "feedback item 58 (2026-11-16 08:10:11 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794815470949929?thread_ts=1794774184.502879&cid=D0C4HQWPLCC also its not clear if iuts asking me or answering for itself, also in grenetsl it would be good to move to lower-volume of slack messages snf have it link to the dashboard for more granular things. but also for that message its not clear if tis stuck or is the relase is close or what"
     },
     {
       "passage": "just land this then do a follow up",
-      "source": "ask 1794472678.942439"
+      "source": "ask 1794472678.942439",
+      "said": "just land this then do a follow up thats not hacky and is built first-principles for thje browser use case and the lazy use cases not some hack on top, and do not loose track\nstart deisgnng the follow p right awya motherfucker dont wait"
     },
     {
-      "passage": "let me check if there's anything else pending I can pull in",
-      "source": "feedback item 198 (2026-11-16 21:29:40 UTC)"
+      "passage": "let me check if tehres naytthing else pending I can pull in",
+      "source": "feedback item 198 (2026-11-16 21:29:40 UTC)",
+      "said": "The user answered: \"In the redesign, each ask has one owner session that takes it from your words to live. Who speaks in that ask's Slack thread? This morning's design made the communicator the one voice everywhere.\"=\"1, but it should have a fire-and-forget tool (it still neds the communication rules) that runs the message by jev, makes any tweaks, and formats and sends propoelry, and all of that should happen in 1-2 seconds but the owner doesntn have to wait for it it can move on, and latency needs to be very minimal in fact not 1-2 seconds but sub 1 second\", \"Incidents rank first on the active list. Should an incident stay first only while it is still hurting users, or until it is closed?\"=\"1 and then it gets prioritized there should be an intertnal PQ that is constantly being evaluated too\", \"Dangerous PRs need a staging test. The drive queues one test per PR (about 3 an hour, scheduled out to Nov 18). AGENTS.md allows one short test per stack, six stacks per batch, about 10 hours for everything you've approved. Switch?\"=\"1 or even more liek Is aid it should be \"ok Im ready to do the next staging test, I will do it for this stakc and let me check if tehres naytthing else pending I can pull in and check while I'm at it\", in an agentic fashion\"."
     },
     {
       "passage": "make this a prio lane",
-      "source": "ask 1794863488.099589"
+      "source": "ask 1794863488.099589",
+      "said": "ok make this a prio lane we need to get this all merged and released the bulk of the work is done it really shouldnt take that long"
     },
     {
-      "passage": "messages should be tagged such that when the thing underneath them (such as an approval) changes they change state, automatically or by agent depending on the situation",
-      "source": "feedback item 226 (2026-11-17 02:19:43 UTC)"
+      "passage": "mesags should be tagged such that when the thing undernetht hem (such as an approval) changes they change state, autmoaticaly or by agent deopending on the situation",
+      "source": "feedback item 226 (2026-11-17 02:19:43 UTC)",
+      "said": "> so that ask was stale. mesags should be tagged such that when the thing undernetht hem (such as an approval) changes they change state, autmoaticaly or by agent deopending on the situation"
     },
     {
-      "passage": "most of the messages in this thread should be channel messages; for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages",
-      "source": "feedback item 106 (2026-11-16 10:09:39 UTC)"
+      "passage": "should be channel messages, for prio lanes most things that arent immeeidate replies to the thread or direectly relevant should be channel messages",
+      "source": "feedback item 106 (2026-11-16 10:09:39 UTC)",
+      "said": "sldo drrmd likkr mody of tyhre messdages in this threasd: https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794821848049439 should be channel messages, for prio lanes most things that arent immeeidate replies to the thread or direectly relevant should be channel messages"
     },
     {
-      "passage": "most things that aren't immediate replies to the thread or directly relevant should be channel messages",
-      "source": "feedback item 106 (2026-11-16 10:09:39 UTC)"
+      "passage": "most things that arent immeeidate replies to the thread or direectly relevant should be channel messages",
+      "source": "feedback item 106 (2026-11-16 10:09:39 UTC)",
+      "said": "sldo drrmd likkr mody of tyhre messdages in this threasd: https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794821848049439 should be channel messages, for prio lanes most things that arent immeeidate replies to the thread or direectly relevant should be channel messages"
     },
     {
-      "passage": "needs more formatting, don't make this hard-coded, teach the communicator better the right preferences and way to think about things",
-      "source": "feedback item 143 (2026-11-16 11:28:02 UTC)"
+      "passage": "needs more formatting, dont make this hard-coded terahc the commucator better the right prefgernces and way to think about things",
+      "source": "feedback item 143 (2026-11-16 11:28:02 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794828278082599?thread_ts=1794827701.310319&cid=C0CHZM7A478 needs more formatting, dont make this hard-coded terahc the commucator better the right prefgernces and way to think about things, with excamples if needed that generalize not hyper specific"
     },
     {
       "passage": "no one looks at those",
-      "source": "feedback item 125 (2026-11-16 11:00:56 UTC)"
+      "source": "feedback item 125 (2026-11-16 11:00:56 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794826212596869 it should klink tio the slack postts in #releases not the buiildkites, no one looks at those"
     },
     {
-      "passage": "since I explicitly asked for the testing to be done (this is an example, dont hard code to testing), it should send regular updates on the progress and bugs it found or things its validated",
-      "source": "feedback item 149 (2026-11-16 11:40:57 UTC)"
+      "passage": "since I explcioty asked fo the testing to be done (this si an ecxample dfont hasrd code to etsting), it shoudl send regular updates ont eh progress and bugs it found or things its validated",
+      "source": "feedback item 149 (2026-11-16 11:40:57 UTC)",
+      "said": "one more imrpoivement to maek which yuoui can manuallyt tell tehdirve for this one anfd fix in the tooing, is for https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794827701310319, since I explcioty asked fo the testing to be done (this si an ecxample dfont hasrd code to etsting), it shoudl send regular updates ont eh progress and bugs it found or things its validated"
     },
     {
-      "passage": "since I explicitly asked for the testing to be done … it should send regular updates",
-      "source": "feedback item 149 (2026-11-16 11:40:57 UTC)"
+      "passage": "since I explcioty asked fo the testing to be done … it shoudl send regular updates",
+      "source": "feedback item 149 (2026-11-16 11:40:57 UTC)",
+      "said": "one more imrpoivement to maek which yuoui can manuallyt tell tehdirve for this one anfd fix in the tooing, is for https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794827701310319, since I explcioty asked fo the testing to be done (this si an ecxample dfont hasrd code to etsting), it shoudl send regular updates ont eh progress and bugs it found or things its validated"
     },
     {
       "passage": "spin up another prio lane on cloud agents",
-      "source": "ask 1794828864.620649"
+      "source": "ask 1794828864.620649",
+      "said": "lets spin up another prio lane on cloud agents / continuing thatg thread where I posted the screenshot fo the primitives and we said we had to get end to end cloud agents including starting/messaging "
     },
     {
-      "passage": "still has raw URLs, should use block kit to show more formatting/dynamic elements, and probably a visual of progress would have helped here too. it also could have embedded the [release tool's] release card from 1 and done other things I might find useful without being spammy",
-      "source": "feedback item 97 (2026-11-16 09:45:06 UTC)"
+      "passage": "still has raw URLs, should use block kit to show more formatting/dynmam,ci elements, and pronably a visual of progress would haqve helped here too. iot also could have embedded the palty rlease card from 1 and done other things that I might find useful without being spammy",
+      "source": "feedback item 97 (2026-11-16 09:45:06 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794821848049439 this is a godo exam,ple where the post is bad, still has raw URLs, should use block kit to show more formatting/dynmam,ci elements, and pronably a visual of progress would haqve helped here too. iot also could have embedded the palty rlease card from 1 and done other things that I might find useful without being spammy. it also says \"its staging rehearsal waits on your card in the SandSQL thread.\" do youj expect me to go fucking find that myself? it should be embeded or reproduced here, reproduced probably to make it easyl it alwayhs needs to be thinknig abotu how t make my life ewasier. dont make any of these ltieral fixes yhouriself fix all teh issues in the commiucator and get it to fix then, asap"
     },
     {
-      "passage": "teach the communicator better the right preferences and way to think about things",
-      "source": "feedback item 143 (2026-11-16 11:28:02 UTC)"
+      "passage": "terahc the commucator better the right prefgernces and way to think about things",
+      "source": "feedback item 143 (2026-11-16 11:28:02 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794828278082599?thread_ts=1794827701.310319&cid=C0CHZM7A478 needs more formatting, dont make this hard-coded terahc the commucator better the right prefgernces and way to think about things, with excamples if needed that generalize not hyper specific"
     },
     {
       "passage": "the 3rd and 4th clusters",
-      "source": "ruling 2026-11-17T00:58:15Z relayed"
+      "source": "ruling 2026-11-17T00:58:15Z relayed",
+      "said": "can we stop doing staging holds, release all our staging holds, we dont need a staging hold to test on the 3rd and 4th clusters on staging"
     },
     {
       "passage": "the buttons are all cut off I have no idea what they're saying",
-      "source": "ruling 2026-11-17T03:37:56Z relayed"
+      "source": "ruling 2026-11-17T03:37:56Z relayed",
+      "said": "the buttons are all cut off I have no idea what they're saying"
     },
     {
-      "passage": "the eyes emoji never came off the root post of that thread, probably should change to a 'work in progress' emoji",
-      "source": "feedback item 144 (2026-11-16 11:28:02 UTC)"
+      "passage": "the eyes emoji never came off the root post of that thread, probablty should change to a “work inprogres” emoji",
+      "source": "feedback item 144 (2026-11-16 11:28:02 UTC)",
+      "said": "also the eyes emoji never came off the root post of that thread, probablty should change to a \"work inprogres\" emoji"
     },
     {
-      "passage": "the true generative UI pages (one should always be created for a priority project, and then as deemed fit by the communicator any other times, but it should be a tool that is used)",
-      "source": "feedback item 77 (2026-11-16 09:01:46 UTC)"
+      "passage": "the treu generative UI pagesd (one should alwayhs be created for a prioritty project, and then as deemed fit byh teh commicator any otrehjr times, but it should be a tool that is used)",
+      "source": "feedback item 77 (2026-11-16 09:01:46 UTC)",
+      "said": "seperstly the next thing for you to opick upa nd removef rom the drive's meta queue is all the dhasboard stuff I asked for, the treu generative UI pagesd (one should alwayhs be created for a prioritty project, and then as deemed fit byh teh commicator any otrehjr times, but it should be a tool that is used), the proper priority queue, rendering things properlt ([Image #6] eg look at this, the options are totlalty incomprejhsbnsilvbe, the left sidebar cards ahve random links, the right sidebar doesnt help miuch eitehr), we had all tehse questionms and backa nd forth with teh drive about each quesiton telling a stroy, having deep and custom UI and alomst feleing like an applet that helps yhoui make tha tone decidon or review that one PR, forma rich lirbary. go back and gfind all thwat, actially implement it all, actually review and tap through all yoru work, think through it from my perspective, etc. really go read all my altest messages there from a coupel days ago anf take them to heart, since I ahve tried like 4 times and the dfrive has not done it"
     },
     {
-      "passage": "these kind of status updates should just be in the spinner/loader slack agent thing",
-      "source": "ask https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794480690614589"
+      "passage": "these kind of status iupdates should just be in the spinner/loader slack agent thing",
+      "source": "feedback item 61 (2026-11-16 08:14:55 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794816796968199?thread_ts=1794774184.502879&cid=D0C4HQWPLCC these kind of status iupdates should just be in the spinner/loader slack agent thing (where di that go?) instad of needing to be whoile mnessages, and giev me updats as you get it on all oru stuff, icnluding why plannig a relase is taking 20 mins now"
     },
     {
-      "passage": "these kind of status updates should just be in the spinner/loader slack agent thing … instead of needing to be whole messages",
-      "source": "feedback item 61 (2026-11-16 08:14:55 UTC)"
+      "passage": "these kind of status iupdates should just be in the spinner/loader slack agent thing (where di that go?) instad of needing to be whoile mnessages",
+      "source": "feedback item 61 (2026-11-16 08:14:55 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794816796968199?thread_ts=1794774184.502879&cid=D0C4HQWPLCC these kind of status iupdates should just be in the spinner/loader slack agent thing (where di that go?) instad of needing to be whoile mnessages, and giev me updats as you get it on all oru stuff, icnluding why plannig a relase is taking 20 mins now"
     },
     {
-      "passage": "this is only cloud agents? No real users? Then shouldn't have paged me. If it's real users and it's impacting runs or local chats / agents page me",
-      "source": "ruling 2026-11-16T12:25:01Z https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794831901020669"
+      "passage": "this is only cloud agents? No real users? Then shouldn't have paged me. If it’s real users and it’s impacting runs or local chats / agents page me",
+      "source": "ruling 2026-11-16T12:25:01Z https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794831901020669",
+      "said": "this is only cloud agents? No real users? Then shouldn't have paged me. If it’s real users and it’s impacting runs or local chats / agents page me"
     },
     {
-      "passage": "this message is terrible. don't follow our standards at all; the URL is not even a hyperlink on text, it's just pasted in",
-      "source": "feedback item 94 (2026-11-16 09:36:53 UTC)"
+      "passage": "thios message is terrible. donet follow our standards at all; the URL is note even a hperlink om text its jsut pasted in",
+      "source": "feedback item 94 (2026-11-16 09:36:53 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/C0CJ378LSBT/p1794821674966239?thread_ts=1794820957.723659&cid=C0CJ378LSBT thios message is terrible. donet follow our standards at all; the URL is note even a hperlink om text its jsut pasted in. remeber our cold standard for communication was this post: https://poetic-technology.slack.com/archives/C0C4WDYA9UM/p1794717967971669; dont fix this yourself, fix the toolikng then get the drive to fix it"
     },
     {
-      "passage": "we dont have a literal freeze on but no releases…",
-      "source": "ruling 2026-11-13T19:09:39Z https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794596979308939"
+      "passage": "we dont have a literal freeze on but no releases until I say we can again, only I can give exceptions",
+      "source": "ruling 2026-11-13T19:09:39Z https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794596979308939",
+      "said": "we dont have a literal freeze on but no releases until I say we can again, only I can give exceptions"
     },
     {
       "passage": "we dont need a staging hold to test on the 3rd and 4th clusters on staging",
-      "source": "ruling 2026-11-17T00:58:15Z relayed"
+      "source": "ruling 2026-11-17T00:58:15Z relayed",
+      "said": "can we stop doing staging holds, release all our staging holds, we dont need a staging hold to test on the 3rd and 4th clusters on staging"
     },
     {
-      "passage": "we need to find a better balance; first it was always using subagents, now never, it needs to strike the balance of replying quickly when it has the context at hand, but handing off to a subagent (with the relevant context handed to it) to do some further research then respond when it's more involved so it can be freed up for the next incoming message",
-      "source": "feedback item 122 (2026-11-16 10:43:29 UTC)"
+      "passage": "we need to find a etter balance; fisrtrt it was always using sunabgemts, now never, it needs tyo striek the balance of replying quickly when it has the context at hand, but handing off to a subagent (witht he relevant context handed to it) to do some further research then rsponsd when its more invovled so it can be freed up for the next inoming message",
+      "source": "feedback item 122 (2026-11-16 10:43:29 UTC)",
+      "said": "> The communicator is busy with other work: we need to find a etter balance; fisrtrt it was always using sunabgemts, now never, it needs tyo striek the balance of replying quickly when it has the context at hand, but handing off to a subagent (witht he relevant context handed to it) to do some further research then rsponsd when its more invovled so it can be freed up for the next inoming message"
     },
     {
-      "passage": "why is it asking me to confirm in general when I literally just said it",
-      "source": "feedback item 138 (2026-11-16 11:22:54 UTC)"
+      "passage": "why is it asking me to confirm in general when I ltieally just sasid it",
+      "source": "feedback item 138 (2026-11-16 11:22:54 UTC)",
+      "said": "https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794827713569029?thread_ts=1794827701.310319&cid=C0CHZM7A478 ack and puse makes no sense here, and why is it asking me to confirm in general when I ltieally just sasid it."
     },
     {
       "passage": "your messages need to be way shorter rewrite this for a human",
-      "source": "ruling 2026-11-10T05:33:48Z https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794288828013049"
+      "source": "ruling 2026-11-10T05:33:48Z https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794288828013049",
+      "said": "What the fuck is this insane shit you're sending me your messages need to be way shorter rewrite this for a human"
     }
   ],
   "ours": [

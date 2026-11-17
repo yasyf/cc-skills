@@ -1,4 +1,4 @@
-"""The work queue, by his words "a queue of jobs to be done and then workers (local or mac box or sprite) pulling groups of appropriate work off the queue continuously": anything a lane needs done is one item in one file under the drive's work folder, a worker with no lane of its own pulls the top item with everything it can finish in the same sitting, and the item's lane is woken the moment it is done. An item is always queued, taken by a live worker, or done, so nothing waits on a session that happened to notice it."""
+"""The work queue, by his words "a queue of jobs to be done and then workers (local or mac box or sprite) pulling groups of appropriate work off the queue continosl y": anything a lane needs done is one item in one file under the drive's work folder, a worker with no lane of its own pulls the top item with everything it can finish in the same sitting, and the item's lane is woken the moment it is done. An item is always queued, taken by a live worker, or done, so nothing waits on a session that happened to notice it."""
 
 import fcntl
 import hashlib

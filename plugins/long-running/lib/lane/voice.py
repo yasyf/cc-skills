@@ -57,7 +57,7 @@ def owner_say(drive: str, lane_id: str, arguments: dict) -> str:
 
 
 def status(drive: str, lane_id: str, line: str, about_ts: str | None) -> str:
-    """Set the loader line under the thread of his ask, where a status update belongs in place of a whole message, by his words "these kind of status updates should just be in the spinner/loader slack agent thing"; Slack draws it only in his DM's threads, and a refusal says so."""
+    """Set the loader line under the thread of his ask, where a status update belongs in place of a whole message, by his words "these kind of status iupdates should just be in the spinner/loader slack agent thing"; Slack draws it only in his DM's threads, and a refusal says so."""
     lane = store.load(drive, lane_id)
     if not (thread := asked_thread(lane, about_ts)):
         raise store.Refused("a loader line goes under a thread of his: pass --re <his ask's ts>")
@@ -152,7 +152,7 @@ def carded(drive: str, lane_id: str, post_id: str, attached: list[str], seen: di
 
 
 def asked_thread(lane: dict, about_ts: str | None) -> str:
-    """The thread a post goes in: that of the ask of his it names with --re (about_ts), or, with none, of the one ask of his in the lane's channel not yet done when exactly one is, so every post about an ask, follow-ups included, stays under his message; any other post is news and goes at the channel's root, by his words "for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages"."""
+    """The thread a post goes in: that of the ask of his it names with --re (about_ts), or, with none, of the one ask of his in the lane's channel not yet done when exactly one is, so every post about an ask, follow-ups included, stays under his message; any other post is news and goes at the channel's root, by his words "for prio lanes most things that arent immeeidate replies to the thread or direectly relevant should be channel messages"."""
     asks = [ask for ask in lane.get("asks") or [] if ask.get("ts")]
     if about_ts:
         if not (named := [ask for ask in asks if ask["ts"] == about_ts]):
@@ -293,7 +293,7 @@ def subject_keys(posts: list[dict]) -> set[tuple[str, int]]:
 
 
 def settle(drive: str, posts: list[dict], prs: dict[tuple[str, int], dict]) -> list[str]:
-    """Make each followed post follow what it named, his order: "messages should be tagged such that when the thing underneath them (such as an approval) changes they change state, automatically or by agent depending on the situation". A PR merged or closed after the post, or approved or held by him on a question naming it, is mechanical: the post gets one state line, such as "✅ #57894 merged 3:18 PM", and loses its buttons. A PR given a new head since the post is a judgment, since the post's claims about it may no longer hold: its owner is told, once, to edit it. What each post was given is kept in the drive's settled file, so nothing is done twice; the permalinks it changed."""
+    """Make each followed post follow what it named, his order: "mesags should be tagged such that when the thing undernetht hem (such as an approval) changes they change state, autmoaticaly or by agent deopending on the situation". A PR merged or closed after the post, or approved or held by him on a question naming it, is mechanical: the post gets one state line, such as "✅ #57894 merged 3:18 PM", and loses its buttons. A PR given a new head since the post is a judgment, since the post's claims about it may no longer hold: its owner is told, once, to edit it. What each post was given is kept in the drive's settled file, so nothing is done twice; the permalinks it changed."""
     path = store.drive_dir(drive) / SETTLED_FILE
     done = json.loads(path.read_text()) if path.is_file() else {}
     lanes = store.load_all(drive)

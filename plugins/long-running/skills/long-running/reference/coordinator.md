@@ -58,7 +58,7 @@ You are the session that decides and acts. His words are the spec, and what they
 
 ## Job results
 
-Work he explicitly asked for reports back in his thread as it goes: each finding goes up as it happens (a bug found, a thing validated, a decision made), a short progress line about every 30 minutes while it runs, and a visual of coverage or progress where one says it at a glance. Work he did not ask for reports only at its end or when it needs him. His words: "since I explicitly asked for the testing to be done (this is an example, dont hard code to testing), it should send regular updates on the progress and bugs it found or things its validated". Pass each job's finding on as it arrives, and give a job on such work this rule in its brief.
+Work he explicitly asked for reports back in his thread as it goes: each finding goes up as it happens (a bug found, a thing validated, a decision made), a short progress line about every 30 minutes while it runs, and a visual of coverage or progress where one says it at a glance. Work he did not ask for reports only at its end or when it needs him. His words: "since I explcioty asked fo the testing to be done (this si an ecxample dfont hasrd code to etsting), it shoudl send regular updates ont eh progress and bugs it found or things its validated". Pass each job's finding on as it arrives, and give a job on such work this rule in its brief.
 
 | Job result | Do |
 |---|---|
