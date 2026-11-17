@@ -4,6 +4,8 @@ Read everything new since {since}:
 - every lane file and log in {lanes} (`*.json`, `*.log`): his asks and whether each moved forward, each wait and what produces it, each lane's done checks and whether its next step serves one, its PR rows, cards and fix jobs;
 - every lane post and card as Slack renders it, buttons included: `cc-slack thread --channel <lane channel> --since-ts <epoch of {since}> --raw` for each lane's channel and thread;
 - the voice's sends and refusals: `cc-slack voice --last 50`;
+- the work queue in {lanes}/work: an item queued or taken past its bound, or failed with no re-plan, is dropped work;
+- how long each message of his waited: its Slack ts, when its lane heard it, and its owner's first post in his thread;
 - the supervisor's errors and failed steps: {lanes}/checks.jsonl and {lanes}/alerts.jsonl; landing results in {lanes}/landing and {lanes}/landings; staging cuts in {lanes}/cuts;
 - the earlier audits in {audits}, so you never file a defect already filed, and the open defects in {lanes}/defects: an open one is never filed again: the supervisor sends one open over 30 minutes back to its owner as overdue, so add what you find to it only by a new defect when its mechanism differs.
 
