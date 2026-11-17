@@ -135,6 +135,7 @@ tests=plugins/long-running/tests
   "$tests/test_state.py::test_normalized_load_and_tracked_write_leave_unaccessed_records_encoded" \
   "$tests/test_state.py::test_install_normalization_is_atomic_and_runs_once" \
   "$tests/test_state.py::test_reporter_refresh_visits_only_connected_orders" \
+  "$tests/test_state.py::test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dates_each_by_its_tap_once_and_rechecks_each_open_pr_that_read_one" \
   "$tests/test_state.py::test_lazy_row_views_preserve_mapping_and_json_contracts" \
   "$tests/test_quoted_commands.py" \
   "$tests/test_modules.py" \

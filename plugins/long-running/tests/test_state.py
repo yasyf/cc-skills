@@ -1274,7 +1274,7 @@ def test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dat
     with edit("demo"):
         pass
     normalized_import("demo")
-    assert len(shown) == 2
+    assert len(shown) == 1
 
 
 def test_a_drive_saved_keeping_the_answers_cc_notes_ranked_near_a_card_beside_those_a_pr_cites_drops_each_open_prs_kept_answers_and_objection_once_and_keeps_only_the_cited_ones_on_the_rest(

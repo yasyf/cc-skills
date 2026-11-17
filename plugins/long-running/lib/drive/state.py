@@ -4769,7 +4769,7 @@ def carrying(data: dict, order_id: str, other: str) -> bool:
 
 
 def share_reporters(data: dict, order_ids: Iterable[str] | None = None) -> None:
-    """Keep one record of a thread a bug was reported in for each fix: an order naming a thread kept by an order on the same fix, by carrying, keeps no copy and reads that order's record, by kept_by, so the thread hears the fix is live once; the record is kept by the order that told it, else by the oldest open one, and a different fix reported there keeps its own, even one a job carries beside it. Worked out afresh on each load, so a record its keeper drops, or closes untold, is kept again by an order naming it."""
+    """Keep one record of a thread a bug was reported in for each fix: an order naming a thread kept by an order on the same fix, by carrying, keeps no copy and reads that order's record, by kept_by, so the thread hears the fix is live once; the record is kept by the order that told it, else by the oldest open one, and a different fix reported there keeps its own, even one a job carries beside it. Maintained for affected connected orders when a write changes their reporters, state or carrying jobs, so a record its keeper drops, or closes untold, is kept again by an order naming it."""
     naming: dict[tuple[str, str], list[tuple[str, int]]] = {}
     for order_id in data["orders"] if order_ids is None else order_ids:
         order = data["orders"][order_id]
