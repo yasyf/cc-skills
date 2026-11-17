@@ -1,12 +1,15 @@
-"""His Approve and Hold cards, drawn by the supervisor and never by an owner, so a PR waiting on his tap always gets live buttons. Each lane's ready stacks that no card or post asked about at their heads go to cc-slack in one draw, which runs the PR-group card command, `drive card`, and posts one card per stack in the lane's channel, each with its own Approve and Hold, as the old drive drew them. A PR some other post already asked about at its head, by its row's carded mark, which the voice writes too, gets no second card. His tap comes back through that command's answer, which writes it at the heads the card asked about through lane's own verb and marks the lane's card tapped here."""
+"""His Approve and Hold cards, drawn by the supervisor and never by an owner, so a PR waiting on his tap always gets live buttons. Each lane's ready stacks that no card or post asked about at their heads go to cc-slack in one draw, which runs the PR-group card command, `drive card`, and posts one card per stack in the lane's channel, each with its own Approve and Hold, as the old drive drew them. A PR some other post already asked about at its head, by its row's carded mark, which the voice writes too, gets no second card. A stack's card is titled by its owner's name for it, its bottom PR row's words, whole; a stack with no name, or one too long for the card's title, draws no card, and its owner is asked once per head to name it. His tap comes back through that command's answer, which writes it at the heads the card asked about through lane's own verb and marks the lane's card tapped here."""
 
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 
-from lane import page, say, store
+from lane import page, say, store, verbs
 
 DRAW_SECONDS = 90
 DRAWERS = 4
+NAME_CHARS = 140
+NAME_ASK = 'Name this stack for his Approve card in a few words: `lane pr add {key} --words "…"`. Its card draws on the next pass once it has a name.'
+NAME_TOO_LONG = 'The name of the stack under {key} is {length} characters, more than the {limit} his Approve card\'s title holds, so its card does not draw: name it again in a few words with `lane pr add {key} --words "…"`.'
 
 
 def ready_stacks(lane: dict, seen: dict) -> list[dict[str, str]]:
@@ -26,6 +29,34 @@ def stacks_waiting(lane: dict, seen: dict) -> list[dict[str, str]]:
 def pr_url(key: str) -> str:
     repo, _, number = key.rpartition("#")
     return f"https://github.com/{repo}/pull/{number}"
+
+
+def stack_name(lane: dict, heads: dict[str, str]) -> str:
+    """The owner's name for the stack, its bottom PR row's words, which `lane pr add <repo#N> --words` sets; empty when it has none."""
+    key = next(iter(heads))
+    return next((row.get("words") or "" for row in lane["prs"] if f"{row['repo']}#{row['number']}" == key), "")
+
+
+def named(words: str) -> bool:
+    return bool(words) and len(words) <= NAME_CHARS
+
+
+def ask_name(drive: str, lane_id: str, lane: dict, heads: dict[str, str]) -> str | None:
+    """Ask the lane's owner, once per head of the stack's bottom PR and name it carries, to name a stack with no name or one too long for the card's title, in a handover entry and a wake of the lane if it waits; why its card did not draw, or None when the owner was already asked at that head and name."""
+    key = next(iter(heads))
+    words = stack_name(lane, heads)
+    if any(f"{row['repo']}#{row['number']}" == key and row.get("name_asked") == {"head": heads[key], "words": words} for row in lane["prs"]):
+        return None
+    verbs.handover(drive, lane_id, NAME_TOO_LONG.format(key=key, length=len(words), limit=NAME_CHARS) if words else NAME_ASK.format(key=key), "supervisor")
+
+    def asking(lane: dict) -> None:
+        for row in lane["prs"]:
+            if f"{row['repo']}#{row['number']}" == key:
+                row["name_asked"] = {"head": heads[key], "words": words}
+
+    store.update(drive, lane_id, asking)
+    verbs.wake(drive, lane_id, f"the stack under {key} needs a name for his Approve card", if_waiting=True)
+    return f"{lane_id}: no Approve card for the stack under {key} yet: its name is {'too long for the card title' if words else 'not given'}, and its owner was asked for one"
 
 
 def drawn(drive: str, lane: dict, stacks: list[dict[str, str]]) -> str:
@@ -74,8 +105,14 @@ def draw(drive: str) -> list[str]:
         if (lane.get("channel") or "").startswith(say.DIRECT):
             refused.append(f"{lane_id}: no Approve card, since its home is his DM; move it with `lane home`")
             continue
-        if waiting := stacks_waiting(lane, seen):
-            asking.append((lane_id, lane, waiting, ready_stacks(lane, seen)))
+        drawable = []
+        for heads in stacks_waiting(lane, seen):
+            if named(stack_name(lane, heads)):
+                drawable.append(heads)
+            elif why := ask_name(drive, lane_id, lane, heads):
+                refused.append(why)
+        if drawable:
+            asking.append((lane_id, lane, drawable, ready_stacks(lane, seen)))
     if not asking:
         return refused
     with ThreadPoolExecutor(max_workers=DRAWERS) as pool:

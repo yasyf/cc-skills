@@ -854,6 +854,7 @@ def on_his_card(known: dict[str, tuple[str, dict]], founds: dict[str, dict | Non
 
 
 LANE_UNTAPPED = "it waits on no tap of his in its lane now: approved, held, or not yet green and reviewed, so no PR card draws, since it would offer him no Approve"
+LANE_UNNAMED = "its lane has not named its stack in a few words yet, which titles the card, so no PR card draws until it does"
 LANE_REFUSED = "it waits on no tap of his in its lane at this head"
 
 
@@ -882,7 +883,7 @@ def lane_held(asked: list[dict]) -> dict[str, tuple[str, str, dict]]:
 
 
 def lane_cards(held: dict[str, tuple[str, str, dict]], redraw: bool = False) -> dict:
-    """The PR-group cards of the asked PRs live lane drives hold, the cards approve.draw asks cc-slack for: one per ready stack of the lane holding each, by approve.ready_stacks, bottom first, drawn by render or render_stack as the old drive's cards are, with Approve and Hold while its PRs ask his tap at the heads GitHub reads. A PR in no ready stack draws on a redraw as it stands now, with no Approve, on the stack the lane's card last asked it in, and is skipped on a fresh ask, since its card would offer him no Approve."""
+    """The PR-group cards of the asked PRs live lane drives hold, the cards approve.draw asks cc-slack for: one per ready stack of the lane holding each, by approve.ready_stacks, bottom first, drawn by render or render_stack as the old drive's cards are, titled whole by the lane's name for the stack, approve.stack_name, and never drawn for a stack with no name that fits the title, with Approve and Hold while its PRs ask his tap at the heads GitHub reads. A PR in no ready stack draws on a redraw as it stands now, with no Approve, on the stack the lane's card last asked it in, and is skipped on a fresh ask, since its card would offer him no Approve."""
     from lane import approve, page
 
     found, skipped = [], []
@@ -907,18 +908,19 @@ def lane_cards(held: dict[str, tuple[str, str, dict]], redraw: bool = False) -> 
             skipped += [skip(key, "drive card could not read it from GitHub") for key in stack if key not in reads and key in keys]
             if not (members := [key for key in stack if key in reads]):
                 continue
-            card = drawn_card([(reads[key], lane_entry(key, rows[key], reads[key], tappable), (), ()) for key in members], False)
+            if not approve.named(name := approve.stack_name(lane, dict.fromkeys(members))):
+                skipped += [skip(key, LANE_UNNAMED) for key in stack if key in keys]
+                continue
+            card = drawn_card([(reads[key], lane_entry(key, rows[key], reads[key], tappable), (), ()) for key in members], False) | {"title": name}
             repo, number = members[0].split("#")
             found.append({"repo": repo, "number": int(number), "card": card})
     return {"cards": found, "skipped": skipped}
 
 
 def lane_entry(key: str, row: dict, pr: dict, tappable: dict[str, str]) -> dict:
-    """A lane's PR row as render reads a drive's entry: asking his Approve while the PR sits in a ready stack of its lane at the head GitHub reads, headed by the row's own words, else its title's short words, so a stack with no `## The stack` section is never titled by its kind and count."""
-    from lane.words import pr_words
-
+    """A lane's PR row as render reads a drive's entry: asking his Approve while the PR sits in a ready stack of its lane at the head GitHub reads, headed by the row's own words."""
     return {
-        "lead": {"headline": row.get("words") or pr_words(row["repo"], row["number"], pr["title"])},
+        "lead": {"headline": row.get("words") or ""},
         "reviewed": [],
         "staging": (),
         "stored": [],

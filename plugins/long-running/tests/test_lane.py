@@ -930,6 +930,14 @@ def test_the_supervisor_asks_cc_slack_for_a_pr_group_card_per_ready_stack_and_hi
     world["prs"][("acme/app", 9)] = pull(state="MERGED", rollup="SUCCESS", head="0123456cccc", branch="b9") | {"review": "APPROVED"}
     supervisor.run_pass(DRIVE)
     supervisor.run_pass(DRIVE)
+    lane = store.load(DRIVE, "a")
+    assert not lane.get("cards") and [lane["handover"].count(approve.NAME_ASK.format(key=key)) for key in ("acme/app#7", "acme/app#8")] == [1, 1]
+    verbs.add_pr(DRIVE, "a", token_of("a"), "acme/app", 7, "Readers take a file with no mint row")
+    verbs.add_pr(DRIVE, "a", token_of("a"), "acme/app", 8, "x" * (approve.NAME_CHARS + 1))
+    supervisor.run_pass(DRIVE)
+    assert "is 141 characters" in store.load(DRIVE, "a")["handover"]
+    verbs.add_pr(DRIVE, "a", token_of("a"), "acme/app", 8, "The writer stops minting")
+    supervisor.run_pass(DRIVE)
     cards = store.load(DRIVE, "a")["cards"]
     assert [kept["stacks"] for kept in cards] == [[{"acme/app#7": "abc1234aaaa"}], [{"acme/app#8": "def5678bbbb"}]]
     assert [row.get("carded", {}).get("head") if row.get("carded") else None for row in store.load(DRIVE, "a")["prs"]] == ["abc1234aaaa", "def5678bbbb", None]
@@ -964,8 +972,12 @@ def test_the_card_command_draws_a_lane_stack_as_the_old_pr_group_card_ahead_of_a
 
     monkeypatch.setattr(card, "github_reads", read)
     monkeypatch.setattr(card, "drive_cards", lambda asked, redraw=False: pytest.fail(f"{asked} went to the old drive"))
+    assert card.cards([{"repo": "acme/app", "number": 8}])["skipped"][0]["reason"] == card.LANE_UNNAMED
+    name = "Every file goes through blobstore, cells hold pointers, and SandSQL keeps no per-file bookkeeping of its own anywhere: one shared pool"
+    store.update(DRIVE, "a", lambda lane: lane["prs"][0].__setitem__("words", name))
     [drawn] = card.cards([{"repo": "acme/app", "number": 8}])["cards"]
-    assert (drawn["repo"], drawn["number"], drawn["card"]["title"], drawn["card"]["options"]) == ("acme/app", 7, "Blob pointers everywhere", ["Approve", "Hold"])
+    assert (drawn["repo"], drawn["number"], drawn["card"]["title"], drawn["card"]["options"]) == ("acme/app", 7, name, ["Approve", "Hold"])
+    assert json.dumps(drawn["card"]).count(name) == 1 and "Blob pointers everywhere" not in drawn["card"]["title"] + drawn["card"]["body"]
     assert [row["url"] for row in drawn["card"]["prs"]] == ["https://github.com/acme/app/pull/7", "https://github.com/acme/app/pull/8"]
     assert "shared pool" in drawn["card"]["body"] and "card " not in json.dumps(drawn["card"]) and "2 PRs" not in drawn["card"]["title"]
     heads[8] = "fff0000dddd"
@@ -1359,7 +1371,8 @@ def test_a_new_head_under_a_live_card_draws_that_stack_again_and_supersedes_only
     monkeypatch.setattr(approve, "drawn", lambda drive, lane, stacks: drawn.append(stacks) or f"https://x.slack.com/archives/C1/p{len(drawn)}")
     (store.drive_dir(DRIVE) / "config.json").write_text(json.dumps({"active": 3, "slots": 2, "posting": True}))
     (store.drive_dir(DRIVE) / store.LIVE).touch()
-    opened("a")
+    opened("a", prs=[("acme/app", 1), ("acme/app", 2)])
+    store.update(DRIVE, "a", lambda lane: [row.__setitem__("words", f"step {row['number']}") for row in lane["prs"]])
     stacks = [{"acme/app#1": "h1"}, {"acme/app#2": "h2"}]
     monkeypatch.setattr(approve, "ready_stacks", lambda lane, seen: stacks)
     monkeypatch.setattr(approve, "stacks_waiting", lambda lane, seen: [heads for heads in stacks if not any(heads == old for card in lane.get("cards", []) for old in card["stacks"])])
