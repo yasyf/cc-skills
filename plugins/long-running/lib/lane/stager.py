@@ -68,7 +68,6 @@ def lane_candidates(drive: str) -> list[dict]:
                         "stack": [landing.key(row) for row in open_rows],
                         "top_head": open_rows[-1]["head"],
                         "green": all(row.get("checks") == "pass" for row in open_rows),
-                        "approved": all(row["approved_head"] for row in open_rows),
                         "held": [landing.key(row) for row in open_rows if row["held"]],
                         "dangerous": {landing.key(row): row["dangerous"] for row in open_rows if landing.judged(row) and landing.dangerous(row)},
                     }
@@ -215,6 +214,13 @@ def block(drive: str, lane_id: str, why: str) -> Path:
     path = written(lanes_dir(drive) / CUTS / f"{asked['cut']}.json", {"lane": lane_id, "cut": asked["cut"], "result": "blocked", "stacks": {}, "why": why})
     (lanes_dir(drive) / WANTS / f"{lane_id}.json").unlink()
     return path
+
+
+def defer(drive: str, lane_id: str, why: str) -> Path:
+    """Hand a lane's ask back to the line, unclaimed, with why it waits, for a stack this cut cannot carry but a later one can, such as a stack that shares a service with this cut's: the next stager start takes it once a target frees, so the lane never asks again by hand, by his 18:33 words "no hand steps"."""
+    refuse_in_shadow(drive, "deferring a lane's cut")
+    asked = {field: value for field, value in wants(drive)[lane_id].items() if field != "claimed"}
+    return written(lanes_dir(drive) / WANTS / f"{lane_id}.json", asked | {"deferred": why, "deferred_at": store.stamp()})
 
 
 def start(drive: str) -> str | None:

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from lane import landing, rows
+from lane import landing, rows, store
 
 NOW = datetime(2026, 11, 16, 15, 0).astimezone()
 SAFE: dict = {}
@@ -224,3 +224,16 @@ def test_a_pass_takes_a_queued_pr_that_waits_on_a_staging_proof_out_of_the_merge
     said = cli.dequeued("durable-agents", tmp_path, ["Forge-AI/monorepo#57423", "Forge-AI/monorepo#57931", "yasyf/litestream#46"])
     assert ran == [["ci", "trunk", "dequeue", "57423"]]
     assert said == ["dequeued Forge-AI/monorepo#57423: it waits on a staging proof"]
+
+
+def test_a_stack_a_cut_cannot_carry_goes_back_in_line_unclaimed_so_the_next_stager_takes_it_with_no_ask_again(monkeypatch, tmp_path) -> None:
+    from lane import stager
+
+    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(stager, "refuse_in_shadow", lambda drive, what: None)
+    stager.written(tmp_path / stager.WANTS / "sandsql-engine.json", {"lane": "sandsql-engine", "cut": "engine-1", "at": "2026-11-17T00:12:21Z", "claimed": store.stamp()})
+    assert "sandsql-engine" not in stager.unserved("durable-agents")
+    stager.defer("durable-agents", "sandsql-engine", "it shares sandsql with the HA cut on nodes-3")
+    assert "sandsql-engine" in stager.unserved("durable-agents")
+    assert stager.starts("durable-agents", "engine-1") == "next"
+    assert not (tmp_path / stager.CUTS / "engine-1.json").exists()

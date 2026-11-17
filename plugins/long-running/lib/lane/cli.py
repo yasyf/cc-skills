@@ -275,6 +275,10 @@ def block(args: argparse.Namespace) -> None:
     print(stager.block(args.drive, args.lane, args.why))
 
 
+def defer(args: argparse.Namespace) -> None:
+    print(stager.defer(args.drive, args.lane, args.why))
+
+
 def result(args: argparse.Namespace) -> None:
     print(stager.result(args.drive, args.cut, json.loads(Path(args.file).read_text())))
 
@@ -311,6 +315,10 @@ def main() -> int:
     verb.add_argument("--lane", required=True)
     verb.add_argument("--why", required=True)
     verb.set_defaults(run=block)
+    verb = verbs.add_parser("defer", help="hand a lane's staging ask back to the line, unclaimed, with why, for the next stager to take once a target frees")
+    verb.add_argument("--lane", required=True)
+    verb.add_argument("--why", required=True)
+    verb.set_defaults(run=defer)
     verb = verbs.add_parser("result", help="write each stack's result for a cut, which wakes its lane")
     verb.add_argument("--cut", required=True)
     verb.add_argument("file")
