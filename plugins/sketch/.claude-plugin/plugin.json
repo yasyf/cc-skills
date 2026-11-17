@@ -1,0 +1,10 @@
+{
+  "name": "sketch",
+  "description": "Draw how a system works as one hand-drawn board — a one-claim title, a numbered main path, boxes that say what they do and hold, owners' boundaries and notes with the numbers — from code and its context, with cc-sketch.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "license": "MIT"
+}
