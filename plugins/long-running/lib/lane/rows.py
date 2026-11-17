@@ -74,6 +74,8 @@ def unjudged(lanes: dict[str, dict], key: str) -> list[str]:
 def judge(drive: str, read: dict[str, dict]) -> int:
     """Write each unjudged head's verdict, {head, classes}: a model reads danger.md, the bar rule() reads, his list of what plainly needs a staging pass before merge, against each PR's title and changed files, JUDGED_AT a request, and a yes at DANGER_AT or more names the class `before merge` with its why; a no leaves classes empty, so his Approve merges it and the tester runs its test after the merge. A head whose files or answer could not be read stays unjudged and holds. The count written."""
     key = rule_key(drive)
+    if cleared(store.load_all(drive), key):
+        store.transact(drive, lambda lanes: cleared(lanes, key))
     if not (waiting := unjudged({lane_id: seen(lane, read, key, store.config(drive)["premerge_lanes"]) for lane_id, lane in store.load_all(drive).items()}, key)):
         return 0
     files = readable(waiting)
@@ -84,6 +86,18 @@ def judge(drive: str, read: dict[str, dict]) -> int:
             verdicts |= {pr: verdict | {"rule": key} for pr, verdict in answered.items()}
     marks = presence(drive, files, key)
     return store.transact(drive, lambda lanes: written(lanes, read, {"guarded": marks, "dangerous": verdicts}, key))
+
+
+def cleared(lanes: dict[str, dict], key: str) -> int:
+    """Drop from every row, merged and headless ones included, each verdict judged under a bar other than the rule whose key is given, so no row carries a class from a ruling he replaced, by his 18:22 words that a ruling re-judges every live wait. The count dropped."""
+    count = 0
+    for lane in lanes.values():
+        for row in lane["prs"]:
+            for gate in ("dangerous", "guarded"):
+                if row.get(gate) and row[gate].get("rule") != key:
+                    row[gate] = None
+                    count += 1
+    return count
 
 
 def written(lanes: dict[str, dict], read: dict[str, dict], judged: dict[str, dict[str, dict]], key: str) -> int:

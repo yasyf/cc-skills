@@ -263,3 +263,11 @@ def test_a_landing_lock_lives_only_while_held_and_a_second_taker_is_refused_mean
         with cli.exclusive(path) as again:
             assert not again
     assert not path.exists()
+
+
+def test_a_verdict_under_a_replaced_ruling_is_dropped_from_merged_and_headless_rows_too() -> None:
+    merged = row(57314, merged=True) | {"dangerous": {"head": "h", "classes": {"by his 14:33 and 14:55 rulings": ["migration"]}, "rule": "old"}, "guarded": {"head": "h", "classes": {}, "rule": "new"}}
+    headless = row(55948, head=None) | {"dangerous": {"head": "x", "classes": {"dangerous_paths": ["infra"]}, "rule": "old"}, "guarded": None}
+    lanes = {"releases": {"id": "releases", "prs": [merged, headless]}}
+    assert rows.cleared(lanes, "new") == 2
+    assert [(pr["dangerous"], pr["guarded"]) for pr in lanes["releases"]["prs"]] == [(None, {"head": "h", "classes": {}, "rule": "new"}), (None, None)]
