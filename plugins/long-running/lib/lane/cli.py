@@ -13,6 +13,7 @@ from lane import landing, releases, rows, stager, store
 
 LANDING = "landing"
 LANDINGS = "landings"
+SKIP_MERGE_PREFLIGHT = "STACK_ENQUEUE_SKIP_MERGE_PREFLIGHT"
 GONE_BASE = re.compile(r"couldn't find remote ref refs/heads/(?P<branch>\S+)")
 
 
@@ -27,11 +28,11 @@ def hold(drive: str, lane_id: str, text: str) -> str:
 
 
 def merged(drive: str, lane: dict, keys: list[str], guarded: bool, checkout: Path, sha: str, script: str, dry_run: bool) -> str:
-    """Queue one landing unit through the repository's merge queue from the pass's one worktree at the queue's base: one preflight, `--check`, retried once after retargeting onto the default branch a bottom PR whose base branch is gone, as #57004's j4413-reader-first was once its parent merged; then, for a unit the presence classes mark, his presence read again at that moment, a lapsed one holding the unit with a note in its lane, never merging; then `--watch`, which queues it."""
+    """Queue one landing unit through the repository's merge queue from the pass's one worktree at the queue's base, skipping the script's local merge preflight build since every unit it lands is green at its head and the merge queue's CI grades the merge: one preflight, `--check`, retried once after retargeting onto the default branch a bottom PR whose base branch is gone, as #57004's j4413-reader-first was once its parent merged; then, for a unit the presence classes mark, his presence read again at that moment, a lapsed one holding the unit with a note in its lane, never merging; then `--watch`, which queues it."""
     from drive import land as old_land
 
     numbers = [key.rpartition("#")[2] for key in keys]
-    trusted = os.environ | {old_land.MISE_TRUST: str(checkout)}
+    trusted = os.environ | {old_land.MISE_TRUST: str(checkout), SKIP_MERGE_PREFLIGHT: "1"}
     checked = subprocess.run([str(checkout / script), "--check", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
     if (gone := GONE_BASE.search(checked.stdout + checked.stderr)) and retargeted(keys[0], gone["branch"]):
         checked = subprocess.run([str(checkout / script), "--check", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
@@ -99,7 +100,11 @@ def land(args: argparse.Namespace) -> None:
         script = providers.at(checkout_of).repo.queue().script
         with old_land.fresh(args.drive, checkout_of, repo, github.default_branch(repo), store.drive_dir(args.drive) / LANDINGS) as (checkout, sha):
             for lane, keys, guarded in units:
-                print(merged(args.drive, lane, keys, guarded, checkout, sha, script, args.dry_run or not stager.live(args.drive)))
+                with exclusive(store.drive_dir(args.drive) / LANDING / f"{keys[0].replace('/', '_').replace('#', '-')}.lock") as mine:
+                    if not mine:
+                        print(f"{lane['id']}: another lander is landing {keys[0]}; this pass skips it")
+                        continue
+                    print(merged(args.drive, lane, keys, guarded, checkout, sha, script, args.dry_run or not stager.live(args.drive)))
 
 
 def spawn(drive: str) -> None:
