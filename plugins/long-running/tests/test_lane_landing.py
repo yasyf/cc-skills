@@ -102,21 +102,54 @@ def test_a_tooling_pr_lands_on_green_with_no_approve_of_his_and_a_red_one_waits(
     assert landing.verdicts(lane(row(1, approved_head=None)))[0].why == "Forge-AI/monorepo#1 waits: no Approve of his"
 
 
-def test_a_staging_ask_from_a_lane_with_no_premerge_pr_returns_after_merge_and_creates_no_wait(monkeypatch, tmp_path) -> None:
-    from lane import stager, store
+def test_a_staging_ask_queues_a_staging_before_item_for_a_sandsql_stack_and_after_merge_for_a_lane_owing_none(monkeypatch, tmp_path) -> None:
+    from lane import stager, store, work
 
     journal = row(53430) | {"dangerous": {"head": "h", "classes": {}, "rule": "r"}, "guarded": {"head": "h", "classes": {}, "rule": "r"}}
-    sandsql = row(56597) | {"dangerous": {"head": "h", "classes": {"before merge": ["rust/crates/sandsql-storage/src/lib.rs"]}, "rule": "r"}, "guarded": {"head": "h", "classes": {}, "rule": "r"}}
+    sandsql = row(56597) | {"dangerous": {"head": "h", "classes": {"before merge": ["storage"]}, "rule": "r"}, "guarded": {"head": "h", "classes": {}, "rule": "r"}}
     lanes = {"run-page-v3": lane(journal) | {"id": "run-page-v3"}, "sandsql-ha-release-3": lane(sandsql) | {"id": "sandsql-ha-release-3"}}
+    added = []
     monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(stager, "live", lambda drive: True)
     monkeypatch.setattr(store, "load", lambda drive, lane_id: lanes[lane_id])
-    monkeypatch.setattr(rows, "view", lambda drive: {landing.key(pr): {"head": "h", "checks": "pass", "under": None} for pr in (journal, sandsql)})
+    monkeypatch.setattr(store, "config", lambda drive: {"premerge_lanes": [], "staging_targets": ["staging nodes-3"], "staging_alerts": "#alerts-staging"})
+    monkeypatch.setattr(rows, "view", lambda drive, lane_ids=None: {landing.key(pr): {"head": "h", "checks": "pass", "under": None} for pr in (journal, sandsql)})
     monkeypatch.setattr(rows, "rule_key", lambda drive: "r")
+    monkeypatch.setattr(work, "add", lambda drive, kind, lane_id, subject, words, head=None, touches=None, by="owner": added.append((kind, lane_id, subject, head, touches, words)) or {"id": work.item_id(kind, subject)})
+    monkeypatch.setattr(work, "load", lambda drive, found: {"kind": "staging-before"})
     assert stager.want("durable-agents", "run-page-v3") == stager.AFTER_MERGE
-    assert not (tmp_path / stager.WANTS / "run-page-v3.json").exists()
-    assert stager.want("durable-agents", "sandsql-ha-release-3").startswith("sandsql-ha-release-3-")
+    assert stager.want("durable-agents", "sandsql-ha-release-3") == f"work:{work.item_id('staging-before', 'Forge-AI/monorepo#56597')}"
+    assert [entry[:5] for entry in added] == [("staging-before", "sandsql-ha-release-3", "Forge-AI/monorepo#56597", "h", ["staging nodes-3"])]
+    assert "#alerts-staging" in added[0][5]
 
 
+def test_each_pass_queues_one_staging_after_item_per_merged_pr_and_moves_an_old_ask_onto_its_item(monkeypatch, tmp_path) -> None:
+    import json
+
+    from lane import stager, store, work
+
+    merged = row(56967, merged=True) | {"approved_head": "h"}
+    untested = row(56999, merged=True)
+    added = []
+    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(stager, "live", lambda drive: True)
+    monkeypatch.setattr(store, "config", lambda drive: {"staging_targets": ["staging"], "staging_alerts": "#alerts-staging"})
+    monkeypatch.setattr(work, "add", lambda drive, kind, lane_id, subject, words, head=None, touches=None, by="owner": added.append((kind, subject)) or {"id": work.item_id(kind, subject)})
+    stager.written(tmp_path / stager.WANTS / "run-page.json", {"lane": "run-page", "cut": "v3-1", "at": "2026-11-17T01:25:03Z"})
+    stager.queue("durable-agents", [lane(merged, untested)])
+    assert added == [("staging-after", "Forge-AI/monorepo#56967")]
+    assert stager.wants("durable-agents") == {} and json.loads((tmp_path / stager.CUTS / "v3-1.json").read_text())["result"] == "moved"
+
+
+def test_a_cut_result_finishes_each_stacks_staging_item_with_its_outcome(monkeypatch) -> None:
+    from lane import stager, work
+
+    finished = []
+    items = {work.item_id("staging-before", "Forge-AI/monorepo#57891"): {"id": "b", "state": work.TAKEN}, work.item_id("staging-after", "Forge-AI/monorepo#56967"): {"id": "a", "state": work.TAKEN}}
+    monkeypatch.setattr(work, "load", lambda drive, found: items.get(found))
+    monkeypatch.setattr(work, "done", lambda drive, found, result, failed=False: finished.append((found, failed)))
+    stager.finished("durable-agents", {"Forge-AI/monorepo#57891": {"stack": ["Forge-AI/monorepo#57891"], "head": "h", "target": "t", "result": "fail"}, "Forge-AI/monorepo#56967": {"stack": ["Forge-AI/monorepo#56967"], "head": "h", "target": "t", "result": "pass"}})
+    assert finished == [("b", True), ("a", False)]
 def test_writing_a_staging_target_that_exists_nowhere_is_refused_and_one_that_exists_is_kept(monkeypatch, tmp_path) -> None:
     import pytest
 
@@ -178,22 +211,6 @@ def test_a_staging_cut_wait_names_when_its_cut_starts_and_one_no_ask_names_never
     assert stager.starts("durable-agents", "sandsql-ha-release-3-20261116232850") is None
 
 
-def test_a_stager_is_told_the_staging_alerts_channel_to_read_into_each_stacks_result(monkeypatch, tmp_path) -> None:
-    import subprocess
-
-    from lane import session, stager, store
-
-    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
-    monkeypatch.setattr(stager, "live", lambda drive: True)
-    monkeypatch.setattr(store, "config", lambda drive: store.DEFAULTS | {"checkout": str(tmp_path), "staging_targets": ["plat-usw2-staging sandsql-nodes-3"], "staging_alerts": "#alerts-staging"})
-    stager.written(tmp_path / stager.WANTS / "sandsql-ha-release-3.json", {"lane": "sandsql-ha-release-3", "cut": "ha-1", "at": "2026-11-16T23:28:50Z"})
-    started = []
-    monkeypatch.setattr(session, "argv", lambda config, role, checkout, own, head, tail: ["claude", *head, *tail])
-    monkeypatch.setattr(subprocess, "run", lambda argv, **named: started.append(argv) or subprocess.CompletedProcess(argv, 0, "bg", ""))
-    stager.start("durable-agents")
-    assert "Staging alerts post in #alerts-staging" in str(started)
-
-
 def test_a_sandsql_lanes_pr_waits_on_a_staging_proof_whatever_the_judge_scored_and_another_lanes_lands(monkeypatch) -> None:
     pr = row(56892) | {"dangerous": {"head": "h", "classes": {}, "rule": "r"}, "guarded": {"head": "h", "classes": {}, "rule": "r"}}
     read = {landing.key(pr): {"head": "h", "checks": "pass", "under": None}}
@@ -216,34 +233,6 @@ def test_a_pass_takes_a_queued_pr_that_waits_on_a_staging_proof_out_of_the_merge
     said = cli.dequeued("durable-agents", tmp_path, ["Forge-AI/monorepo#57423", "Forge-AI/monorepo#57931", "yasyf/litestream#46"])
     assert ran == [["ci", "trunk", "dequeue", "57423"]]
     assert said == ["dequeued Forge-AI/monorepo#57423: it waits on a staging proof"]
-
-
-def test_a_stack_a_cut_cannot_carry_goes_back_in_line_unclaimed_so_the_next_stager_takes_it_with_no_ask_again(monkeypatch, tmp_path) -> None:
-    from lane import stager
-
-    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
-    monkeypatch.setattr(stager, "refuse_in_shadow", lambda drive, what: None)
-    stager.written(tmp_path / stager.WANTS / "sandsql-engine.json", {"lane": "sandsql-engine", "cut": "engine-1", "at": "2026-11-17T00:12:21Z", "claimed": store.stamp()})
-    assert "sandsql-engine" not in stager.unserved("durable-agents")
-    stager.defer("durable-agents", "sandsql-engine", "it shares sandsql with the HA cut on nodes-3")
-    assert "sandsql-engine" in stager.unserved("durable-agents")
-    assert stager.starts("durable-agents", "engine-1") == "next"
-    assert not (tmp_path / stager.CUTS / "engine-1.json").exists()
-
-
-def test_each_pass_files_an_ask_for_a_lane_owing_a_staging_test_closes_one_owing_none_and_waits_out_a_fresh_block(monkeypatch, tmp_path) -> None:
-    import json
-
-    from lane import stager
-
-    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
-    monkeypatch.setattr(stager, "live", lambda drive: True)
-    stager.written(tmp_path / stager.WANTS / "run-page-v3.json", {"lane": "run-page-v3", "cut": "v3-1", "at": "2026-11-17T01:25:03Z", "claimed": "2026-11-17T01:25:03Z"})
-    stager.written(tmp_path / stager.CUTS / "blobstore-1.json", {"lane": "blobstore", "cut": "blobstore-1", "result": "blocked", "stacks": {}, "why": "nodes-4 exists nowhere"})
-    stager.reconcile("durable-agents", {"sandsql-engine", "blobstore"})
-    assert set(stager.wants("durable-agents")) == {"sandsql-engine"}
-    assert json.loads((tmp_path / stager.CUTS / "v3-1.json").read_text())["result"] == "after_merge"
-    assert stager.starts("durable-agents", stager.wants("durable-agents")["sandsql-engine"]["cut"]) == "next"
 
 
 def test_a_landing_lock_lives_only_while_held_and_a_second_taker_is_refused_meanwhile(tmp_path) -> None:
@@ -293,7 +282,7 @@ def test_a_passed_staging_result_lands_its_stack_in_the_same_call_and_a_failed_o
     monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
     monkeypatch.setattr(stager, "refuse_in_shadow", lambda drive, what: None)
     monkeypatch.setattr(rows, "prove", lambda drive, cut, stacks: None)
-    monkeypatch.setattr(stager, "served", lambda drive, stacks: None)
+    monkeypatch.setattr(stager, "finished", lambda drive, stacks: None)
     monkeypatch.setattr(cli, "land_stack", lambda drive, lane_id, key: landed.append((lane_id, key)) or f"{lane_id}: queued {key}")
     stacks = {"Forge-AI/monorepo#57891": {"lane": "sandsql-ha-release-3", "stack": ["Forge-AI/monorepo#57891"], "head": "h", "target": "t", "result": "pass"}, "Forge-AI/monorepo#57944": {"lane": "sandsql-engine", "stack": ["Forge-AI/monorepo#57944"], "head": "h", "target": "t", "result": "fail"}}
     written = json.loads(stager.result("durable-agents", "cut-1", stacks).read_text())

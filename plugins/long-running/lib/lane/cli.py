@@ -180,7 +180,7 @@ def exclusive(path: Path) -> Iterator[bool]:
 
 
 def land(args: argparse.Namespace) -> None:
-    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, takes out of the merge queue each PR that waits on a staging proof by dequeued(), files or closes each lane's staging ask by stager.reconcile, starts a stager when an ask waits and a target is free by stager.start, uses each head's verdict the judge worker already wrote, never judging inside the pass, prints what his Approve lands now in each lane, reads the merge queue's row for every unit in one call, and in live mode submits every unit the queue does not hold by merged(), UNITS_AT_ONCE at a time, and exits; the next pass reads what came of each."""
+    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, takes out of the merge queue each PR that waits on a staging proof by dequeued(), puts every staging test the lanes owe on the work queue by stager.queue, uses each head's verdict the judge worker already wrote, never judging inside the pass, prints what his Approve lands now in each lane, reads the merge queue's row for every unit in one call, and in live mode submits every unit the queue does not hold by merged(), UNITS_AT_ONCE at a time, and exits; the next pass reads what came of each."""
     print(f"pass {os.getpid()} starts at {store.stamp()}")
 
     here = Path(__file__).resolve().parents[2]
@@ -194,7 +194,8 @@ def land(args: argparse.Namespace) -> None:
         checkout = Path(store.config(args.drive)["checkout"])
         units = []
         unstaged: dict[str, str] = {}
-        for lane in [rows.seen(lane, read, rule, store.config(args.drive)["premerge_lanes"]) for lane in store.load_all(args.drive).values() if not args.lane or lane["id"] in args.lane]:
+        seen_lanes = [rows.seen(lane, read, rule, store.config(args.drive)["premerge_lanes"]) for lane in store.load_all(args.drive).values() if not args.lane or lane["id"] in args.lane]
+        for lane in seen_lanes:
             unstaged |= {landing.key(row): lane["id"] for stack in landing.stacks(lane) if not landing.proven(stack) for row in stack if not row.get("merged") and landing.judged(row) and landing.dangerous(row)}
             for verdict in landing.verdicts(lane):
                 print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
@@ -208,8 +209,7 @@ def land(args: argparse.Namespace) -> None:
             for said in dequeued(args.drive, checkout, list(unstaged)):
                 print(said)
             if not args.lane:
-                stager.reconcile(args.drive, set(unstaged.values()))
-        stager.start(args.drive)
+                print(f"staging items queued or kept: {len(stager.queue(args.drive, seen_lanes))}")
         if not units:
             return
         if supervisor.newest_install() != here:
@@ -301,10 +301,6 @@ def reap(drive: str) -> list[int]:
     return ended
 
 
-def stage(args: argparse.Namespace) -> None:
-    print(stager.start(args.drive) or "no stager started: every lane's staging ask is already taken, or the drive is in shadow")
-
-
 def want(args: argparse.Namespace) -> None:
     print(stager.want(args.drive, args.lane))
 
@@ -319,14 +315,6 @@ def decide(args: argparse.Namespace) -> None:
 
 def targets(args: argparse.Namespace) -> None:
     print(json.dumps(stager.targets(args.drive, args.target)))
-
-
-def block(args: argparse.Namespace) -> None:
-    print(stager.block(args.drive, args.lane, args.why))
-
-
-def defer(args: argparse.Namespace) -> None:
-    print(stager.defer(args.drive, args.lane, args.why))
 
 
 def result(args: argparse.Namespace) -> None:
@@ -345,9 +333,7 @@ def main() -> int:
     verb.set_defaults(run=judge)
     verb = verbs.add_parser("verdicts", help="each lane stack's verdict now, read from GitHub, with no pass lock, no judging and no merge queue call")
     verb.set_defaults(run=verdicts)
-    verb = verbs.add_parser("stage", help="start the drive's stager now when a lane waits on a staging test and the env is free")
-    verb.set_defaults(run=stage)
-    verb = verbs.add_parser("want", help="ask the stager for a staging test of the lane's pending stack; prints the cut id to wait on as staging_result:<id>")
+    verb = verbs.add_parser("want", help="queue the staging test of the lane's pending stack as a work item; prints the event to wait on, work:<id>, or after_merge")
     verb.add_argument("--lane", required=True)
     verb.set_defaults(run=want)
     verb = verbs.add_parser("candidates", help="dangerous stacks waiting on a proof, best ranked first")
@@ -361,14 +347,6 @@ def main() -> int:
     verb = verbs.add_parser("targets", help="set the drive's staging targets, each '<env>' or '<env> <generation>', refused when one does not exist on the default branch")
     verb.add_argument("target", nargs="+")
     verb.set_defaults(run=targets)
-    verb = verbs.add_parser("block", help="end a lane's staging ask the stager will not run, with its why in full, which wakes the lane")
-    verb.add_argument("--lane", required=True)
-    verb.add_argument("--why", required=True)
-    verb.set_defaults(run=block)
-    verb = verbs.add_parser("defer", help="hand a lane's staging ask back to the line, unclaimed, with why, for the next stager to take once a target frees")
-    verb.add_argument("--lane", required=True)
-    verb.add_argument("--why", required=True)
-    verb.set_defaults(run=defer)
     verb = verbs.add_parser("result", help="write each stack's result for a cut, which wakes its lane")
     verb.add_argument("--cut", required=True)
     verb.add_argument("file")
