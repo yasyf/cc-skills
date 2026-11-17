@@ -474,7 +474,8 @@ def test_selected_loads_decode_only_requested_fields_and_keep_independent_copies
     monkeypatch.setattr(state.marshal, "loads", decode)
     selected = state.load("demo", fields)
     assert selected == {field: whole[field] for field in fields}
-    assert decoded == [cached[field] for field in fields]
+    assert cached is not None
+    assert decoded == [body for field in fields for body in (cached.collections[field].values() if field in cached.collections else [cached.fields[field]])]
     if "orders" in selected:
         selected["orders"]["o0"]["text"] = "only this caller"
         assert state.load("demo", fields)["orders"]["o0"]["text"] == "order 0"
@@ -514,7 +515,7 @@ def test_writes_reuse_the_loaded_snapshot_without_encoding_the_whole_drive(
 @pytest.mark.parametrize("collecting", [True, False])
 def test_write_baseline_reuses_unchanged_fields_and_decodes_changes_without_cyclic_scans(monkeypatch: pytest.MonkeyPatch, collecting: bool) -> None:
     before = {"jobs": {"j1": {"text": "unchanged"}}, "orders": {"o1": {"text": "before"}}, "terminal": "removed"}
-    encoded = {field: state.marshal.dumps(value) for field, value in before.items()}
+    encoded = state.Snapshot(before)
     mine = {"jobs": before["jobs"], "orders": {"o1": {"text": "after"}}, "owner": "added"}
     loads = state.marshal.loads
     decoded: list[bytes] = []
@@ -533,13 +534,40 @@ def test_write_baseline_reuses_unchanged_fields_and_decodes_changes_without_cycl
         assert baseline == before
         assert baseline["jobs"] is mine["jobs"]
         assert baseline["orders"] is not mine["orders"]
-        assert decoded == list(encoded.values())
+        assert decoded == [encoded.collections["orders"]["o1"], encoded.fields["terminal"]]
         assert state.written_rows(baseline, mine) == {("orders", "o1"), ("", "terminal"), ("", "owner")}
+        broken = state.Snapshot({"broken": None})
+        broken.fields["broken"] = b""
         with pytest.raises(EOFError):
-            state.write_baseline({"broken": b""}, {})
+            state.write_baseline(broken, {})
         assert gc.isenabled() == collecting
     finally:
         (gc.enable if was_collecting else gc.disable)()
+
+
+@pytest.mark.parametrize("count", [1, 1000])
+def test_row_snapshot_baseline_decodes_only_changed_and_removed_rows(monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+    before = {"jobs": {f"j{i}": {"text": f"job {i}", "reports": [i]} for i in range(count + 2)}, "owner": "same"}
+    snapshot = state.Snapshot(before)
+    mine = snapshot.read()
+    mine["jobs"]["j0"]["reports"].append("changed")
+    del mine["jobs"]["j1"]
+    mine["jobs"]["added"] = {"text": "new"}
+    loads = state.marshal.loads
+    decoded: list[bytes] = []
+
+    def decode(body: bytes):
+        decoded.append(body)
+        return loads(body)
+
+    monkeypatch.setattr(state.marshal, "loads", decode)
+    baseline = state.write_baseline(snapshot, mine)
+    assert baseline == before
+    assert decoded == [snapshot.collections["jobs"]["j0"], snapshot.collections["jobs"]["j1"]]
+    assert all(baseline["jobs"][f"j{i}"] is mine["jobs"][f"j{i}"] for i in range(2, count + 2))
+    assert state.written_rows(baseline, mine) == {("jobs", "j0"), ("jobs", "j1"), ("jobs", "added")}
+    mine["jobs"]["j0"]["reports"].append("later")
+    assert baseline["jobs"]["j0"] == before["jobs"]["j0"]
 
 
 def test_selected_loads_observe_other_processes_saves_and_batch_writes(state_root: Path) -> None:
