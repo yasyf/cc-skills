@@ -43,6 +43,9 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict:
     from lane import ack
 
     monkeypatch.setattr(ack, "react", lambda lane, ask, add, remove: seen.setdefault("slack", []).append((ask["ts"], add, remove)))
+    from lane import work
+
+    monkeypatch.setattr(work, "launch", lambda drive, cwd: seen.setdefault("workers", []).append(str(cwd)) or {"id": f"worker-{len(seen['workers'])}", "job": f"worker-job-{len(seen['workers'])}"})
     folder = store.drive_dir(DRIVE)
     folder.mkdir(parents=True)
     (folder / "config.json").write_text(json.dumps({"active": 3, "slots": 2, "posting": False}))
