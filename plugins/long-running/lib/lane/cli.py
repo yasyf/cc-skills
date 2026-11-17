@@ -118,7 +118,7 @@ def spawn(drive: str) -> None:
 
 
 def stage(args: argparse.Namespace) -> None:
-    print(stager.start(args.drive) or "no stager started: no lane waits, the stager already holds staging-env, the queue said wait, or the drive is in shadow")
+    print(stager.start(args.drive) or "no stager started: every lane's staging ask is already taken, or the drive is in shadow")
 
 
 def want(args: argparse.Namespace) -> None:
@@ -127,18 +127,6 @@ def want(args: argparse.Namespace) -> None:
 
 def candidates(args: argparse.Namespace) -> None:
     print(json.dumps(stager.candidates(args.drive, args.reach)[: args.limit], indent=2))
-
-
-def take(args: argparse.Namespace) -> None:
-    print(json.dumps(stager.take(args.drive, args.holder, args.lane, args.minutes)))
-
-
-def renew(args: argparse.Namespace) -> None:
-    print(stager.renew(args.drive, args.holder, args.minutes))
-
-
-def release(args: argparse.Namespace) -> None:
-    stager.release(args.drive, args.holder)
 
 
 def decide(args: argparse.Namespace) -> None:
@@ -165,18 +153,6 @@ def main() -> int:
     verb.add_argument("--reach", action="store_true", help="add changed files and release select's reach for the first few")
     verb.add_argument("--limit", type=int, default=30)
     verb.set_defaults(run=candidates)
-    verb = verbs.add_parser("take", help="ask lane-queue for the staging env, for the lane of the cut's first stack")
-    verb.add_argument("--lane", required=True)
-    verb.add_argument("--holder", required=True)
-    verb.add_argument("--minutes", type=int, required=True)
-    verb.set_defaults(run=take)
-    verb = verbs.add_parser("renew", help="extend the staging env's grant")
-    verb.add_argument("--holder", required=True)
-    verb.add_argument("--minutes", type=int, required=True)
-    verb.set_defaults(run=renew)
-    verb = verbs.add_parser("release", help="give the staging env back")
-    verb.add_argument("--holder", required=True)
-    verb.set_defaults(run=release)
     verb = verbs.add_parser("decide", help="keep the batch the tester chose, from a JSON file")
     verb.add_argument("--cut", required=True)
     verb.add_argument("file")

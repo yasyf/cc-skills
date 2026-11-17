@@ -29,6 +29,7 @@ DEFAULTS = {
     "launch_grace_seconds": 180,
     "restarts_before_backoff": 3,
     "checkout": None,
+    "staging_targets": ["plat-usw2-staging"],
 }
 PRESENCE = "presence.json"
 LIVE = "live"
