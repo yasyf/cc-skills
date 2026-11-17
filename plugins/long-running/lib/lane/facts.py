@@ -57,7 +57,7 @@ def read_prs(keys: set[tuple[str, int]], commits: int = COMMITS_READ, failed: li
     if chunks and len(lost) == len(chunks):
         raise store.Refused(f"GitHub read failed for every chunk: {lost[0]}")
     found = {key: pull for read in reads if isinstance(read, dict) for key, pull in read.items()}
-    red = sorted(key for key, pull in found.items() if pull["state"] == "OPEN" and pull["rollup"] in ("FAILURE", "ERROR"))
+    red = sorted(key for key, pull in found.items() if pull.get("state") == "OPEN" and pull.get("rollup") in ("FAILURE", "ERROR"))
     for start in range(0, len(red), PRS_PER_QUERY):
         try:
             for key, failing in failing_checks(red[start : start + PRS_PER_QUERY]).items():
