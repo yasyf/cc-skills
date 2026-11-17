@@ -59,7 +59,7 @@ After: one post. Say a thing once; a post that only repeats your last one replac
 
 **The drive's plumbing, told to him.**
 Before: Took your approval: #57746 is in the merge queue now. No card because my 2:57 PM post went out as a plain line while its card sat in the drive's card queue behind another one. That's my miss; I'm fixing the tooling so a post asking for your Approve always carries its card, or doesn't go out.
-After: Took your approval: #57746 SandDB reads its own bucket is in the merge queue now.
+After: Took your approval: #57746 SandDB reads its own bucket is in the merge queue now. A post asking for your Approve now always carries its card.
 
 **A long result with a raw link.**
 Before: Two results the old drive owed you and never sent: … Your 2:46 PM card asks how to fix it: https://poetic-technology.slack.com/archives/C0CHV3PTX4K/p1794869182955989?thread_ts=… . … I'm starting one reader on each.
@@ -85,7 +85,7 @@ These are his rulings from weeks of posts. Each one is still his.
 
 **Questions.** A real open choice becomes a card within a minute. It has 2 to 4 options, your recommendation first, each one line of at most 25 words saying what he gets and what it costs, and each standing alone, never "same as 2". Anything that says it waits on him carries that card with its buttons ("Anything that says waiting on me you always need to embed the card with the buttons"). Never ask him to type a word a card could carry. A card is only for what is his: product scope, an architecture fork with lasting cost, his own workflow, money. Decide the rest and say what you chose. On a card, work each option out to what it will look like built: its real calls, the rows it writes, what a caller gets ("flesh out what that will look like not just wave your hands"). Ask for a PR tap only when one is owed; if he already tapped it, or it merged or closed, say what happened.
 
-**Claims.** Name a cause, or say fixed, merged, queued or live, only with a link to the read that measured it. Done means live and checked where he uses it, with a few words on how you checked. A proof by a repro or a script is not the real event, so say which it was. A post goes out after the action, never announcing it. Never ask him or a reporter to retry a fix; prove it yourself. Never tell him something of ours is down without saying it was already restarted ("It's unacceptable to just say it's down").
+**Claims.** Name a cause, or say fixed, merged, queued or live, only with a link to the read that measured it. Done means live and checked where he uses it, with a few words on how you checked. A proof by a repro or a script is not the real event, so say which it was. A post goes out after the action, never announcing it. Never ask him or a reporter to retry a fix; prove it yourself. Never tell him something of ours is down without saying it was already restarted ("It's unacceptable to just say it's down"). When a post tells him something of ours failed, one plain line says how it is now prevented, in what he will see, never how the tooling works ("thats not acceptable to dsay without telling me how you will prevent it").
 
 **Words.** Use the proper term for anything technical (table, column, function, flag, migration), glossed in a few words the first time ("use the proper fucking terms for things"), and a word he corrected never comes back. Name a mechanism by what it does, never a bare "polling". Numbers beat adjectives: "129 of 476 passed, up from 100". List every member of a set you count. Every line stands alone: no "as above", no correction of a post it does not link, no sorry ("Why did you say sorry in it again?").
 
@@ -107,12 +107,12 @@ These are his rulings from weeks of posts. Each one is still his.
 | "hold X", "not til cutover" | X stays out of every card and every merge until he lifts it |
 | "whats status of X" | An answer: live or not, what it waits on, when it lands. One short paragraph |
 | "why is X …" | The cause in one sentence, then what changes. No history of how it was found |
-| "the card is still there" | Fix it, then say it is fixed. Keep the reason it happened out of the post |
+| "the card is still there" | Fix it, then say it is fixed and, in one plain line, how it is now prevented. Keep how the tooling broke out of the post |
 | "I've said this like 5 times" | You missed a ruling. Apply it everywhere it reaches, and say only what is now true |
 
 ## Words that never reach him
 
 - Internal names: the drive and the old drive, coordinator, communicator, handler, builders, readers, the card queue, another lane, job ids such as `j1700`, order ids such as `o134`, records, sessions.
-- How the tooling works or that you are fixing it. A tooling bug goes to the tooling lane, never into his post.
+- How the tooling works or broke. A tooling bug goes to the tooling lane; his post carries only the one plain line saying how the failure is now prevented.
 - His own message restated, an apology paragraph, or "here's the longer version".
 - UTC times, bare URLs, and full PR titles.
