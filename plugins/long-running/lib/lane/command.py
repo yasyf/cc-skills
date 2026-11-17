@@ -171,6 +171,27 @@ def main(argv: list[str] | None = None) -> int:
     fixing.add_argument("--commit", required=True)
     missing = verbs_parser.add_parser("audit-miss", help="a defect he found that the audits missed, kept as a rubric line every later audit checks")
     missing.add_argument("line")
+    working = verbs_parser.add_parser("work", help="the work queue: add an item, pull and take items as a worker, finish one, or list them")
+    work_verbs = working.add_subparsers(dest="work_verb", required=True)
+    work_add = work_verbs.add_parser("add")
+    work_add.add_argument("kind")
+    work_add.add_argument("subject")
+    work_add.add_argument("words")
+    work_add.add_argument("--lane")
+    work_add.add_argument("--serves", type=int)
+    work_add.add_argument("--head")
+    work_add.add_argument("--touches", nargs="*", default=[])
+    work_add.add_argument("--runs-on", default="local")
+    work_verbs.add_parser("pull")
+    work_take = work_verbs.add_parser("take")
+    work_take.add_argument("ids", nargs="+")
+    work_take.add_argument("--worker", default=os.environ.get("LANE_WORKER"))
+    work_done = work_verbs.add_parser("done")
+    work_done.add_argument("id")
+    outcome = work_done.add_mutually_exclusive_group(required=True)
+    outcome.add_argument("--result")
+    outcome.add_argument("--failed")
+    work_verbs.add_parser("list")
     homing = verbs_parser.add_parser("home", help="move a lane's home to its project channel, out of his DM")
     homing.add_argument("lane")
     homing.add_argument("--channel", required=True)
@@ -330,6 +351,28 @@ def run(args: argparse.Namespace) -> int:
         case "audit-miss":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             audit.missed(drive, args.line)
+        case "work":
+            from lane import work
+
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            if not drive:
+                raise store.Refused("name the drive: --drive")
+            match args.work_verb:
+                case "add":
+                    drive, lane_id = where(args)
+                    print(work.add(drive, args.kind, lane_id, args.subject, args.words, args.serves, args.head, args.touches, args.runs_on)["id"])
+                case "pull":
+                    print(json.dumps(work.pull(drive), indent=1))
+                case "take":
+                    if not args.worker:
+                        raise store.Refused("name the worker: --worker, or run as a worker the supervisor started")
+                    print(" ".join(work.take(drive, args.worker, args.ids)) or "none taken: each was no longer queued")
+                case "done":
+                    item = work.done(drive, args.id, args.result or args.failed, failed=args.failed is not None)
+                    print(f"{item['id']} {item['state']}")
+                case "list":
+                    for item in work.listed(drive):
+                        print(f"{item['id']} {item['state']:7} {item['kind']:14} {item['lane']:24} {item['subject']} {item.get('worker') or ''} {item.get('result') or item.get('why') or ''}".rstrip())
         case "home":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             verbs.home(drive, args.lane, args.channel, args.thread)

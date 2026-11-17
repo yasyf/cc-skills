@@ -2229,7 +2229,21 @@ function laneWorkScreen() {
       <h2 class="lane-title">${esc(owner.title)}</h2>
       <p class="lane-standing">${owner.doing ? inline(owner.doing) : 'Working.'}</p>
       <p class="meta">${owner.since ? `Started ${clock(owner.since)}` : ''}${owner.updated ? ` · last active ${ago(owner.updated)} ago` : ''}</p>
-    </div></li>`).join('') || '<li class="meta">No lane owner is working right now.</li>'}</ol>`;
+    </div></li>`).join('') || '<li class="meta">No lane owner is working right now.</li>'}</ol>
+    ${laneQueue(model.lanes.queue || [])}`;
+}
+
+function laneQueue(items) {
+  const open = items.filter((item) => item.state === 'queued' || item.state === 'taken');
+  const shown = { queued: 'Queued', taken: 'Being worked', done: 'Done', failed: 'Failed' };
+  return `<section class="lane-day"><h2 class="lane-day-title">The work queue</h2>
+    <p class="lead">${counted(open.length, 'item')} queued or being worked. Workers take the top item and what goes with it.</p>
+    <ol class="lane-list">${items.map((item) => `<li class="card lane-card"><div class="card-content">
+      <div class="card-top"><span class="eyebrow">${esc(item.lane)} · ${esc(item.kind)}</span><span class="pill t-doing">${esc(shown[item.state] || item.state)}</span></div>
+      <h2 class="lane-title">${esc(item.subject)}</h2>
+      ${item.result || item.why ? `<p class="lane-standing">${inline(item.result || item.why)}</p>` : ''}
+      <p class="meta">${esc(item.id)} · queued ${clock(item.queued)}${item.worker ? ` · ${esc(item.worker)} took it ${clock(item.taken)}` : ''}${item.ended ? ` · ended ${clock(item.ended)}` : ''}</p>
+    </div></li>`).join('') || '<li class="meta">Nothing in the queue.</li>'}</ol></section>`;
 }
 
 function laneHistoryScreen() {

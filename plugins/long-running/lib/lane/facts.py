@@ -117,6 +117,11 @@ def holds(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], dict])
             from lane import queue
 
             return queue.free_for(drive, event["ref"], lane["id"])
+        case "work":
+            from lane import work
+
+            item = work.load(drive, event["ref"])
+            return item is None or item["state"] in (work.DONE, work.FAILED)
         case "his_reply":
             return bool(store.unreplied(lane))
     raise store.Refused(f"waiting on {event['kind']!r} is not an outside fact")

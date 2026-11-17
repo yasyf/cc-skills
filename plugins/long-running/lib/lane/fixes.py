@@ -1,14 +1,7 @@
-"""Fix jobs the supervisor starts on its own, as the old drive started a builder on each PR event, so no approved PR waits on an owner noticing it: a PR he approved, or one a card asks him about at its head, that conflicts with its base, has a red check, or has no review at its head gets one background builder in the lane's worktree with a one-line brief, once per PR, head and kind. The owner is told, never asked; at most PER_LANE run per lane; the lander lands no PR a fix job of its lane is working on. The next pass reads what the job pushed, and the lander lands it once green."""
-
-import os
-import subprocess
-from datetime import UTC, datetime
+"""What an approved PR needs fixed before it lands, and the brief a worker follows for it: a PR he approved, or one a card asks him about at its head, that conflicts with its base, has a red check, or has no review at its head becomes one work-queue item (lane.work). The fix jobs from before the queue are still read here until each ends, so the lander and the queue leave their PRs alone."""
 
 from lane import owner as owners
-from lane import page, store
-from lane import session as shapes
 
-PER_LANE = 3
 ENDED = ("done", "stopped", "failed")
 DENY = ["Bash(drive:*)", "Bash(drive *)", "mcp__plugin_long-running_drive", "Bash(cci post:*)", "Bash(cc-slack send:*)", "Bash(cc-slack reply:*)", "Bash(cc-slack dm-status:*)", "mcp__plugin_cc-slack_cc-slack__slack_send", "mcp__plugin_cc-slack_cc-slack__slack_reply", "mcp__plugin_cc-slack_cc-slack__slack_dm_status", "mcp__plugin_cc-inbox_cci__post"]
 
@@ -51,58 +44,8 @@ def running(lane: dict) -> list[dict]:
     return [fix for fix in lane.get("fixes", []) if live(fix)]
 
 
-def held_keys(lane: dict) -> set[str]:
-    """The PRs a running fix job of the lane works on, which the lander leaves alone until it ends."""
-    return {fix["key"] for fix in running(lane)}
+def held_keys(drive: str, lane: dict) -> set[str]:
+    """The PRs a running fix job from before the work queue, or a worker holding a queue item, works on for the lane, which the lander leaves alone until it ends."""
+    from lane import work
 
-
-def launch(drive: str, lane: dict, key: str, prompt: str) -> dict:
-    """Start one fix job as its own background session in the lane's worktree; the job and session it runs as."""
-    own = {"env": {"BASH_MAX_TIMEOUT_MS": str(owners.TOOL_SECONDS * 1000), "MCP_TOOL_TIMEOUT": str(owners.TOOL_SECONDS * 1000)}, "permissions": {"deny": DENY}, "enabledPlugins": {name: False for name in owners.old_drive_plugins()}}
-    argv = shapes.argv(store.config(drive), "builder", owners.cwd(drive, lane), own, ["--bg"], ["--permission-mode", "bypassPermissions", "-n", f"fix {key}", prompt])
-    env = {name: value for name, value in os.environ.items() if name not in ("CLAUDE_CODE_SESSION_ID", "LANE_OWNER", "LONG_RUNNING_LANE", "LANE_TOKEN", "LANE_TOKEN_FILE", "LONG_RUNNING_JOB", "CLAUDE_LONG_RUNNING_LANE")}
-    done = subprocess.run(argv, cwd=owners.cwd(drive, lane), env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)
-    if done.returncode:
-        raise store.Refused(f"claude --bg exited {done.returncode}: {(done.stderr or done.stdout).strip()[:300]}")
-    job, session = owners.launched(done.stdout)
-    return {"job": job, "session": session}
-
-
-def start(drive: str) -> list[str]:
-    """Start a fix job for each lane PR that needs one and has none at its head for that kind, at most PER_LANE running per lane, telling the owner on the lane; what started and why each that did not start failed."""
-    if not store.live(drive):
-        return []
-    seen = page.view(drive)["prs"]
-    said = []
-    for lane_id, lane in store.load_all(drive).items():
-        started = {(fix["key"], fix["head"], fix["kind"]) for fix in lane.get("fixes", [])}
-        room = PER_LANE - len(running(lane))
-        for row in lane["prs"]:
-            key = f"{row['repo']}#{row['number']}"
-            pull = seen.get(key)
-            if room <= 0 or not wanted(row, pull) or not (kind_of := kind(row, pull)) or (key, pull["head"], kind_of) in started:
-                continue
-            prompt = brief(kind_of, row["repo"], row["number"], pull)
-            from lane import cli as lane_land
-
-            with lane_land.exclusive(lane_land.unit_lock(drive, key)) as free:
-                if not free:
-                    continue
-                try:
-                    job = launch(drive, lane, key, prompt)
-                except store.Refused as failed:
-                    said.append(f"{lane_id}: no fix job for {key}: {failed}")
-                    continue
-            room -= 1
-            fix = {"key": key, "head": pull["head"], "kind": kind_of, "at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), "brief": prompt, **job}
-
-            def keeping(lane: dict, fix: dict = fix) -> None:
-                lane["fixes"] = [*lane.get("fixes", []), fix][-100:]
-                store.note(lane, f"fix job {fix['job']} started on {fix['key']} at {fix['head'][:7]}: {fix['brief'].split('. ')[0]}")
-                if lane["state"] == store.RUNNING:
-                    with store.note_path(drive, lane["id"]).open("a") as note:
-                        note.write(f"The supervisor started fix job {fix['job']} on {fix['key']} at {fix['head'][:7]} ({fix['kind']}). It pushes that branch, so push nothing to it until the job ends; the next pass reads what it pushed and the lander lands it once green.\n\n")
-
-            store.update(drive, lane_id, keeping)
-            said.append(f"{lane_id}: fix job {job['job']} on {key} ({kind_of})")
-    return said
+    return {fix["key"] for fix in running(lane)} | work.holding(drive, lane["id"])

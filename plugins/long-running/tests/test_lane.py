@@ -1020,12 +1020,13 @@ def test_a_handover_entry_is_stamped_with_its_write_time_and_refuses_a_typed_tim
     assert store.load(DRIVE, "a")["handover"].startswith("[written ") and " PT (" in store.load(DRIVE, "a")["handover"]
 
 
-def test_the_supervisor_starts_one_fix_job_per_pr_head_and_kind_for_his_approved_prs_and_the_lander_leaves_them(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lane import fixes
+def test_his_approved_prs_needing_a_fix_become_one_queue_item_each_pulled_by_workers_and_done_wakes_the_lane(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import fixes, work
 
     started = []
-    monkeypatch.setattr(fixes, "launch", lambda drive, lane, key, prompt: started.append((key, prompt)) or {"job": f"job{len(started)}", "session": f"fix-session-{len(started)}"})
+    monkeypatch.setattr(work, "launch", lambda drive, cwd: started.append(cwd) or (work.worker_path(drive, f"worker-{len(started)}").write_text(json.dumps({"id": f"worker-{len(started)}", "job": f"job{len(started)}", "session": f"worker-session-{len(started)}", "started": store.stamp()})) and {"id": f"worker-{len(started)}", "job": f"job{len(started)}"}))
     monkeypatch.setattr(owners, "record", lambda path: {"state": "working"})
+    monkeypatch.setattr(owners, "active_at", lambda owner: store.now())
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     opened("a", prs=[("acme/app", n) for n in (1, 2, 3, 4, 5)], channel="C1")
 
@@ -1041,15 +1042,31 @@ def test_the_supervisor_starts_one_fix_job_per_pr_head_and_kind_for_his_approved
     world["prs"][("acme/app", 4)] = pull(rollup="FAILURE", head="h4", branch="b4") | {**moved, "failing": ["unit"], "mergeable": "MERGEABLE"}
     world["prs"][("acme/app", 5)] = pull(state="MERGED", rollup="FAILURE", head="h5", branch="b5")
     supervisor.run_pass(DRIVE)
-    assert [key for key, _ in started] == ["acme/app#1", "acme/app#2", "acme/app#3"]
-    assert started[0][1].startswith("Rebase acme/app#1 (branch b1) onto origin/main") and "lint" in started[1][1]
+    queued = {item["subject"]: item for item in work.items(DRIVE)}
+    assert sorted(queued) == ["acme/app#1", "acme/app#2", "acme/app#3", "acme/app#4"] and queued["acme/app#1"]["kind"] == "rebase"
+    assert queued["acme/app#1"]["words"].startswith("Rebase acme/app#1 (branch b1) onto origin/main") and "lint" in queued["acme/app#2"]["words"]
+    assert len(started) == work.WORKERS_DEFAULT
     supervisor.run_pass(DRIVE)
-    assert len(started) == 3
-    assert fixes.held_keys(store.load(DRIVE, "a")) == {"acme/app#1", "acme/app#2", "acme/app#3"}
-    assert "fix-session-1" in store.owner_sessions()
+    assert len(work.items(DRIVE)) == 4 and len(started) == work.WORKERS_DEFAULT
+    top = work.pull(DRIVE)
+    assert top["top"]["lane"] == "a" and len(top["with"]) == 3
+    rebase = queued["acme/app#1"]["id"]
+    assert work.take(DRIVE, "worker-1", [rebase]) == [rebase] and work.take(DRIVE, "worker-2", [rebase]) == []
+    assert fixes.held_keys(DRIVE, store.load(DRIVE, "a")) == {"acme/app#1"} and "worker-session-1" in store.owner_sessions()
+    world["prs"][("acme/app", 1)] = pull(rollup="SUCCESS", head="h1b", branch="b1") | {**moved, "mergeable": "CONFLICTING"}
+    supervisor.run_pass(DRIVE)
+    assert work.load(DRIVE, rebase)["state"] == work.TAKEN
+    answered("a")
+    with pytest.raises(store.Refused, match="no work item w-nothing"):
+        verbs.end_turn(DRIVE, "a", token_of("a"), [verbs.parse_event("work:w-nothing")], "1h", "waiting")
+    verbs.end_turn(DRIVE, "a", token_of("a"), [verbs.parse_event(f"work:{rebase}")], "1h", "waiting on the rebase")
+    work.done(DRIVE, rebase, "pushed h1c, rebased on main")
+    lane = store.load(DRIVE, "a")
+    assert lane["state"] != store.WAITING or lane["wait"].get("fired")
     monkeypatch.setattr(owners, "record", lambda path: {"state": "done"})
-    supervisor.run_pass(DRIVE)
-    assert [key for key, _ in started] == ["acme/app#1", "acme/app#2", "acme/app#3", "acme/app#4"]
+    work.take(DRIVE, "worker-2", [queued["acme/app#2"]["id"]])
+    assert any("back in the queue" in line for line in work.expire(DRIVE))
+    assert work.load(DRIVE, queued["acme/app#2"]["id"])["state"] == work.QUEUED
 
 
 def test_a_pass_step_that_raises_stops_no_other_step(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:

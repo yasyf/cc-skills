@@ -111,4 +111,6 @@ def screens(drive: str) -> dict | None:
         history += [{"lane": lane_id, "title": lane["title"], "kind": "merged", "at": queued[key], "words": f"{short(key)} {seen[key].get('title') or ''}".strip(), "url": url(key)} for row in lane["prs"] if (key := f"{row['repo']}#{row['number']}") in queued and (seen.get(key) or {}).get("merged")]
     history.sort(key=lambda entry: entry["at"], reverse=True)
     today = datetime.now().astimezone().date()
-    return {"now": now, "work": work, "history": history, "merged_today": sum(entry["kind"] == "merged" and store.parse(entry["at"]).astimezone().date() == today for entry in history)}
+    from lane import work as queue_items
+
+    return {"now": now, "work": work, "queue": queue_items.listed(drive), "history": history, "merged_today": sum(entry["kind"] == "merged" and store.parse(entry["at"]).astimezone().date() == today for entry in history)}

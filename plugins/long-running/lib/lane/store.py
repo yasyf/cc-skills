@@ -16,7 +16,7 @@ WAITING = "waiting"
 PARKED = "parked"
 STATES = (RUNNING, WAITING, PARKED)
 WAIT_KINDS = ("pr_merged", "check", "staging_result", "his_reply", "release", "queue_grant")
-REF_KINDS = ("pr_merged", "check", "staging_result", "release", "queue_grant")
+REF_KINDS = ("pr_merged", "check", "staging_result", "release", "queue_grant", "work")
 LANE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 DEFAULTS = {
     "active": 12,
@@ -55,11 +55,13 @@ def live(drive: str) -> bool:
 
 
 def owner_sessions() -> frozenset[str]:
-    """Every session owning a lane on any lane drive of this Mac, by each lane file's owner, and every fix job the supervisor started for one: the old drive's hooks judge none of them, nor their subagents, which share the session."""
+    """Every session owning a lane on any lane drive of this Mac, by each lane file's owner, every fix job the supervisor started for one, and every work-queue worker: the old drive's hooks judge none of them, nor their subagents, which share the session."""
     if not root().is_dir():
         return frozenset()
-    lanes = [lane for drive in os.scandir(root()) if drive.is_dir() for lane in load_all(drive.name).values()]
-    return frozenset([*(owner["session"] for lane in lanes if (owner := lane.get("owner")) and owner.get("session")), *(fix["session"] for lane in lanes for fix in lane.get("fixes", []) if fix.get("session"))])
+    drives = [drive.name for drive in os.scandir(root()) if drive.is_dir()]
+    lanes = [lane for drive in drives for lane in load_all(drive).values()]
+    workers = [json.loads(row.read_text()).get("session") for drive in drives for row in (drive_dir(drive) / "work" / "workers").glob("*.json")]
+    return frozenset([*(owner["session"] for lane in lanes if (owner := lane.get("owner")) and owner.get("session")), *(fix["session"] for lane in lanes for fix in lane.get("fixes", []) if fix.get("session")), *(session for session in workers if session)])
 
 
 def drive_dir(drive: str) -> Path:

@@ -213,8 +213,8 @@ def land(args: argparse.Namespace) -> None:
 
         def one(unit: tuple[dict, list[str]]) -> str:
             lane, keys = unit
-            if fixing := [key for key in keys if key in fixes.held_keys(store.load(args.drive, lane["id"]))]:
-                return f"{lane['id']}: a fix job is working on {', '.join(fixing)}; this pass leaves {keys[0]} for the next"
+            if fixing := [key for key in keys if key in fixes.held_keys(args.drive, store.load(args.drive, lane["id"]))]:
+                return f"{lane['id']}: a fix job or queue worker is working on {', '.join(fixing)}; this pass leaves {keys[0]} for the next"
             with exclusive(unit_lock(args.drive, keys[0])) as mine:
                 if not mine:
                     return f"{lane['id']}: another lander is landing {keys[0]}; this pass skips it"
