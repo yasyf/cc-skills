@@ -218,7 +218,10 @@ def start(drive: str) -> str | None:
         written(lanes_dir(drive) / WANTS / f"{lane}.json", ask | {"claimed": claimed})
     targets = ", ".join(store.config(drive)["staging_targets"])
     prompt = f"You are a stager for drive {drive}. Read {PAGE} and follow it, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}. Serve the lanes {', '.join(asked)} waiting in {lanes_dir(drive) / WANTS}, starting with {first}. Test on one of the staging targets {targets} that no other running cut in {lanes_dir(drive) / CUTS} uses; you take no hold."
-    done = subprocess.run(["claude", "--bg", "--model", "opus", "--effort", "high", "--permission-mode", "bypassPermissions", "-n", f"stager {drive} {first}", prompt], cwd=store.config(drive)["checkout"], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)
+    from lane import session
+
+    argv = session.argv(store.config(drive), "stager", Path(store.config(drive)["checkout"]), {"permissions": {"deny": ["Bash(cci post:*)", "Bash(cci post *)", "mcp__plugin_cc-inbox_cci__post"]}}, ["--bg"], ["--permission-mode", "bypassPermissions", "-n", f"stager {drive} {first}", prompt])
+    done = subprocess.run(argv, cwd=store.config(drive)["checkout"], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)
     if done.returncode:
         for lane, ask in asked.items():
             written(lanes_dir(drive) / WANTS / f"{lane}.json", ask)

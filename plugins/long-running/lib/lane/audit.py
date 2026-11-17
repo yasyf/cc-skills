@@ -6,7 +6,7 @@ import subprocess
 from datetime import timedelta
 from pathlib import Path
 
-from lane import store
+from lane import session, store
 
 EVERY = timedelta(minutes=15)
 AUDITS = "audits"
@@ -57,7 +57,7 @@ def start(drive: str) -> str | None:
     summary = folder(drive) / f"{moment}.md"
     summary.write_text(f"Audit started {moment}, reading since {since}; this file is replaced by its summary.\n")
     with (folder(drive) / f"{moment}.log").open("w") as out:
-        subprocess.Popen(["claude", "-p", "--model", "opus", "--effort", "high", "--permission-mode", "bypassPermissions", "--", prompt(drive, moment, since)], cwd=store.drive_dir(drive), stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
+        subprocess.Popen(session.argv(store.config(drive), "auditor", store.drive_dir(drive), {}, ["-p"], ["--permission-mode", "bypassPermissions", "--", prompt(drive, moment, since)]), cwd=store.drive_dir(drive), stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
     return str(summary)
 
 

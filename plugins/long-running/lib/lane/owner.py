@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from lane import store
+from lane import session as shapes
 
 BRIEF = Path(__file__).with_name("owner.md")
 SHADOW = Path(__file__).with_name("shadow.md")
@@ -119,7 +120,7 @@ def deliver(owner: dict, text: str) -> None:
     if not job or not job.get("name"):
         return
     prompt = f'Call the SendMessage tool exactly once, with to set to "{job["name"]}" and message set to the text between the markers, verbatim. Do nothing else.\n<<<\n{text}\n>>>'
-    subprocess.Popen(["claude", "-p", "--model", "haiku", "--permission-mode", "bypassPermissions", "--strict-mcp-config", "--", prompt], cwd=store.root(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    subprocess.Popen(shapes.argv(store.DEFAULTS, "acker", store.root(), {}, ["-p"], ["--permission-mode", "bypassPermissions", "--", prompt]), cwd=store.root(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def in_flight(owner: dict) -> int:
@@ -246,23 +247,7 @@ def launch(drive: str, lane: dict, token: str, woke: str) -> dict:
 
 def started(drive: str, lane: dict, token: str, resume: list[str], prompt: str) -> dict:
     shape = store.config(drive)
-    argv = [
-        "claude",
-        "--bg",
-        *resume,
-        "--model",
-        shape["model"],
-        "--effort",
-        shape["effort"],
-        "--permission-mode",
-        "bypassPermissions",
-        *(["--strict-mcp-config"] if not store.live(drive) else []),
-        "--settings",
-        json.dumps(settings(drive, lane["id"], token)),
-        "-n",
-        f"lane {drive} {lane['id']}",
-        prompt,
-    ]
+    argv = shapes.argv(shape, "owner", cwd(drive, lane), settings(drive, lane["id"], token), ["--bg", *resume], ["--permission-mode", "bypassPermissions", "-n", f"lane {drive} {lane['id']}", prompt])
     env = {key: value for key, value in os.environ.items() if key not in ("CLAUDE_CODE_SESSION_ID", "LANE_OWNER", "LONG_RUNNING_LANE", "LANE_TOKEN", "LANE_TOKEN_FILE", "LONG_RUNNING_JOB", "CLAUDE_LONG_RUNNING_LANE")}
     done = subprocess.run(argv, cwd=cwd(drive, lane), env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)
     if done.returncode:

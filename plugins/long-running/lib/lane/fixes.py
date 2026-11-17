@@ -1,17 +1,15 @@
 """Fix jobs the supervisor starts on its own, as the old drive started a builder on each PR event, so no approved PR waits on an owner noticing it: a PR he approved, or one a card asks him about at its head, that conflicts with its base, has a red check, or has no review at its head gets one background builder in the lane's worktree with a one-line brief, once per PR, head and kind. The owner is told, never asked; at most PER_LANE run per lane; the lander lands no PR a fix job of its lane is working on. The next pass reads what the job pushed, and the lander lands it once green."""
 
-import json
 import os
 import subprocess
 from datetime import UTC, datetime
 
 from lane import owner as owners
 from lane import page, store
+from lane import session as shapes
 
 PER_LANE = 3
 ENDED = ("done", "stopped", "failed")
-MODEL = "opus"
-EFFORT = "high"
 DENY = ["Bash(drive:*)", "Bash(drive *)", "mcp__plugin_long-running_drive", "Bash(cci post:*)", "Bash(cc-slack send:*)", "Bash(cc-slack reply:*)", "Bash(cc-slack dm-status:*)", "mcp__plugin_cc-slack_cc-slack__slack_send", "mcp__plugin_cc-slack_cc-slack__slack_reply", "mcp__plugin_cc-slack_cc-slack__slack_dm_status", "mcp__plugin_cc-inbox_cci__post"]
 
 
@@ -60,8 +58,8 @@ def held_keys(lane: dict) -> set[str]:
 
 def launch(drive: str, lane: dict, key: str, prompt: str) -> dict:
     """Start one fix job as its own background session in the lane's worktree; the job and session it runs as."""
-    settings = {"env": {"BASH_MAX_TIMEOUT_MS": str(owners.TOOL_SECONDS * 1000), "MCP_TOOL_TIMEOUT": str(owners.TOOL_SECONDS * 1000)}, "permissions": {"deny": DENY}, "enabledPlugins": {name: False for name in owners.old_drive_plugins()}}
-    argv = ["claude", "--bg", "--model", MODEL, "--effort", EFFORT, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"fix {key}", prompt]
+    own = {"env": {"BASH_MAX_TIMEOUT_MS": str(owners.TOOL_SECONDS * 1000), "MCP_TOOL_TIMEOUT": str(owners.TOOL_SECONDS * 1000)}, "permissions": {"deny": DENY}, "enabledPlugins": {name: False for name in owners.old_drive_plugins()}}
+    argv = shapes.argv(store.config(drive), "builder", owners.cwd(drive, lane), own, ["--bg"], ["--permission-mode", "bypassPermissions", "-n", f"fix {key}", prompt])
     env = {name: value for name, value in os.environ.items() if name not in ("CLAUDE_CODE_SESSION_ID", "LANE_OWNER", "LONG_RUNNING_LANE", "LANE_TOKEN", "LANE_TOKEN_FILE", "LONG_RUNNING_JOB", "CLAUDE_LONG_RUNNING_LANE")}
     done = subprocess.run(argv, cwd=owners.cwd(drive, lane), env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)
     if done.returncode:

@@ -1093,6 +1093,7 @@ def test_the_supervisor_starts_an_audit_every_15_minutes_that_files_defects_for_
 
     started = []
     monkeypatch.setattr(audit.subprocess, "Popen", lambda argv, **kwargs: started.append(argv))
+    monkeypatch.setattr(audit.session, "argv", lambda config, role, checkout, own, head, tail: ["claude", *head, "--model", "sonnet", "--effort", "high", *tail])
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     opened("a", prs=[("acme/app", 7)])
     world["prs"][("acme/app", 7)] = pull()
@@ -1100,7 +1101,7 @@ def test_the_supervisor_starts_an_audit_every_15_minutes_that_files_defects_for_
     supervisor.run_pass(DRIVE)
     supervisor.run_pass(DRIVE)
     [argv] = started
-    assert argv[:4] == ["claude", "-p", "--model", "opus"] and "--effort" in argv and argv[argv.index("--effort") + 1] != "max"
+    assert argv[:4] == ["claude", "-p", "--model", "sonnet"] and argv[argv.index("--effort") + 1] != "max"
     assert "a card asking him to merge PRs he already approved" in argv[-1] and "voice.md" in argv[-1] and "defect --what" in argv[-1]
     filed = json.loads(audit.defect(DRIVE, "no 👀 on his 6:25 PM ask", "https://x/p1", "no ack on receipt", "lane-core").read_text())
     assert (filed["kind"], filed["owner"]) == ("fix the system", "lane-core")
@@ -1134,3 +1135,21 @@ def test_a_reply_after_his_approve_tap_keeps_the_approved_state(world: dict, mon
     answered("a")
     saying.say(DRIVE, "a", "Landing #7 now.", token=token_of("a"))
     assert store.load(DRIVE, "a")["prs"][0]["approved_head"] == "h7"
+
+
+def test_every_session_the_lane_drive_starts_runs_light_on_its_roles_model_and_never_max(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from drive import agents
+    from lane import session
+
+    monkeypatch.setattr(agents, "session_settings", lambda env: {"env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "350000", "DISABLE_AUTOUPDATER": "1", **env}, "permissions": {"deny": ["AskUserQuestion"]}, "enabledPlugins": {}})
+    monkeypatch.setattr(agents, "light", lambda settings, role, checkout: settings | {"autoMemoryEnabled": False, "skillListingMaxDescChars": 300, "light_role": role})
+    monkeypatch.setattr(agents, "datadog_servers", lambda: {"mcpServers": {"plugin:datadog:mcp": {}}})
+    shown = {}
+    for role in session.ROLES:
+        argv = session.argv({"models": {"owner": ["opus", "max"]}}, role, tmp_path, {"env": {"LANE_OWNER": "d/a"}, "permissions": {"deny": ["Bash(drive:*)"]}}, ["--bg"], ["-n", "x", "prompt"])
+        settings = json.loads(argv[argv.index("--settings") + 1])
+        shown[role] = (argv[argv.index("--model") + 1], argv[argv.index("--effort") + 1] if "--effort" in argv else None, "--advisor" in argv)
+        assert "--strict-mcp-config" in argv and "--append-system-prompt-file" in argv and argv[-1] == "prompt"
+        assert settings["autoMemoryEnabled"] is False and settings["env"]["LANE_OWNER"] == "d/a" and settings["permissions"]["deny"] == ["AskUserQuestion", "Bash(drive:*)"]
+        assert ("CLAUDE_CODE_DISABLE_ADVISOR_TOOL" in settings["env"]) == (role not in session.ADVISED)
+    assert shown == {"owner": ("opus", "high", True), "builder": ("opus", "high", True), "stager": ("opus", "high", True), "auditor": ("sonnet", "high", False), "acker": ("haiku", None, False)}
