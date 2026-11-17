@@ -166,7 +166,7 @@ POSTED = {"at": "2026-11-16T15:16:30.177-08:00", "options": [], "prs": [{"repo":
 
 
 @pytest.mark.parametrize(
-    ("post", "rows", "now", "lines", "stale"),
+    ("post", "lane", "now", "lines", "stale"),
     [
         (POSTED, {"prs": []}, {"state": "MERGED", "merged": True, "merged_at": "2026-11-16T23:18:05Z", "head": "a" * 40}, ["✅ #57894 merged 3:18 PM"], []),
         (POSTED, {"prs": []}, {"state": "MERGED", "merged": True, "merged_at": "2026-11-16T23:10:00Z", "head": "a" * 40}, [], []),
