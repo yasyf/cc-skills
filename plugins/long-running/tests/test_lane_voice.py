@@ -154,3 +154,26 @@ def test_a_lane_pr_with_no_words_takes_them_from_its_title() -> None:
         "Merged <https://github.com/Forge-AI/monorepo/pull/57630|#57630 sandbox cluster access for the admin and break-glass…>,"
         " <https://github.com/Forge-AI/monorepo/pull/1|#1 own words> and <https://github.com/Forge-AI/monorepo/pull/57908|#57908 release-tool promotions run again>."
     )
+
+
+POSTED = {"at": "2026-11-16T15:16:30.177-08:00", "options": [], "prs": [{"repo": "Forge-AI/monorepo", "number": 57894, "state": "", "head": ""}]}
+
+
+@pytest.mark.parametrize(
+    ("post", "rows", "now", "lines", "stale"),
+    [
+        (POSTED, {}, {"state": "MERGED", "merged": True, "merged_at": "2026-11-16T23:18:05Z", "head": "a" * 40}, ["✅ #57894 merged 3:18 PM"], []),
+        (POSTED, {}, {"state": "MERGED", "merged": True, "merged_at": "2026-11-16T23:10:00Z", "head": "a" * 40}, [], []),
+        (POSTED | {"prs": [POSTED["prs"][0] | {"state": "OPEN", "head": "b" * 40}]}, {}, {"state": "OPEN", "merged": False, "head": "a" * 40}, [], ["#57894 has a new head, aaaaaaa, since it read bbbbbbb"]),
+        (POSTED | {"options": ["Approve #57894", "Hold #57894"]}, {("Forge-AI/monorepo", 57894): {"approved_head": "a" * 40}}, {"state": "OPEN", "merged": False, "head": "a" * 40}, ["✅ #57894 approved"], []),
+        (POSTED | {"options": ["Approve #57894", "Hold #57894"]}, {("Forge-AI/monorepo", 57894): {"held": "his Hold"}}, {"state": "OPEN", "merged": False, "head": "a" * 40}, ["⏸️ #57894 held"], []),
+    ],
+)
+def test_a_post_takes_a_state_line_when_its_pr_settles_and_tells_its_owner_when_its_head_moves(post: dict, rows: dict, now: dict, lines: list[str], stale: list[str]) -> None:
+    assert voice.changes(post, rows, {("Forge-AI/monorepo", 57894): now}) == (lines, stale)
+
+
+def test_an_edit_names_its_post_by_ts_or_permalink() -> None:
+    assert voice.edit_ts("https://x.slack.com/archives/C1/p1794870990408269?thread_ts=1.1") == "1794870990.408269"
+    assert voice.edit_ts("1794870990.408269") == "1794870990.408269"
+    assert voice.edit_ts(None) is None

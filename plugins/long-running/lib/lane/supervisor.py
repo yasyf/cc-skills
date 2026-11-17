@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import approve, facts, page, queue, rank, store, verbs
+from lane import approve, facts, page, queue, rank, store, verbs, voice
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -109,12 +109,22 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
                     heard[lane_id] = found
         if heard:
             store.transact(drive, lambda lanes: [verbs.take_messages(drive, lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()])
+        posts = []
         try:
-            prs = facts.read_prs(facts.pr_keys(store.load_all(drive)), commits=1)
+            posts = voice.followed(drive, moment)
+        except OSError as failed:
+            errors.append(f"the voice listed no posts to follow: {failed}")
+        try:
+            prs = facts.read_prs(facts.pr_keys(store.load_all(drive)) | voice.subject_keys(posts), commits=1)
         except store.Refused as failed:
             errors.append(str(failed))
         if prs:
             reviewed(drive, prs, facts.his_login(drive))
+        if prs and posts:
+            try:
+                voice.settle(drive, posts, prs)
+            except OSError as failed:
+                errors.append(f"a post did not follow its subjects: {failed}")
         lanes_now = store.load_all(drive)
         monitors = dict(rank.last(drive).get("monitors", {}))
         try:
