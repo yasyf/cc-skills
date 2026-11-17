@@ -290,3 +290,40 @@ def test_56842_failed_in_the_merge_queue_at_its_head_is_not_resubmitted_and_its_
         said = cli.merged("durable-agents", lane(pr), ["Forge-AI/monorepo#56842"], tmp_path, failed, False)
     assert said == "run-page: the merge queue failed Forge-AI/monorepo#56842 at 7659341; it waits on a new head"
     assert ran == [] and len(woken) == 1 and "https://app.trunk.io/poetic/pull/56842" in woken[0]
+
+
+def test_a_passed_staging_result_lands_its_stack_in_the_same_call_and_a_failed_one_does_not(monkeypatch, tmp_path) -> None:
+    import json
+
+    from lane import cli, stager
+
+    landed = []
+    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(stager, "refuse_in_shadow", lambda drive, what: None)
+    monkeypatch.setattr(rows, "prove", lambda drive, cut, stacks: None)
+    monkeypatch.setattr(stager, "served", lambda drive, stacks: None)
+    monkeypatch.setattr(cli, "land_stack", lambda drive, lane_id, key: landed.append((lane_id, key)) or f"{lane_id}: queued {key}")
+    stacks = {"Forge-AI/monorepo#57891": {"lane": "sandsql-ha-release-3", "stack": ["Forge-AI/monorepo#57891"], "head": "h", "target": "t", "result": "pass"}, "Forge-AI/monorepo#57944": {"lane": "sandsql-engine", "stack": ["Forge-AI/monorepo#57944"], "head": "h", "target": "t", "result": "fail"}}
+    written = json.loads(stager.result("durable-agents", "cut-1", stacks).read_text())
+    assert landed == [("sandsql-ha-release-3", "Forge-AI/monorepo#57891")]
+    assert written["landed"] == {"Forge-AI/monorepo#57891": "sandsql-ha-release-3: queued Forge-AI/monorepo#57891"} and written["result"] == "fail"
+
+
+def test_land_stack_submits_the_one_stack_holding_the_pr_and_reads_only_its_lane(monkeypatch, tmp_path) -> None:
+    from lane import cli, stager
+
+    asked, submitted = [], []
+    pr = row(57908)
+    monkeypatch.setattr(store, "load", lambda drive, lane_id: lane(pr))
+    monkeypatch.setattr(store, "config", lambda drive: {"premerge_lanes": [], "checkout": str(tmp_path)})
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(rows, "view", lambda drive, lane_ids=None: asked.append(lane_ids) or {landing.key(pr): {"head": "h", "checks": "pass", "under": None}})
+    monkeypatch.setattr(rows, "rule_key", lambda drive: "r")
+    monkeypatch.setattr(rows, "seen", lambda lane, read, rule, premerge: lane)
+    monkeypatch.setattr(cli, "queue_repo", lambda checkout: "Forge-AI/monorepo")
+    monkeypatch.setattr(cli, "queued", lambda drive, checkout, numbers: {})
+    monkeypatch.setattr(cli.fixes, "held_keys", lambda drive, lane: set())
+    monkeypatch.setattr(stager, "live", lambda drive: True)
+    monkeypatch.setattr(cli, "merged", lambda drive, lane, keys, checkout, held, dry_run: submitted.append((keys, dry_run)) or "queued")
+    assert cli.land_stack("durable-agents", "run-page", "Forge-AI/monorepo#57908") == "queued"
+    assert asked == [["run-page"]] and submitted == [(["Forge-AI/monorepo#57908"], False)]

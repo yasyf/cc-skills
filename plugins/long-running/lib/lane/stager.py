@@ -141,14 +141,17 @@ def decide(drive: str, cut: str, body: dict) -> Path:
 
 
 def result(drive: str, cut: str, stacks: dict[str, dict]) -> Path:
-    """Write a cut's result, the file lane-core's supervisor reads to wake each waiting lane, after putting each stack's proof on its top PR's row by rows.prove: stacks keyed by bottom PR, each {stack: [PRs bottom first], head: its top head, target, result: pass or fail}."""
+    """Write a cut's result, the file lane-core's supervisor reads to wake each waiting lane, after putting each stack's proof on its top PR's row by rows.prove: stacks keyed by bottom PR, each {lane, stack: [PRs bottom first], head: its top head, target, result: pass or fail}. Each passed stack is landed in this same call by lane-land's land_stack, so a stack his Approve already covers is in the merge queue the moment its proof is written, and what each landing did is kept under `landed`."""
+    from lane import cli as lane_land
+
     refuse_in_shadow(drive, "recording a cut's result")
     path = lanes_dir(drive) / CUTS / f"{cut}.json"
     kept = json.loads(path.read_text()) if path.exists() else {}
     rows.prove(drive, cut, stacks)
     served(drive, stacks)
     verdicts = {stack["result"] for stack in stacks.values()}
-    return written(path, kept | {"stacks": stacks, "result": "pass" if verdicts == {"pass"} else "fail"})
+    landed = {bottom: lane_land.land_stack(drive, stack["lane"], bottom) for bottom, stack in stacks.items() if stack["result"] == "pass"}
+    return written(path, kept | {"stacks": stacks, "result": "pass" if verdicts == {"pass"} else "fail", "landed": landed})
 
 
 def want(drive: str, lane_id: str) -> str:

@@ -226,6 +226,25 @@ def land(args: argparse.Namespace) -> None:
                 print(said)
 
 
+def land_stack(drive: str, lane_id: str, key: str) -> str:
+    """Land the one stack of lane_id holding the PR key, in the caller's call, for an event handler: his Approve tap, a check finishing at the head of an approved or tooling PR, or a passed staging result. It reads that lane's PRs alone, takes the stack's verdict as a pass would, and submits it by merged() when it lands, so a green stack is in the merge queue within the event's own call; what it did, or why the stack waits."""
+    lane = rows.seen(store.load(drive, lane_id), rows.view(drive, [lane_id]), rows.rule_key(drive), store.config(drive)["premerge_lanes"])
+    stack = next(stack for stack in landing.stacks(lane) if key in [landing.key(row) for row in stack])
+    verdict = landing.stack_verdict(stack)
+    if not verdict.lands:
+        return f"{lane_id}: HOLDS; {verdict.why}"
+    keys = list(verdict.keys)
+    checkout = Path(store.config(drive)["checkout"])
+    if fixing := [unit for unit in keys if unit in fixes.held_keys(drive, store.load(drive, lane_id))]:
+        return f"{lane_id}: a fix job or queue worker is working on {', '.join(fixing)}; it lands when that work is done"
+    repo, _, top = keys[-1].rpartition("#")
+    held = queued(drive, checkout, [top] if repo == queue_repo(checkout) else [])
+    with exclusive(unit_lock(drive, keys[0])) as mine:
+        if not mine:
+            return f"{lane_id}: another lander is landing {keys[0]}"
+        return merged(drive, lane, keys, checkout, held, not stager.live(drive))
+
+
 def judge(args: argparse.Namespace) -> None:
     """Write each unjudged head's danger verdict and repository mark, by rows.judge, as a worker of its own beside the landing pass, never inside it: a pass reads the verdicts already written, and a head judged after the pass read it lands on the next."""
     with exclusive(store.drive_dir(args.drive) / LANDING / "judge.lock") as mine:

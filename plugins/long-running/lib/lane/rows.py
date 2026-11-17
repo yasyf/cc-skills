@@ -24,9 +24,9 @@ FILES_SHOWN = 150
 JUDGE_SECONDS = 60.0
 
 
-def view(drive: str) -> dict[str, dict]:
-    """Each lane PR's state, read in lane-core's one GraphQL request and kept in memory, never on its row: head, checks, merged and under, the tracked open PR whose branch is its base, None when its base is the default branch, and left out when its base is a branch no tracked PR heads, which landing reads as unread."""
-    keys = {(row["repo"], row["number"]) for lane in store.load_all(drive).values() for row in lane["prs"]}
+def view(drive: str, lane_ids: list[str] | None = None) -> dict[str, dict]:
+    """Each lane PR's state, read in lane-core's one GraphQL request and kept in memory, never on its row: head, checks, merged and under, the tracked open PR whose branch is its base, None when its base is the default branch, and left out when its base is a branch no tracked PR heads, which landing reads as unread. With lane_ids, only those lanes' PRs, for an event handler that lands one stack."""
+    keys = {(row["repo"], row["number"]) for lane_id, lane in store.load_all(drive).items() if lane_ids is None or lane_id in lane_ids for row in lane["prs"]}
     read = facts.read_prs(keys)
     heads = {(repo, pull["branch"]): f"{repo}#{number}" for (repo, number), pull in read.items() if pull["state"] == "OPEN"}
     found = {}
