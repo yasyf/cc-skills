@@ -1,6 +1,7 @@
 """A PR's few words, the one label Slack and the dashboard both draw beside its #N."""
 
 import json
+import os
 import re
 import subprocess
 
@@ -35,5 +36,7 @@ def pr_words(repo: str, number: int, title: str) -> str:
         first = next((MARKUP.sub("", line).strip() for line in done.stdout.splitlines() if not line.lstrip().startswith("#") and MARKUP.sub("", line).strip()), "") if not done.returncode else ""
         kept[key] = short(first)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(kept))
+        fresh = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        fresh.write_text(json.dumps(kept))
+        fresh.replace(path)
     return kept[key]
