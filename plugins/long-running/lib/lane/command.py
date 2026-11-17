@@ -79,8 +79,8 @@ def note_hook(drive: str, lane_id: str) -> int:
         return 0
     shown = []
     if waiting := store.unreplied(lane):
-        said = "\n\n".join(f"[{ask['at']}{', ' + ask['link'] if ask.get('link') else ''}]\n{ask['words']}" for ask in waiting)
-        shown.append(f"He wrote to lane {lane_id} while you run, and it is not answered yet. Reply now with `lane say \"<your answer>\"`, before your next step; this shows at every tool call until you do:\n\n{said}")
+        said = "\n\n".join(f"[{ask['at']}, ts {ask['ts']}{', ' + ask['link'] if ask.get('link') else ''}]\n{ask['words']}" for ask in waiting)
+        shown.append(f"He wrote to lane {lane_id} while you run, and it is not answered yet. Reply now with `lane say \"<your answer>\" --re <its ts>`, before your next step; this shows at every tool call until you do:\n\n{said}")
     if path.is_file():
         shown.append(f"Note for lane {lane_id}, set while you run. Read it now; any words of his in it are owed an answer with `lane say` before your next step:\n{path.read_text()}")
         path.unlink()
@@ -164,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     said.add_argument("--next")
     said.add_argument("--by")
     said.add_argument("--answers", action="append", help="the ts of an ask this line answers; every unanswered ask when left out")
+    said.add_argument("--re", help="the ts of the ask of his this line is about, so it goes in that ask's thread; the one open ask when only one is, else the channel's root")
 
     logging = verbs_parser.add_parser("log")
     logging.add_argument("text")
@@ -258,7 +259,7 @@ def run(args: argparse.Namespace) -> int:
             print(f"waiting until {lane['wait']['until']}; end your turn now")
         case "say":
             drive, lane_id = where(args)
-            print(voice.owner_say(drive, lane_id, {"text": args.text, "next": args.next, "by": args.by, "answers": args.answers}))
+            print(voice.owner_say(drive, lane_id, {"text": args.text, "next": args.next, "by": args.by, "answers": args.answers, "re": args.re}))
         case "log":
             verbs.log(*where(args), token(), args.text)
         case "next":

@@ -5,19 +5,19 @@ from collections.abc import Callable
 from lane import store
 
 
-def logged(drive: str, lane: dict, text: str) -> str:
+def logged(drive: str, lane: dict, text: str, re: str | None = None) -> str:
     return f"log:{store.stamp()}"
 
 
-SENDER: Callable[[str, dict, str], str] = logged
+SENDER: Callable[[str, dict, str, str | None], str] = logged
 
 
-def say(drive: str, lane_id: str, text: str, next_step: str | None = None, by: str | None = None, token: str | None = None, answers: list[str] | None = None) -> str:
-    """Hand the line to SENDER (or keep it in the log while posting is off), then write what promise writes; what the sender answered."""
+def say(drive: str, lane_id: str, text: str, next_step: str | None = None, by: str | None = None, token: str | None = None, answers: list[str] | None = None, re: str | None = None) -> str:
+    """Hand the line to SENDER (or keep it in the log while posting is off), then write what promise writes; what the sender answered. re names the one ask of his the line is about, and the line answers it alone unless answers names others."""
     checked(next_step, by)
     store.fenced(store.load(drive, lane_id), token)
-    sent = SENDER(drive, store.load(drive, lane_id), text) if store.config(drive)["posting"] else logged(drive, store.load(drive, lane_id), text)
-    promise(drive, lane_id, text, sent, next_step, by, token, answers)
+    sent = SENDER(drive, store.load(drive, lane_id), text, re) if store.config(drive)["posting"] else logged(drive, store.load(drive, lane_id), text, re)
+    promise(drive, lane_id, text, sent, next_step, by, token, answers or ([re] if re else None))
     return sent
 
 

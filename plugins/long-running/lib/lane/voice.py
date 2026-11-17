@@ -38,20 +38,20 @@ def owner_say(drive: str, lane_id: str, arguments: dict) -> str:
     """The MCP say of a lane's owner: lane.say with its promise, and when the promise's shape is refused, the post alone, since the owner never sees a post refused."""
     token = os.environ.get(TOKEN_ENV) or None
     try:
-        return say.say(drive, lane_id, arguments["text"], arguments.get("next"), arguments.get("by"), token, arguments.get("answers"))
+        return say.say(drive, lane_id, arguments["text"], arguments.get("next"), arguments.get("by"), token, arguments.get("answers"), arguments.get("re"))
     except store.Refused as refused:
         if not (arguments.get("next") or arguments.get("by")):
             raise
-        return f"{say.say(drive, lane_id, arguments['text'], token=token, answers=arguments.get('answers'))}; its promise was not kept: {refused}"
+        return f"{say.say(drive, lane_id, arguments['text'], token=token, answers=arguments.get('answers'), re=arguments.get('re'))}; its promise was not kept: {refused}"
 
 
-def send(drive: str, lane: dict, text: str) -> str:
-    """lane.say's SENDER: queue one post in the lane's channel and thread with the role page beside it, and return QUEUED and its id."""
+def send(drive: str, lane: dict, text: str, about_ts: str | None = None) -> str:
+    """lane.say's SENDER: queue one post in the lane's channel, in the thread of the ask it is about, with the role page beside it, and return QUEUED and its id."""
     body = {
         "lane": lane["id"],
         "drive": drive,
         "channel_id": lane["channel"],
-        "thread_ts": asked_thread(lane),
+        "thread_ts": asked_thread(lane, about_ts),
         "text": linked(text, titled(lane.get("prs") or [], page.view(drive)["prs"])),
         "rules": str(ROLE_PAGE),
         "asked": "",
@@ -61,12 +61,20 @@ def send(drive: str, lane: dict, text: str) -> str:
         return f"QUEUED {json.load(answer)['id']}"
 
 
-def asked_thread(lane: dict) -> str:
-    """The thread a post of a lane with no thread of its own goes in: every post about his newest ask that is not done, follow-ups after the first reply included, goes in that ask's thread, where he asked, and news nobody asked for goes at the channel's root, by his words "for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages"."""
-    if not (asks := [ask for ask in lane.get("asks") or [] if ask.get("ts") and not ask.get("done") and f"/archives/{lane['channel']}/" in (ask.get("link") or "")]):
+def asked_thread(lane: dict, about_ts: str | None) -> str:
+    """The thread a post goes in: that of the ask of his it names with --re (about_ts), or, with none, of the one ask of his in the lane's channel not yet done when exactly one is, so every post about an ask, follow-ups included, stays under his message; any other post is news and goes at the channel's root, by his words "for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages"."""
+    asks = [ask for ask in lane.get("asks") or [] if ask.get("ts")]
+    if about_ts:
+        if not (named := [ask for ask in asks if ask["ts"] == about_ts]):
+            raise store.Refused(f"--re {about_ts} names no ask of his in lane {lane['id']}; `lane asks` lists them")
+        about = named[0]
+    elif len(open_asks := [ask for ask in asks if not ask.get("done") and f"/archives/{lane['channel']}/" in (ask.get("link") or "")]) == 1:
+        about = open_asks[0]
+    else:
         return ""
-    newest = max(asks, key=lambda ask: float(ask["ts"]))
-    return (found[1] if (found := THREAD_OF.search(newest.get("link") or "")) else None) or newest["ts"]
+    if f"/archives/{lane['channel']}/" not in (about.get("link") or ""):
+        return ""
+    return (found[1] if (found := THREAD_OF.search(about["link"])) else None) or about["ts"]
 
 
 def titled(prs: list[dict], seen: dict[str, dict]) -> list[dict]:

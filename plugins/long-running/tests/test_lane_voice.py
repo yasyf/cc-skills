@@ -2,7 +2,7 @@ import io
 import json
 
 import pytest
-from lane import voice
+from lane import store, voice
 
 
 def test_the_sender_queues_at_the_lane_channel_root_never_its_old_home_thread_and_returns_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -89,19 +89,32 @@ def test_his_message_reaches_its_lane_by_thread_and_every_lane_in_the_channel_wh
     assert heard == [("run-page", "9.9"), ("v3-b", "9.8"), ("v3-a", "9.7"), ("v3-b", "9.7"), ("v3-a", "9.6"), ("v3-b", "9.6")]
 
 
+ASK = {"ts": "1794870764.063919", "link": "https://x.slack.com/archives/C1/p1794870764063919", "replied": "QUEUED a1"}
+THREADED = {"ts": "1794871000.000100", "link": "https://x.slack.com/archives/C1/p1794871000000100?thread_ts=1794851267.832189&cid=C1"}
+DM_ASK = {"ts": "1794870765.000001", "link": "https://x.slack.com/archives/D9/p1794870765000001"}
+
+
 @pytest.mark.parametrize(
-    ("asks", "thread"),
+    ("asks", "about", "thread"),
     [
-        ([], ""),
-        ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/C1/p1794870764063919"}], "1794870764.063919"),
-        ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/D9/p1794870764063919"}], ""),
-        ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/C1/p1794870764063919", "replied": "QUEUED a1"}], "1794870764.063919"),
-        ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/C1/p1794870764063919", "replied": "QUEUED a1", "done": "2026-11-16T23:50:00Z"}], ""),
-        ([{"ts": "1.1", "link": "l"}, {"ts": "1794871000.000100", "link": "https://x.slack.com/archives/C1/p1794871000000100?thread_ts=1794851267.832189&cid=C1"}], "1794851267.832189"),
+        ([], None, ""),
+        ([ASK], None, "1794870764.063919"),
+        ([ASK, THREADED], None, ""),
+        ([ASK, THREADED], "1794870764.063919", "1794870764.063919"),
+        ([ASK, THREADED], "1794871000.000100", "1794851267.832189"),
+        ([ASK | {"done": "2026-11-16T23:50:00Z"}, THREADED], None, "1794851267.832189"),
+        ([ASK | {"done": "2026-11-16T23:50:00Z"}], None, ""),
+        ([DM_ASK], None, ""),
+        ([DM_ASK], "1794870765.000001", ""),
     ],
 )
-def test_every_post_about_his_newest_ask_stays_in_its_thread_until_it_is_done_and_news_goes_at_the_root(asks: list[dict], thread: str) -> None:
-    assert voice.asked_thread({"channel": "C1", "asks": asks}) == thread
+def test_a_post_goes_in_the_thread_of_the_ask_it_names_or_the_one_open_ask_and_otherwise_at_the_root(asks: list[dict], about: str | None, thread: str) -> None:
+    assert voice.asked_thread({"id": "run-page", "channel": "C1", "asks": asks}, about) == thread
+
+
+def test_a_post_naming_an_ask_the_lane_never_heard_is_refused_before_it_goes_out() -> None:
+    with pytest.raises(store.Refused, match="--re 9.9 names no ask"):
+        voice.asked_thread({"id": "run-page", "channel": "C1", "asks": [ASK]}, "9.9")
 
 
 @pytest.mark.parametrize(

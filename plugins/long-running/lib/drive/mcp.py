@@ -175,6 +175,10 @@ SAY = {
                     " since nothing is left running"
                 ),
             },
+            "re": {
+                "type": "string",
+                "description": "A lane owner's post: the ts of the ask of his it is about, so it goes in that ask's thread; with none, the one open ask when only one is, else the lane channel's root",
+            },
             "asked": {
                 "anyOf": [TEXT, {"type": "array", "items": TEXT}],
                 "description": (
