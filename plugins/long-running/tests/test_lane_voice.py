@@ -366,3 +366,7 @@ def test_an_answer_to_his_ask_made_outside_the_lanes_channel_goes_to_his_own_thr
     assert voice.asked_place(lane, "1794890000.000100") == ("D0C4HQWPLCC", "1794890000.000100")
     assert voice.asked_place(lane, "1794890100.000200") == ("C0CHZM7A478", "1794870764.063919")
     assert voice.asked_place(lane, None) == ("C0CJ30EG2GJ", "")
+
+
+def test_a_pr_label_drops_its_words_kind_prefix() -> None:
+    assert words_module.label(55958, "New: a table move's route copy commissions on its env's base") == "#55958 a table move's route copy commissions on its env's base"
