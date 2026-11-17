@@ -872,7 +872,7 @@ def test_a_lane_with_done_checks_names_the_one_each_step_serves_and_its_brief_le
     verbs.set_next(DRIVE, "a", token_of("a"), "watch", "Nothing left.")
 
 
-def test_the_supervisor_draws_one_live_approve_card_per_lane_and_his_tap_on_it_lands_his_approve(world: dict) -> None:
+def test_the_supervisor_draws_one_card_per_lane_listing_its_ready_stacks_and_approve_all_lands_them(world: dict) -> None:
     from lane import voice
 
     (store.drive_dir(DRIVE) / store.LIVE).touch()
@@ -882,16 +882,36 @@ def test_the_supervisor_draws_one_live_approve_card_per_lane_and_his_tap_on_it_l
     world["prs"][("acme/app", 9)] = pull(state="MERGED", rollup="SUCCESS", head="0123456cccc", branch="b9") | {"review": "APPROVED"}
     supervisor.run_pass(DRIVE)
     supervisor.run_pass(DRIVE)
-    cards = store.load(DRIVE, "a")["cards"]
-    assert [card["heads"] for card in cards] == [{"acme/app#7": "abc1234aaaa"}]
+    [card] = store.load(DRIVE, "a")["cards"]
+    assert card["stacks"] == [{"acme/app#7": "abc1234aaaa"}, {"acme/app#8": "def5678bbbb"}]
+    assert [row.get("carded", {}).get("head") if row.get("carded") else None for row in store.load(DRIVE, "a")["prs"]] == ["abc1234aaaa", "def5678bbbb", None]
     asks = len(store.load(DRIVE, "a")["asks"])
-    told = voice.heard("C1", None, 'tapped "Approve" on "Approve <https://github.com/acme/app/pull/7|#7 the fix> at abc1234?"', None, "1794880000.000100")
-    assert told == "a: his tap on acme/app#7"
+    told = voice.heard("C1", None, f'tapped "Approve all 2 (Recommended)" on "A: 2 PRs wait on your Approve, all green and reviewed (card {card['id']})."', None, "1794880000.000100")
+    assert told == "a: his tap on acme/app#7, acme/app#8"
     lane = store.load(DRIVE, "a")
-    assert (lane["prs"][0]["approved_head"], len(lane["asks"]), lane["cards"][0]["tapped"]["label"]) == ("abc1234aaaa", asks, "Approve")
+    assert ([row["approved_head"] for row in lane["prs"][:2]], len(lane["asks"])) == (["abc1234aaaa", "def5678bbbb"], asks)
     supervisor.run_pass(DRIVE)
-    assert [card["heads"] for card in store.load(DRIVE, "a")["cards"]] == [{"acme/app#7": "abc1234aaaa"}, {"acme/app#8": "def5678bbbb"}]
+    assert len(store.load(DRIVE, "a")["cards"]) == 1
     assert "a: 1 new" in voice.heard("C1", None, 'tapped "Approve" on "something else"', None, "1794880001.000100")
+
+
+def test_one_at_a_time_turns_a_lane_to_a_card_per_stack(world: dict) -> None:
+    from lane import approve, voice
+
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", prs=[("acme/app", 7), ("acme/app", 8)], channel="C1")
+    world["prs"][("acme/app", 7)] = pull(rollup="SUCCESS", head="abc1234aaaa", branch="b7") | {"review": "APPROVED"}
+    world["prs"][("acme/app", 8)] = pull(rollup="SUCCESS", head="def5678bbbb", branch="b8") | {"review": "APPROVED"}
+    supervisor.run_pass(DRIVE)
+    [first] = store.load(DRIVE, "a")["cards"]
+    voice.heard("C1", None, f'tapped "{approve.ONE}" on "A: 2 PRs (card {first['id']})"', None, "1794880000.000100")
+    supervisor.run_pass(DRIVE)
+    second = store.load(DRIVE, "a")["cards"][-1]
+    assert second["stacks"] == [{"acme/app#7": "abc1234aaaa"}]
+    voice.heard("C1", None, f'tapped "Hold" on "Approve #7? (card {second['id']})"', None, "1794880001.000100")
+    supervisor.run_pass(DRIVE)
+    lane = store.load(DRIVE, "a")
+    assert lane["prs"][0]["held"] and lane["cards"][-1]["stacks"] == [{"acme/app#8": "def5678bbbb"}]
 
 
 def test_a_lane_with_an_unmet_done_check_its_step_serves_not_is_woken_and_cannot_end_its_turn_unserved(world: dict) -> None:
