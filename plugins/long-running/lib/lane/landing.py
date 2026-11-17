@@ -49,7 +49,7 @@ def unready(row: dict) -> str | None:
     if not tool and not row["approved_head"]:
         return "no Approve of his"
     carried = row.get("carried") or {}
-    if not tool and row["approved_head"] != row["head"] and (carried.get("head") != row["head"] or not carried.get("compatible")):
+    if not tool and (row.get("tapped_head") or row["approved_head"]) != row["head"] and (carried.get("head") != row["head"] or not carried.get("compatible")):
         return "its head moved since his Approve, and a model has not yet judged the change compatible with what he approved"
     if row.get("checks") != "pass":
         return f"checks {row.get('checks') or 'unread'}"

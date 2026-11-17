@@ -82,7 +82,8 @@ def reviewed(drive: str, prs: dict, login: str) -> None:
                     continue
                 row["reviewed_head"] = oid
                 if oid == pull.get("head") or not row.get("approved_head"):
-                    row["approved_head"] = oid
+                    row["approved_head"], row["tapped_head"] = oid, oid
+                    row.pop("carried", None)
                     store.note(lane, f"his GitHub Approve on {row['repo']}#{row['number']} at {oid[:12]}")
                     if lane["state"] == store.WAITING:
                         verbs.woken(lane, f"his GitHub Approve on {row['repo']}#{row['number']}")

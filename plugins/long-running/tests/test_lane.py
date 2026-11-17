@@ -1428,3 +1428,22 @@ def test_replaying_57827_a_moved_head_after_his_approve_queues_a_carry_item_and_
     row = store.load(DRIVE, "a")["prs"][0]
     assert row["approved_head"] is None and row["revoked"]["head"] == "149d6c76"
     assert [tap["number"] for tap in page.tapless(store.load(DRIVE, "a"), page.view(DRIVE)["prs"])] == [57827]
+
+
+def test_a_carried_approve_is_judged_against_the_head_he_tapped_not_the_head_the_carry_over_moved_it_to(world: dict) -> None:
+    from lane import work
+
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", prs=[("acme/app", 5)], channel="C1")
+
+    def carried_over(lane: dict) -> None:
+        lane["prs"][0].update(approved_head="h2", tapped_head="h1", carried={"head": "h2", "compatible": True})
+
+    store.update(DRIVE, "a", carried_over)
+    store.update(DRIVE, "a", lambda lane: lane["prs"][0].pop("carried"))
+    world["prs"][("acme/app", 5)] = pull(rollup="SUCCESS", head="h2", branch="b") | {"mergeable": "MERGEABLE", "commits": [("h2", "lanes-bot")], "commit_count": 1}
+    supervisor.run_pass(DRIVE)
+    [item] = [item for item in work.items(DRIVE) if item["kind"] == "carry"]
+    assert "his tap at h1" in item["words"]
+    verbs.carry(DRIVE, "acme/app", 5, "h2", True, "a clean rebase")
+    assert store.load(DRIVE, "a")["prs"][0]["carried"]["from"] == "h1"

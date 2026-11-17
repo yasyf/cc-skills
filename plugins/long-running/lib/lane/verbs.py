@@ -39,7 +39,8 @@ def tapped(drive: str, repo: str, number: int, label: str, head: str, source: st
         for row in lane["prs"]:
             if (row["repo"], row["number"]) == (repo, number):
                 if label == "Approve":
-                    row["approved_head"] = head
+                    row["approved_head"], row["tapped_head"] = head, head
+                    row.pop("carried", None)
                     if row["held"] and named and later(ts, row.get("held_at")):
                         row["held"], row["held_at"] = None, None
                 else:
@@ -65,10 +66,10 @@ def carry(drive: str, repo: str, number: int, head: str, compatible: bool, why: 
             if (row["repo"], row["number"]) == (repo, number):
                 if not row.get("approved_head"):
                     raise store.Refused(f"{repo}#{number} carries no Approve of his to judge")
-                row["carried"] = {"head": head, "from": row["approved_head"], "compatible": compatible, "why": why, "at": store.stamp()}
+                row["carried"] = {"head": head, "from": row.get("tapped_head") or row["approved_head"], "compatible": compatible, "why": why, "at": store.stamp()}
                 if not compatible:
-                    row["revoked"] = {"head": row["approved_head"], "at": store.stamp(), "why": why}
-                    row["approved_head"] = None
+                    row["revoked"] = {"head": row.get("tapped_head") or row["approved_head"], "at": store.stamp(), "why": why}
+                    row["approved_head"], row["tapped_head"] = None, None
         store.note(lane, f"his Approve on {repo}#{number} {'carries' if compatible else 'is revoked'} at {head[:12]}: {why}")
         if not compatible:
             if lane["state"] == store.WAITING:
