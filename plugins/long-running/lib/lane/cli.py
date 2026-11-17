@@ -54,6 +54,18 @@ def queued(drive: str, checkout: Path, numbers: list[str]) -> dict[str, dict]:
     return json.loads(done.stdout)
 
 
+def dequeued(drive: str, checkout: Path, keys: list[str]) -> list[str]:
+    """Take out of the merge queue each PR it holds that waits on a staging proof before merge, SandSQL work by his 5:02 PM words, so a PR submitted before a ruling or a premerge_lanes entry named it never merges untested."""
+    repo = queue_repo(checkout)
+    numbers = [key.rpartition("#")[2] for key in keys if key.rpartition("#")[0] == repo]
+    said = []
+    for number, row in queued(drive, checkout, numbers).items():
+        if row.get("isCurrentlySubmittedToQueue"):
+            done = subprocess.run([*queue_cli(drive), "dequeue", number], cwd=checkout, capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
+            said.append(f"dequeued {repo}#{number}: it waits on a staging proof" if done.returncode == 0 else f"not dequeued {repo}#{number}: {' '.join((done.stdout + done.stderr).split())[:300]}")
+    return said
+
+
 def merged(drive: str, lane: dict, keys: list[str], checkout: Path, held: dict[str, dict], dry_run: bool) -> str:
     """Tell the merge queue to take one landing unit, as a person would: one submit of the unit's top PR, which the queue lands with every PR of its native stack below, and return; no worktree and no local build, since the queue's own CI grades the merge. A unit the queue already holds is left there, and its head is asked of the review bot once when the queue reads it notReady. Whether a submitted unit merged, failed or was ejected is read by the next pass, which submits it again while it stays ready."""
     repo, _, top = keys[-1].rpartition("#")
@@ -153,7 +165,9 @@ def land(args: argparse.Namespace) -> None:
         rule = rows.rule_key(args.drive)
         checkout = Path(store.config(args.drive)["checkout"])
         units = []
+        unstaged = []
         for lane in [rows.seen(lane, read, rule, store.config(args.drive)["premerge_lanes"]) for lane in store.load_all(args.drive).values() if not args.lane or lane["id"] in args.lane]:
+            unstaged += [landing.key(row) for stack in landing.stacks(lane) if not landing.proven(stack) for row in stack if not row.get("merged") and landing.judged(row) and landing.dangerous(row)]
             for verdict in landing.verdicts(lane):
                 print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
                 if verdict.lands and (stager.live(args.drive) or args.dry_run):
@@ -162,6 +176,9 @@ def land(args: argparse.Namespace) -> None:
                 for row in lane["prs"]:
                     if row.get("mergeable") == "CONFLICTING" and not row.get("merged"):
                         conflicted(args.drive, lane, [landing.key(row)], lambda row=row: conflict_said(checkout, row))
+        if stager.live(args.drive) and not args.dry_run:
+            for said in dequeued(args.drive, checkout, unstaged):
+                print(said)
         if not units:
             return
         if supervisor.newest_install() != here:

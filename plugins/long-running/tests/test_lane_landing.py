@@ -209,3 +209,18 @@ def test_a_sandsql_lanes_pr_waits_on_a_staging_proof_whatever_the_judge_scored_a
     other = rows.seen({"id": "run-page", "prs": [pr]}, read, "r", ["sandsql-engine"])
     assert landing.verdicts(sandsql)[0] == landing.Verdict((), False, "Forge-AI/monorepo#56892 waits on a staging proof at h, the stack's top head")
     assert landing.verdicts(other)[0].lands is True
+
+
+def test_a_pass_takes_a_queued_pr_that_waits_on_a_staging_proof_out_of_the_merge_queue(monkeypatch, tmp_path) -> None:
+    import subprocess
+
+    from lane import cli
+
+    ran: list[list[str]] = []
+    monkeypatch.setattr(cli, "queue_repo", lambda checkout: "Forge-AI/monorepo")
+    monkeypatch.setattr(cli, "queue_cli", lambda drive: ["ci", "trunk"])
+    monkeypatch.setattr(cli, "queued", lambda drive, checkout, numbers: {"57423": {"isCurrentlySubmittedToQueue": True}, "57931": {"isCurrentlySubmittedToQueue": False}})
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: ran.append(argv) or subprocess.CompletedProcess(argv, 0, "", ""))
+    said = cli.dequeued("durable-agents", tmp_path, ["Forge-AI/monorepo#57423", "Forge-AI/monorepo#57931", "yasyf/litestream#46"])
+    assert ran == [["ci", "trunk", "dequeue", "57423"]]
+    assert said == ["dequeued Forge-AI/monorepo#57423: it waits on a staging proof"]
