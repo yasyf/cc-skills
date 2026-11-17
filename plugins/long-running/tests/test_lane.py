@@ -960,7 +960,7 @@ def test_a_lane_with_an_unmet_done_check_its_step_serves_not_is_woken_and_cannot
     supervisor.run_pass(DRIVE)
     lane = store.load(DRIVE, "a")
     assert lane["state"] == store.RUNNING and "the nearest unmet done check is 1: start a Cloud agent" in lane["owner"]["woke"]
-    with pytest.raises(store.Refused, match="no card or question of this lane is open to him: the nearest unmet done check is 1"):
+    with pytest.raises(store.Refused, match="no card or question of this lane is open to him, so nothing he could answer would end it: the nearest unmet done check is 1"):
         ended("a", ["his_reply"], "2h")
     with pytest.raises(store.Refused, match="your step names none"):
         ended("a", ["pr_merged:acme/app#7"], "2h")
@@ -1279,7 +1279,7 @@ def test_replaying_the_ringo_thread_a_promised_pr_by_345_with_nothing_after_wake
     saying.say(DRIVE, "a", f"Ringo's fix goes up as a PR by {due}; it failed at 2:30 PM before.", token=token_of("a"))
     [kept] = store.load(DRIVE, "a")["promises"]
     assert kept["due"] > store.stamp()
-    ended("a", ["pr_merged:acme/app#7"], "2h")
+    verbs.end_turn(DRIVE, "a", token_of("a"), [verbs.parse_event("pr_merged:acme/app#7")], "2h", "test wait")
     later = store.now() + timedelta(hours=1)
     monkeypatch.setattr(store, "now", lambda: later)
     supervisor.run_pass(DRIVE)

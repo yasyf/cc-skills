@@ -89,7 +89,7 @@ def backoff(lane: dict, moment: datetime, shape: dict) -> timedelta | None:
 
 
 def github_read(drive: str, whole: bool) -> None:
-    """Count the passes in a row whose GitHub read failed or came back short, which `lane check` shows red."""
+    """Count the passes in a row whose GitHub read raised or dropped a chunk, which `lane check` shows red; a PR GitHub does not find is no failed read."""
     path = store.drive_dir(drive) / GITHUB
     kept = json.loads(path.read_text()) if path.is_file() else {"failed": 0}
     path.write_text(json.dumps({"failed": 0 if whole else kept["failed"] + 1, "at": store.stamp()}) + "\n")
@@ -138,9 +138,10 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         posts = alone(drive, errors, "the voice listed no posts to follow", lambda: voice.followed(drive, moment)) or []
         lost: list[str] = []
         keys = facts.pr_keys(store.load_all(drive)) | voice.subject_keys(posts)
-        prs = alone(drive, errors, "GitHub read failed", lambda: facts.read_prs(keys, commits=1, failed=lost)) or {}
+        read = alone(drive, errors, "GitHub read failed", lambda: facts.read_prs(keys, commits=1, failed=lost))
+        prs = read or {}
         errors += [f"GitHub read dropped {why}" for why in lost]
-        github_read(drive, not lost and (bool(prs) or not keys))
+        github_read(drive, read is not None and not lost)
         if prs:
             alone(drive, errors, "his GitHub reviews were not read", lambda: reviewed(drive, prs, facts.his_login(drive)))
         if prs and posts:
