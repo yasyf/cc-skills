@@ -221,15 +221,39 @@ def test_his_word_in_a_parked_lane_unparks_it(world: dict) -> None:
     assert store.load(DRIVE, "a")["state"] == store.RUNNING
 
 
-def test_his_ruling_lands_on_the_lane_and_wakes_its_owner(world: dict) -> None:
+HIS_229 = "Better answer: to catch things that a unit test won't catch but a staging run would. Let's narrow it to only the most dangerous areas (eg ssql handoff, run journal schema, etc) and make it a suggestion not a requirement "
+LINK_229 = "https://poetic-technology.slack.com/archives/C0BQSADC7SS/p1794868148017949"
+PARAPHRASE_252 = "Only migrations, backfills, deletes of user data, SandSQL storage and consistency, and wire or storage formats need a staging test before merge. Dangerous merges still happen only while he is present."
+
+
+def test_his_ruling_lands_on_the_lane_and_wakes_its_owner(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(facts, "said_at", lambda link: "old approvals stand when the head is unchanged")
     opened("a")
     ended("a", ["his_reply"])
     verbs.ruling(DRIVE, "a", "old approvals stand when the head is unchanged", "https://slack/p1", "approvals")
     lane = store.load(DRIVE, "a")
     assert lane["rulings"][0]["binds"] == "approvals"
     assert lane["state"] == store.RUNNING
-    verbs.ruling(DRIVE, None, "12 active lanes", None, "the cap")
-    assert store.shared_rulings(DRIVE)[0]["words"] == "12 active lanes"
+    verbs.ruling(DRIVE, None, "12 active lanes", None, "the cap", relayed_by="team-lead")
+    assert store.shared_rulings(DRIVE)[0] | {"at": None} == {"words": "12 active lanes", "link": None, "at": None, "binds": "the cap", "relayed_by": "team-lead"}
+
+
+def test_replaying_his_229_pm_ruling_stores_his_words_refuses_the_252_paraphrase_and_rejudges_every_wait(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(facts, "said_at", lambda link: HIS_229)
+    opened("a")
+    opened("b")
+    supervisor.run_pass(DRIVE)
+    ended("a", ["staging_result:cut-1"], "2h")
+    ended("b", ["his_reply"], "2h")
+    with pytest.raises(store.Refused, match="not his words"):
+        verbs.ruling(DRIVE, None, PARAPHRASE_252, LINK_229, "pre-merge staging")
+    with pytest.raises(store.Refused, match="--relayed-by"):
+        verbs.ruling(DRIVE, None, PARAPHRASE_252, None, "pre-merge staging")
+    verbs.ruling(DRIVE, None, None, LINK_229, "pre-merge staging", reading="staging before merge is a suggestion, for SandSQL handoff and the run journal schema")
+    [kept] = store.shared_rulings(DRIVE)
+    assert "a suggestion not a requirement" in kept["words"] and "while he is present" not in kept["words"] and kept["reading"].startswith("staging before merge")
+    assert all(store.load(DRIVE, lane_id)["wait"]["fired_why"].startswith("his ruling, which may end this wait") for lane_id in ("a", "b"))
+    assert "A reading, not his words: staging before merge" in owners.brief(DRIVE, store.load(DRIVE, "a"), "test")
 
 
 def test_a_lapsed_lease_starts_a_fresh_owner_in_the_same_pass(world: dict) -> None:
@@ -1031,3 +1055,32 @@ def test_his_words_get_eyes_when_a_lane_takes_them_and_a_working_line_once_its_o
     assert sum(call[0] == "pickup" and "https://x.slack.com/archives/C1/p200000" in call for call in calls) == 1
     supervisor.run_pass(DRIVE)
     assert sum(call[0] == "pickup" and "https://x.slack.com/archives/C1/p200000" in call for call in world["slack"]) == 1
+
+
+def test_replaying_v3s_257_pm_wait_on_a_cut_no_stager_holds_fires_in_the_next_pass_and_twice_is_a_defect(world: dict) -> None:
+    opened("a")
+    supervisor.run_pass(DRIVE)
+    ended("a", ["staging_result:run-page-v3-20261116225700"], "2h")
+    supervisor.run_pass(DRIVE)
+    lane = store.load(DRIVE, "a")
+    assert lane["state"] == store.RUNNING and "no stager has an ask open for cut run-page-v3-20261116225700" in lane["owner"]["woke"]
+    ended("a", ["staging_result:run-page-v3-20261116225700"], "2h")
+    supervisor.run_pass(DRIVE)
+    assert store.load(DRIVE, "a")["defect"].startswith("its wait twice had nothing producing it")
+    assert any(line.startswith("a: DEFECT") for line in supervisor.check(DRIVE)[1])
+    verbs.blocked(DRIVE, "a", "the target sandsql-nodes-4 exists nowhere", "stager")
+    assert any(line == "a: BLOCKED stager: the target sandsql-nodes-4 exists nowhere" for line in supervisor.check(DRIVE)[1])
+
+
+def test_the_brief_prints_each_pr_as_its_row_stands_before_any_carried_history(world: dict) -> None:
+    opened("a", prs=[("acme/app", 7), ("acme/app", 8)])
+
+    def adopting(lane: dict) -> None:
+        lane["prs"][0] |= {"approved_head": "abc1234def", "dangerous": {"head": "abc1234def", "classes": {}}}
+        lane["prs"][1] |= {"held": "his Hold at def"}
+        lane["handover"] = "seven PRs need a fresh tap"
+
+    store.update(DRIVE, "a", adopting)
+    text = owners.brief(DRIVE, store.load(DRIVE, "a"), "test")
+    assert "acme/app#7: approved by him at abc1234; staging after merge" in text and "acme/app#8: held by him: his Hold at def" in text
+    assert text.index("approved by him at abc1234") < text.index("seven PRs need a fresh tap") and "the rows are right" in text

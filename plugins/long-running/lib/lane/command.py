@@ -155,9 +155,11 @@ def main(argv: list[str] | None = None) -> int:
     parking.add_argument("--link")
     ruled = verbs_parser.add_parser("ruling", help="his answer, verbatim: on the lane it binds, waking its owner, or with no lane for every lane")
     ruled.add_argument("lane", nargs="?")
-    ruled.add_argument("--words", required=True)
-    ruled.add_argument("--link")
-    ruled.add_argument("--binds", required=True)
+    ruled.add_argument("--words", help="his words, quoted as he typed them; with --link, the part of his message there that rules, all of it when left out")
+    ruled.add_argument("--link", help="his message; its text is read from Slack")
+    ruled.add_argument("--binds", required=True, help="what it binds, a scope, never a requirement of its own")
+    ruled.add_argument("--relayed-by", help="who relayed his words, for a ruling with no link")
+    ruled.add_argument("--reading", help="what it means, an agent's reading kept apart from his words")
     verbs_parser.add_parser("unpark").add_argument("lane")
     blocking = verbs_parser.add_parser("block", help="a refusal or blocker, written on the lane that waits on it, which wakes it; never a record to a lane's name")
     blocking.add_argument("lane")
@@ -284,7 +286,7 @@ def run(args: argparse.Namespace) -> int:
             verbs.park(*where(args), args.words, args.link)
         case "ruling":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
-            verbs.ruling(drive, args.lane, args.words, args.link, args.binds)
+            verbs.ruling(drive, args.lane, args.words, args.link, args.binds, args.relayed_by, args.reading)
         case "adopt":
             print("\n".join(verbs.adopt(args.drive, args.paths, args.rulings_only)))
         case "handover":

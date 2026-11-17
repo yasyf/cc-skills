@@ -138,11 +138,18 @@ def located(owner: dict) -> dict:
     return {**owner, "pid": pid, "proc_start": process_started(pid)}
 
 
+def standing(pr: dict) -> str:
+    """Where one PR stands by its row alone, which every other line about it yields to: his Approve, his Hold, the tooling mark, and whether a staging test comes before its merge."""
+    approval = "held by him: " + pr["held"] if pr.get("held") else f"approved by him at {pr['approved_head'][:7]}" if pr.get("approved_head") else "lands on green with no Approve, as tooling" if (pr.get("guarded") or {}).get("tooling") else "no Approve of his yet"
+    premerge = (pr.get("dangerous") or {}).get("classes")
+    return approval + (f"; staging before merge: {', '.join(premerge)}" if premerge else "; staging after merge" if pr.get("dangerous") else "; not judged for staging yet")
+
+
 def brief(drive: str, lane: dict, woke: str) -> str:
     unanswered = store.unreplied(lane)
     asks = "\n".join(f"- {ask['at']} (ts {ask.get('ts') or 'none'}){' UNANSWERED' if not ask.get('replied') else ''}{' done' if ask.get('done') else ''}: {ask['words']}" + (f" ({ask['link']})" if ask.get("link") else "") for ask in lane.get("asks", [])[-12:])
-    rulings = "\n".join(f"- {row['at']} on {row['binds']}: {row['words']}" + (f" ({row['link']})" if row.get("link") else "") for row in [*store.shared_rulings(drive), *lane.get("rulings", [])]) or "- none"
-    prs = "\n".join(f"- {pr['repo']}#{pr['number']}" + (f" {pr['words']}" if pr.get("words") else "") + (f", held: {pr['held']}" if pr.get("held") else "") for pr in lane.get("prs", [])) or "- none yet"
+    rulings = "\n".join(f"- {row['at']} on {row['binds']}: \"{row['words']}\"" + (f" ({row['link']})" if row.get("link") else f" (relayed by {row['relayed_by']})" if row.get("relayed_by") else "") + (f"\n  A reading, not his words: {row['reading']}" if row.get("reading") else "") for row in [*store.shared_rulings(drive), *lane.get("rulings", [])]) or "- none"
+    prs = "\n".join(f"- {pr['repo']}#{pr['number']}" + (f" {pr['words']}" if pr.get("words") else "") + ": " + standing(pr) for pr in lane.get("prs", [])) or "- none yet"
     done = "\n".join(f"- {number}. " + (f"met {check['met_at']} ({check.get('how')})" if check.get("met_at") else "not met") + f": {check['words']}" for number, check in enumerate(lane.get("done", []), 1)) or "- none written yet"
     serves = lane.get("serves") or {}
     text = BRIEF.read_text().format(

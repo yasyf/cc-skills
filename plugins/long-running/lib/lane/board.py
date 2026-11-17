@@ -95,6 +95,7 @@ def screens(drive: str) -> dict | None:
             "id": lane_id, "title": lane["title"], "position": position, "state": lane["state"], "hurting": lane_id in hurting,
             "waits": waits_plainly(lane["wait"]) if lane["state"] == store.WAITING else None, "parked": (lane.get("parked") or {}).get("words"), "says": lane.get("says"), "next": lane.get("next"), "until": (lane.get("wait") or {}).get("until"), "why": (lane.get("wait") or {}).get("why"),
             "asks": [{"words": ask["words"], "link": ask.get("link"), "at": ask["at"]} for ask in store.unreplied(lane)],
+            "defect": lane.get("defect"), "blocked": [entry["words"].removeprefix("blocked, from ") for entry in entries(drive, lane_id) if entry["words"].startswith("blocked, from ")][-3:],
             "done": [{"words": check["words"], "met": bool(check.get("met_at")), "how": check.get("how")} for check in lane.get("done", [])],
             "stacks": [{"key": f"{row['repo']}#{row['number']}", "url": url(f"{row['repo']}#{row['number']}"), "title": row.get("words") or seen[f"{row['repo']}#{row['number']}"].get("title") or "", "above": len(row["above"])} for row in stacks],
             "rest": rest, "channel": lane.get("channel"), "thread": lane.get("thread"),

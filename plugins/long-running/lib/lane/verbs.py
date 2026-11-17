@@ -153,9 +153,22 @@ def message(drive: str, lane_id: str, words: str, link: str | None = None, ts: s
     return taken
 
 
-def ruling(drive: str, lane_id: str | None, words: str, link: str | None, binds: str) -> None:
-    """Keep one answer of his verbatim: on the lane it binds, which wakes its owner in the same write, or with no lane in the drive's shared rulings every owner reads."""
-    row = {"words": words, "link": link, "at": store.stamp(), "binds": binds}
+def plain(text: str) -> str:
+    return " ".join(text.casefold().split())
+
+
+def ruling(drive: str, lane_id: str | None, words: str | None, link: str | None, binds: str, relayed_by: str | None = None, reading: str | None = None) -> None:
+    """Keep one answer of his as his words and nothing else: with a link, the text of his message there, read from Slack, or the part of it --words quotes, any words not in it refused; with no link, his words as someone relayed them, marked relayed by them. An agent's reading of it is kept apart, as a reading. On the lane it binds it wakes its owner; with no lane it goes in the drive's shared rulings and wakes every waiting lane, so every wait set before it is judged again under it."""
+    if link:
+        said = facts.said_at(link)
+        if words and plain(words) not in plain(said):
+            raise store.Refused(f"--words are not his words at {link}, which read: {said!r}; quote them as he typed them, and put what they mean in --reading")
+        words = words or said
+    elif not relayed_by:
+        raise store.Refused("a ruling with no link to his message names who relayed his words: --relayed-by")
+    elif not words:
+        raise store.Refused("a ruling with no link gives his words: --words")
+    row = {"words": words, "link": link, "at": store.stamp(), "binds": binds, **({"relayed_by": relayed_by} if not link else {}), **({"reading": reading} if reading else {})}
     if lane_id is None:
         with store.locked(drive):
             path = store.drive_dir(drive) / store.RULINGS
@@ -163,6 +176,15 @@ def ruling(drive: str, lane_id: str | None, words: str, link: str | None, binds:
             fresh = path.with_name(".rulings.json.tmp")
             fresh.write_text(json.dumps({"shared": [*kept, row]}, indent=1, ensure_ascii=False) + "\n")
             fresh.replace(path)
+
+        def rejudging(lanes: dict[str, dict]) -> None:
+            for lane in lanes.values():
+                if lane["state"] == store.WAITING:
+                    woken(lane, f"his ruling, which may end this wait: {words}")
+                    store.note(lane, f"woken by his ruling: {words}")
+
+        store.transact(drive, rejudging)
+        store.kick(drive)
         return
 
     def recording(lane: dict) -> None:

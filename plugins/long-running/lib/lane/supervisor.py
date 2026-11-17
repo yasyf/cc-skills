@@ -12,13 +12,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import ack, approve, fixes, facts, page, queue, rank, store, verbs, voice
+from lane import ack, approve, board, fixes, facts, page, queue, rank, store, verbs, voice
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
 QUIET_BEFORE_NUDGE = timedelta(seconds=60)
 NUDGE_EVERY = timedelta(minutes=10)
 ALERTS = "alerts.jsonl"
+UNPRODUCED = "nothing is producing what it waits on"
 READERS = 6
 BOOTOUT_SECONDS = 30
 BOOTSTRAP_TRIES = 10
@@ -51,6 +52,8 @@ def fired(drive: str, lane: dict, prs: dict, moment: datetime) -> str | None:
     for event in wait["on"]:
         if event["kind"] != "his_reply" and facts.holds(drive, lane, event, prs):
             return f"{event['kind']} {event.get('ref', '')}".strip()
+    if idle := [why for event in wait["on"] if (why := facts.unproduced(drive, lane, event, prs))]:
+        return f"{UNPRODUCED}: {'; '.join(idle)}"
     if granted := [resource for resource in queue.asking(drive, lane["id"]) if queue.free_for(drive, resource, lane["id"])]:
         return f"the queue grants {', '.join(granted)} to it now"
     if store.parse(wait["until"]) <= moment:
@@ -166,6 +169,8 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
                     held += 1
             elif lane["state"] == store.WAITING and lane_id in chosen and (why := fired(drive, lane, prs, moment)):
                 lane["wait"] = {**lane["wait"], "fired": lane["wait"].get("fired") or store.stamp(moment), "fired_why": why}
+                lane["unproduced"] = lane.get("unproduced", 0) + 1 if why.startswith(UNPRODUCED) else 0
+                lane["defect"] = f"its wait twice had nothing producing it: {why}" if lane["unproduced"] >= 2 else None
                 ready.append(lane_id)
         ready.sort(key=lambda lane_id: (position.get(lane_id, len(position)), lanes[lane_id]["wait"]["fired"]))
         for lane_id in [*lapsed, *ready[: max(0, shape["slots"] - held - len(lapsed))]]:
@@ -287,6 +292,17 @@ def check(drive: str) -> tuple[bool, list[str]]:
             queued = late and running >= shape["slots"]
             good &= not late or queued
             lines.append(f"{lane_id}: waiting on {events} until {wait['until']}{' (fired, queued for a slot)' if queued else ' OVERDUE' if late else ''}: {wait.get('why')}")
+        if lane.get("defect"):
+            good = False
+            lines.append(f"{lane_id}: DEFECT {lane['defect']}")
+        blocked = [entry for entry in board.entries(drive, lane_id) if entry["words"].startswith("blocked, from ")]
+        if blocked and moment - store.parse(blocked[-1]["at"]) < timedelta(hours=1):
+            lines.append(f"{lane_id}: BLOCKED {blocked[-1]['words'].removeprefix('blocked, from ')}")
+    alerts = store.drive_dir(drive) / ALERTS
+    for row in [json.loads(line) for line in alerts.read_text().splitlines()[-20:]] if alerts.is_file() else []:
+        if moment - store.parse(row["at"]) < timedelta(minutes=15):
+            good = False
+            lines.append(f"pass step failed {row['at']}: {row['error']}")
     return good, lines
 
 

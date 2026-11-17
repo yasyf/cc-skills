@@ -109,6 +109,28 @@ def holds(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], dict])
     raise store.Refused(f"waiting on {event['kind']!r} is not an outside fact")
 
 
+def unproduced(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], dict]) -> str | None:
+    """Why nothing is producing the fact a wait names, or None while something is: a staging result with no stager's ask open for its cut, checks with no CI at the PR's head, a merge of a PR no Approve of his, no card asking for one and no tooling mark will land. His reply is left to his cards."""
+    match event["kind"]:
+        case "staging_result":
+            from lane import stager
+
+            asked = stager.wants(drive).get(lane["id"]) or {}
+            return None if asked.get("cut") == event["ref"] or result_written(drive, "cuts", event["ref"]) else f"no stager has an ask open for cut {event['ref']}"
+        case "check":
+            pull = prs.get(pr_ref(event["ref"]))
+            return f"no CI runs at the head of {event['ref']}" if pull and pull["state"] == "OPEN" and pull.get("rollup") is None else None
+        case "pr_merged":
+            pull = prs.get(pr_ref(event["ref"]))
+            row = next((row for row in lane["prs"] if (row["repo"], row["number"]) == pr_ref(event["ref"])), None)
+            if not pull or pull["state"] != "OPEN" or row is None:
+                return None
+            if row.get("approved_head") or (row.get("guarded") or {}).get("tooling") or (row.get("carded") or {}).get("head") == pull["head"]:
+                return None
+            return f"nothing will merge {event['ref']}: no Approve of his, no tooling mark, and no card asks him for one"
+    return None
+
+
 CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}
 
 
@@ -140,6 +162,18 @@ def view(drive: str) -> dict[str, dict]:
 def owner_user() -> dict:
     done = subprocess.run(["cc-slack", "whoami"], capture_output=True, text=True, check=True, timeout=30)
     return json.loads(done.stdout)
+
+
+def said_at(link: str) -> str:
+    """The text of his own Slack message at link, read from Slack; refused when it is no message of his."""
+    done = subprocess.run(["cc-slack", "thread", "--url", link, "--json", "--limit", "1"], capture_output=True, text=True, check=False, timeout=60)
+    if done.returncode:
+        raise store.Refused(f"Slack read of {link} failed: {done.stderr.strip()[:300]}")
+    ts = re.search(r"/p(\d{10})(\d{6})", link)
+    message = next((message for message in json.loads(done.stdout).get("messages") or [] if ts and message["ts"] == f"{ts[1]}.{ts[2]}"), None)
+    if message is None or message.get("user") != owner_user()["user_id"] or message.get("from_claude"):
+        raise store.Refused(f"{link} is no message of his")
+    return message.get("text") or ""
 
 
 def his_messages(lane: dict) -> list[dict]:
