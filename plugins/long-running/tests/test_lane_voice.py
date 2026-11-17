@@ -230,20 +230,6 @@ def test_a_pr_whose_title_is_one_generic_word_takes_its_bodys_first_line(monkeyp
     assert words_module.pr_words("Forge-AI/monorepo", 1, "♻️ Drop the card queue") == "Drop the card queue"
 
 
-@pytest.mark.parametrize(
-    ("options", "labels", "listed"),
-    [
-        (["Approve", "Hold"], ["Approve", "Hold"], False),
-        (["Approve as built: note required, chat's end only", "Approve, and also show the note on the sidebar row", "Make the note optional, then approve", "Hold"], ["Approve as built", "Approve", "Make the note optional", "Hold"], True),
-        (["Approve all 3 (Recommended)", "One at a time", "Hold all"], ["Approve all 3", "One at a time", "Hold all"], True),
-    ],
-)
-def test_buttons_are_short_enough_for_slack_and_a_shortened_one_is_listed_in_full(options: list[str], labels: list[str], listed: bool) -> None:
-    text, shown = voice.buttoned("Pick one:", options)
-    assert shown == labels and all(len(label) <= voice.BUTTON_CHARS and len(label.split()) <= voice.BUTTON_WORDS for label in shown)
-    assert (f"1. *{labels[0]}*: {options[0]}" in text) is listed
-
-
 def test_the_sender_hands_the_owner_the_voices_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(voice.urllib.request, "urlopen", lambda request, timeout: io.StringIO(json.dumps({"id": "g1", "warning": "warning, posted: it names work nobody is doing yet"})))
     assert voice.send("demo", {"id": "cloud", "channel": "C1", "prs": []}, "No job carries these yet.") == "QUEUED g1; warning, posted: it names work nobody is doing yet"
@@ -263,7 +249,7 @@ def test_a_post_the_voice_never_sent_tells_its_owner_once(monkeypatch: pytest.Mo
     monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
     told = []
     monkeypatch.setattr(voice.verbs, "handover", lambda drive, lane, text, by: told.append((lane, text)))
-    monkeypatch.setattr(voice.verbs, "wake", lambda drive, lane, text: told.append((lane, "woke")))
+    monkeypatch.setattr(voice.verbs, "wake", lambda drive, lane, text, if_waiting: told.append((lane, "woke")))
     row = {"id": "a1", "lane": "releases", "at": "2026-11-16T15:56:41.000-08:00", "error": "channel_not_found", "before": "The everything-but-SandSQL release passed on staging."}
     lanes = {"releases": {"state": store.WAITING}}
     voice.unsent("d", lanes, [row, row | {"lane": "gone"}])

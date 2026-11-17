@@ -554,10 +554,12 @@ def handover(drive: str, lane_id: str, text: str | None, writer: str | None = No
     store.update(drive, lane_id, setting)
 
 
-def wake(drive: str, lane_id: str, why: str) -> None:
-    """Fire a waiting lane's wait now, so the next pass starts its owner: for a wait the drive's operators find was set on a fact that cannot fire."""
+def wake(drive: str, lane_id: str, why: str, if_waiting: bool = False) -> None:
+    """Fire a waiting lane's wait now, so the next pass starts its owner: for a wait the drive's operators find was set on a fact that cannot fire. if_waiting leaves a lane that is not waiting as it is, for a caller that already handed its owner the news, which a running owner reads at its next tool call."""
 
     def waking(lane: dict) -> None:
+        if lane["state"] != store.WAITING and if_waiting:
+            return
         if lane["state"] != store.WAITING:
             raise store.Refused(f"lane {lane_id} is {lane['state']}, not waiting")
         woken(lane, why)

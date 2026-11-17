@@ -30,10 +30,6 @@ LINKED_PR = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|")
 PERMALINK_TS = re.compile(r"/p(\d{10})(\d{6})")
 SLACK_MESSAGE = re.compile(r"https://[\w-]+\.slack\.com/archives/(C\w+)/p(\d{10})(\d{6})")
 ATTACHED_APPROVE = re.compile(r"^Approve #(\d+)$")
-PARENTHETICAL = re.compile(r"\s*\([^)]*\)")
-BUTTON_CLAUSE = re.compile(r"[,;:](?=\s)| - | — ")
-BUTTON_WORDS = 4
-BUTTON_CHARS = 24
 CARD_ID = re.compile(r"\s*\(card ([0-9a-f]{6})\)")
 RULINGS_SENT = 60
 TAPPED_PR = re.compile(r'^tapped "(Approve|Hold) #(\d+)"')
@@ -81,10 +77,8 @@ def edit_ts(edit: str | None) -> str | None:
 def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options: list[str] | None = None, edit: str | None = None, about: list[str] | None = None, pictures: list[str] | None = None) -> str:
     """lane.say's SENDER: queue one post in the lane's channel, in the thread of the ask it is about, with the role page beside it and a button for each option, and return QUEUED and its id."""
     card = None
-    if options:
-        text, options = buttoned(text, options)
-        if found := CARD_ID.search(text):
-            text, card = CARD_ID.sub("", text, count=1), found[1]
+    if options and (found := CARD_ID.search(text)):
+        text, card = CARD_ID.sub("", text, count=1), found[1]
     seen = page.view(drive)["prs"]
     drawn = linked(text, titled(lane.get("prs") or [], seen))
     body = {
@@ -113,28 +107,6 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         raise
     carded(drive, lane["id"], queued["id"], queued.get("attached") or [], seen)
     return f"QUEUED {queued['id']}" + (f"; {queued['warning']}" if queued.get("warning") else "")
-
-
-def button(option: str) -> str:
-    """An option as a button Slack shows whole: its parentheticals, such as (Recommended), dropped, cut at its first clause, at most BUTTON_WORDS words and BUTTON_CHARS characters, by his words "the buttons are all cut off I have no idea what they're saying"."""
-    words = BUTTON_CLAUSE.split(PARENTHETICAL.sub("", option).strip(), maxsplit=1)[0].split()
-    kept: list[str] = []
-    for word in words[:BUTTON_WORDS]:
-        if len(" ".join([*kept, word])) > BUTTON_CHARS:
-            break
-        kept.append(word)
-    return " ".join(kept)
-
-
-def buttoned(text: str, options: list[str]) -> tuple[str, list[str]]:
-    """A question's text and buttons as he can read them: each option shortened to a button, and when any was shortened, each listed in full under its button's name at the post's end; options that shorten to an empty or repeated button go on as given, for the voice to refuse with the rule."""
-    labels = [button(option) for option in options]
-    if not all(labels) or len({label.casefold() for label in labels}) < len(labels):
-        return text, options
-    if labels == [option.strip() for option in options]:
-        return text, labels
-    listed = "\n".join(f"{n}. *{label}*: {option.strip()}" for n, (label, option) in enumerate(zip(labels, options, strict=True), 1))
-    return f"{text.rstrip()}\n\n{listed}", labels
 
 
 def rulings_of(drive: str, lane: dict) -> list[dict]:
@@ -295,8 +267,7 @@ def unsent(drive: str, lanes: dict[str, dict], rows: list[dict]) -> None:
             continue
         told = f"Your post of {clock(row['at'])} never reached him ({row.get('error') or row.get('dropped')}), so he has not read: \"{(row.get('before') or '')[:300]}\". Fix what stopped it and say it again with `lane say`."
         verbs.handover(drive, row["lane"], f"- {told}", "lane-voice")
-        if lanes[row["lane"]]["state"] == store.WAITING:
-            verbs.wake(drive, row["lane"], told)
+        verbs.wake(drive, row["lane"], told, if_waiting=True)
         done[key] = store.stamp()
     path.write_text(json.dumps(done))
 
@@ -333,8 +304,7 @@ def settle(drive: str, posts: list[dict], prs: dict[tuple[str, int], dict]) -> l
         if stale and (why := "; ".join(stale)) != kept.get("stale"):
             told = f"Your post {post['permalink']} is stale because {why}. If what it says no longer holds, edit it: `lane say --edit {post['ts']} \"<the post as it should read now>\"`."
             verbs.handover(drive, post["lane"], f"- {told}", "lane-voice")
-            if lane["state"] == store.WAITING:
-                verbs.wake(drive, post["lane"], told)
+            verbs.wake(drive, post["lane"], told, if_waiting=True)
             kept["stale"] = why
     path.write_text(json.dumps(done))
     return changed
