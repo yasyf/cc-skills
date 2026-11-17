@@ -227,7 +227,8 @@ def start(drive: str) -> str | None:
     for lane, ask in asked.items():
         written(lanes_dir(drive) / WANTS / f"{lane}.json", ask | {"claimed": claimed})
     targets = ", ".join(store.config(drive)["staging_targets"])
-    prompt = f"You are a stager for drive {drive}. Read {PAGE} and follow it, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}. Serve the lanes {', '.join(asked)} waiting in {lanes_dir(drive) / WANTS}, starting with {first}. Test on one of the staging targets {targets} that no other running cut in {lanes_dir(drive) / CUTS} uses; you take no hold."
+    alerts = store.config(drive)["staging_alerts"]
+    prompt = f"You are a stager for drive {drive}. Read {PAGE} and follow it, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}. Serve the lanes {', '.join(asked)} waiting in {lanes_dir(drive) / WANTS}, starting with {first}. Test on one of the staging targets {targets} that no other running cut in {lanes_dir(drive) / CUTS} uses; you take no hold. Staging alerts post in {alerts}: read them through your cut into each stack's result."
     from lane import session
 
     argv = session.argv(store.config(drive), "stager", Path(store.config(drive)["checkout"]), {"permissions": {"deny": ["Bash(cci post:*)", "Bash(cci post *)", "mcp__plugin_cc-inbox_cci__post"]}}, ["--bg"], ["--permission-mode", "bypassPermissions", "-n", f"stager {drive} {first}", prompt])

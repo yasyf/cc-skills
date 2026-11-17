@@ -182,3 +182,19 @@ def test_a_staging_cut_wait_names_when_its_cut_starts_and_one_no_ask_names_never
     assert stager.starts("durable-agents", "blob-1") == "2026-11-17T01:05:13Z"
     assert stager.starts("durable-agents", "done-1") == "written"
     assert stager.starts("durable-agents", "sandsql-ha-release-3-20261116232850") is None
+
+
+def test_a_stager_is_told_the_staging_alerts_channel_to_read_into_each_stacks_result(monkeypatch, tmp_path) -> None:
+    import subprocess
+
+    from lane import session, stager, store
+
+    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(stager, "live", lambda drive: True)
+    monkeypatch.setattr(store, "config", lambda drive: store.DEFAULTS | {"checkout": str(tmp_path), "staging_targets": ["plat-usw2-staging sandsql-nodes-3"], "staging_alerts": "#alerts-staging"})
+    stager.written(tmp_path / stager.WANTS / "sandsql-ha-release-3.json", {"lane": "sandsql-ha-release-3", "cut": "ha-1", "at": "2026-11-16T23:28:50Z"})
+    started = []
+    monkeypatch.setattr(session, "argv", lambda config, role, checkout, own, head, tail: ["claude", *head, *tail])
+    monkeypatch.setattr(subprocess, "run", lambda argv, **named: started.append(argv) or subprocess.CompletedProcess(argv, 0, "bg", ""))
+    stager.start("durable-agents")
+    assert "Staging alerts post in #alerts-staging" in str(started)
