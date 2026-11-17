@@ -327,3 +327,8 @@ def test_land_stack_submits_the_one_stack_holding_the_pr_and_reads_only_its_lane
     monkeypatch.setattr(cli, "merged", lambda drive, lane, keys, checkout, held, dry_run: submitted.append((keys, dry_run)) or "queued")
     assert cli.land_stack("durable-agents", "run-page", "Forge-AI/monorepo#57908") == "queued"
     assert asked == [["run-page"]] and submitted == [(["Forge-AI/monorepo#57908"], False)]
+
+
+def test_an_approved_pr_github_did_not_answer_holds_instead_of_crashing_the_pass_on_a_missing_carry_verdict() -> None:
+    unread = row(58054, head=None) | {"approved_head": "ae4c617c7"}
+    assert landing.verdicts(lane(unread))[0].lands is False
