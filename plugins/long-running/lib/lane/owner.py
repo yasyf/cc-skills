@@ -179,6 +179,7 @@ def brief(drive: str, lane: dict, woke: str) -> str:
         log="\n".join(f"- {line}" for line in store.log_tail(drive, lane["id"], 8)) or "- nothing yet",
         promise=json.dumps(lane.get("promise")) if lane.get("promise") else "none",
         handover=lane.get("handover") or "none",
+        targets=", ".join(store.config(drive)["staging_targets"]),
         lane=shlex.quote(str(store.launcher(drive))),
     )
     if not store.live(drive):

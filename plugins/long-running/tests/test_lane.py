@@ -485,6 +485,12 @@ def test_a_handover_note_reaches_the_owner_brief_and_is_no_ask(world: dict) -> N
     assert len(lane["asks"]) == 1
 
 
+def test_every_owner_brief_names_the_drive_configs_staging_targets_as_the_one_fact_its_posts_use(world: dict) -> None:
+    opened("a")
+    (store.drive_dir(DRIVE) / "config.json").write_text(json.dumps(store.config(DRIVE) | {"staging_targets": ["plat-usw2-staging sandsql-nodes-3"]}))
+    assert "Staging's targets are exactly plat-usw2-staging sandsql-nodes-3, from the drive config" in owners.brief(DRIVE, store.load(DRIVE, "a"), "woken")
+
+
 def test_a_verb_on_a_drive_no_supervisor_runs_takes_his_words_and_starts_nothing(world: dict) -> None:
     opened("a")
     ended("a", ["his_reply"])
