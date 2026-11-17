@@ -657,8 +657,8 @@ def test_his_tap_list_holds_unapproved_and_revoked_prs_never_a_moved_head_still_
 
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     opened("a", prs=[("acme/app", 7), ("acme/app", 8), ("acme/app", 9)], channel="C1")
-    world["prs"][("acme/app", 7)] = pull(head="h7b")
-    world["prs"][("acme/app", 8)] = pull(head="h8b")
+    world["prs"][("acme/app", 7)] = pull(head="h7b") | {"commits": [("h7b", "lanes-bot")], "commit_count": 1}
+    world["prs"][("acme/app", 8)] = pull(head="h8b") | {"commits": [("h8b", "lanes-bot")], "commit_count": 1}
     world["prs"][("acme/app", 9)] = pull(head="h9")
 
     def approving(lane: dict) -> None:
@@ -668,7 +668,7 @@ def test_his_tap_list_holds_unapproved_and_revoked_prs_never_a_moved_head_still_
     supervisor.run_pass(DRIVE)
     verbs.carry(DRIVE, "acme/app", 8, "h8b", False, "it now drops the retry")
     shown = page.tapless(store.load(DRIVE, "a"), page.view(DRIVE)["prs"])
-    assert [(row["number"], row["moved"]) for row in shown] == [(8, "it now drops the retry"), (9, None)], (page.view(DRIVE), store.load(DRIVE, "a")["prs"])
+    assert [(row["number"], row["moved"]) for row in shown] == [(8, "it now drops the retry"), (9, None)]
 
 
 def test_a_lane_whose_owner_restarted_keeps_its_place_in_line_and_its_grant(world: dict) -> None:

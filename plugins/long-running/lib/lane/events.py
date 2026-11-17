@@ -38,12 +38,17 @@ def message(drive: str, lane_id: str, words: str, link: str | None, ts: str) -> 
     return f"{lane_id}: 1 new, {deliver(drive, lane_id, words_for(lane_id, words, link, ts))}"
 
 
-def tapped(drive: str, landed: list[str]) -> str:
-    """His Approve or Hold written on PRs: the lander starts on them in the same call, so a green approved stack is submitted within seconds, not at the next pass."""
-    from lane import supervisor
+def landing(drive: str, keys: list[str]) -> list[str]:
+    """Land the stack holding each PR in this call, by lane-land's land_stack, which holds one it cannot land yet and says why."""
+    from lane import cli as lane_land
 
-    supervisor.lane_land.spawn(drive)
-    return f"his tap on {', '.join(landed)}; the lander started"
+    lanes = store.load_all(drive)
+    return [f"{key}: {lane_land.land_stack(drive, lane_id, key)}" for key in keys for lane_id, lane in lanes.items() if any(f"{row['repo']}#{row['number']}" == key for row in lane["prs"])]
+
+
+def tapped(drive: str, keys: list[str]) -> str:
+    """His Approve or Hold written on PRs: each one's stack is landed in the same call, so a green approved stack is submitted within seconds, not at the next pass."""
+    return f"his tap on {', '.join(keys)}; " + "; ".join(landing(drive, keys))
 
 
 CURSOR = "deliveries.cursor"
@@ -94,7 +99,6 @@ def github(drive: str) -> list[str]:
     if not (deliveries := new_deliveries(drive)) or not (keys := named_keys(drive, deliveries)):
         return []
     from lane import facts, page, verbs, work
-    from lane import supervisor
 
     prs = facts.read_prs(keys, commits=1)
     page.merge_view(drive, prs, store.now())
@@ -107,7 +111,8 @@ def github(drive: str) -> list[str]:
             verbs.wake(drive, lane_id, f"GitHub just said {', '.join(event['kind'] + ' ' + event['ref'] for event in held)}")
             said.append(f"woke {lane_id}")
     said += work.adds(drive)
-    supervisor.lane_land.spawn(drive)
+    rows = {f"{row['repo']}#{row['number']}": row for lane in store.load_all(drive).values() for row in lane["prs"]}
+    said += landing(drive, [f"{repo}#{number}" for (repo, number), pull in prs.items() if pull["state"] == "OPEN" and pull.get("rollup") == "SUCCESS" and (row := rows.get(f"{repo}#{number}")) and row.get("approved_head")])
     return said
 
 
