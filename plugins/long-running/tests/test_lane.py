@@ -13,6 +13,12 @@ DRIVE = "lanes-test"
 LIB = Path(__file__).resolve().parents[1] / "lib"
 
 
+@pytest.fixture(autouse=True)
+def steps_beside_the_pass_run_in_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test reads what a pass's beside steps did once run_pass returns, outside the test of the threads themselves."""
+    monkeypatch.setattr(supervisor, "BESIDE", False)
+
+
 def pull(state: str = "OPEN", rollup: str | None = "PENDING", head: str = "abc", base: str = "main", branch: str = "feature") -> dict:
     return {"state": state, "merged": state == "MERGED", "head": head, "base": base, "branch": branch, "default": "main", "review": None, "rollup": rollup, "title": ""}
 
@@ -1708,3 +1714,17 @@ def test_check_names_a_row_the_last_github_read_gave_no_head_as_unread(world: di
     good, lines = supervisor.check(DRIVE)
     assert not good
     assert any(line.startswith("a: UNREAD acme/app#8:") for line in lines)
+
+
+def test_a_step_beside_the_pass_never_holds_it_and_its_errors_stand_in_the_heartbeat(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    monkeypatch.setattr(supervisor, "BESIDE", True)
+    release, ran = threading.Event(), []
+    supervisor.beside(DRIVE, "slow", lambda: release.wait(5) and ["no card for #7"])
+    supervisor.beside(DRIVE, "slow", lambda: ran.append("again"))
+    assert ran == [] and supervisor.beside_errors(DRIVE) == []
+    release.set()
+    supervisor.RUNNING_STEPS[f"{DRIVE}:slow"].join(5)
+    assert supervisor.beside_errors(DRIVE) == ["no card for #7"]
+    supervisor.BESIDE_ERRORS.clear()

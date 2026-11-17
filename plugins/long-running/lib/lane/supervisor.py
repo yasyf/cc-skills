@@ -32,6 +32,8 @@ STEP_SECONDS = 120
 READ_SECONDS = 600
 SLOW_STEP_SECONDS = 10
 RUNNING_STEPS: dict[str, threading.Thread] = {}
+BESIDE_ERRORS: dict[str, list[str]] = {}
+BESIDE = True
 BOOTOUT_SECONDS = 30
 BOOTSTRAP_TRIES = 10
 PREFLIGHT = "preflight"
@@ -149,6 +151,35 @@ def alone(drive: str, errors: list[str], what: str, step, seconds: float = STEP_
     return None
 
 
+def beside(drive: str, what: str, step) -> None:
+    """Start one step whose result nothing later in the pass reads, such as drawing his cards, settling posts or his working line, in a thread the pass does not wait on, so a slow model or Slack call never makes the pass slow; it is not started again while it still runs, and the error lines it last returned or raised stand in each heartbeat until its next run ends."""
+    key = f"{drive}:{what}"
+    if (still := RUNNING_STEPS.get(key)) and still.is_alive():
+        return
+
+    def running() -> None:
+        began = time.monotonic()
+        try:
+            BESIDE_ERRORS[key] = list(step() or [])
+        except Exception as failed:
+            line = f"{what}: {type(failed).__name__}: {failed}"
+            BESIDE_ERRORS[key] = [line]
+            with (store.drive_dir(drive) / ALERTS).open("a") as out:
+                out.write(json.dumps({"at": store.stamp(), "step": what, "error": line, "trace": traceback.format_exc()[-2000:]}) + "\n")
+        if (took := time.monotonic() - began) >= SLOW_STEP_SECONDS:
+            print(f"{store.stamp()} step beside the pass took {took:.0f}s: {what}", flush=True)
+
+    if not BESIDE:
+        running()
+        return
+    RUNNING_STEPS[key] = threading.Thread(target=running, name=what, daemon=True)
+    RUNNING_STEPS[key].start()
+
+
+def beside_errors(drive: str) -> list[str]:
+    return [line for key, lines in BESIDE_ERRORS.items() if key.startswith(f"{drive}:") for line in lines]
+
+
 def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True) -> dict:
     """One pass; what it started and why, and each read that failed, which never gates a time wake or a lease. A verb's own pass (read_outside false) starts owners only while the drive's supervisor runs, so a drive being staged takes his words and starts nothing until its supervisor's first pass."""
     shape = store.config(drive)
@@ -187,7 +218,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         if prs:
             alone(drive, errors, "his GitHub reviews were not read", lambda: reviewed(drive, prs, facts.his_login(drive)))
         if prs and posts:
-            alone(drive, errors, "a post did not follow its subjects", lambda: voice.settle(drive, posts, prs))
+            beside(drive, "a post did not follow its subjects", lambda: voice.settle(drive, posts, prs) and None)
         lanes_now = store.load_all(drive)
         monitors = dict(rank.last(drive).get("monitors", {}))
         monitors |= alone(drive, errors, "the last monitor states read stand", lambda: facts.monitor_states(drive, {str(lane["incident"]["monitor"]) for lane in lanes_now.values() if (lane.get("incident") or {}).get("monitor") and not lane["incident"].get("fix_live")})) or {}
@@ -256,20 +287,19 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         alone(drive, errors, "no overdue promise was raised", lambda: overdue(drive, store.now()))
         alone(drive, errors, "no block of his was checked for reaching him", lambda: blocks.told(drive, store.now()))
     if read_outside and store.live(drive):
-        alone(drive, errors, "his words got no working line", lambda: ack.working(drive))
+        beside(drive, "his words got no working line", lambda: ack.working(drive) and None)
     with ThreadPoolExecutor(max_workers=READERS) as pool:
         errors += [error for error in pool.map(lambda start: launching(drive, start, shape), starts) if error]
     if read_outside:
         alone(drive, errors, "no lander started", lambda: lane_land.spawn(drive))
         if prs:
-            errors += alone(drive, errors, "an Approve card stayed live under rows that settle it", lambda: approve.settle(drive)) or []
-            errors += alone(drive, errors, "no Approve card was drawn", lambda: approve.draw(drive)) or []
+            beside(drive, "his Approve cards were not settled and drawn", lambda: (approve.settle(drive) or []) + (approve.draw(drive) or []))
             alone(drive, errors, "the queue kept no item for what GitHub shows", lambda: work.adds(drive))
         alone(drive, errors, "no item of a gone worker went back to the queue", lambda: work.expire(drive))
         alone(drive, errors, "no worker started for the queue", lambda: work.staff(drive))
-        alone(drive, errors, "no audit started", lambda: audit.start(drive))
-        alone(drive, errors, "no alert opened an incident lane", lambda: incidents.intake(drive))
-        heartbeat(drive, store.now(), errors)
+        beside(drive, "no audit started", lambda: audit.start(drive) and None)
+        beside(drive, "no alert opened an incident lane", lambda: incidents.intake(drive) and None)
+        heartbeat(drive, store.now(), errors + beside_errors(drive))
     return {"started": [start["lane"] for start in starts if start["token"]], "errors": errors}
 
 
@@ -774,6 +804,8 @@ def supervise(drive: str) -> None:
             fresh.unlink(missing_ok=True)
             fresh.symlink_to(newest / "bin" / "lane")
             fresh.replace(link)
+            for still in list(RUNNING_STEPS.values()):
+                still.join(STEP_SECONDS)
             return
         result = run_pass(drive)
         good, lines = check(drive)
