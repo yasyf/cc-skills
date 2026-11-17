@@ -212,8 +212,9 @@ class Writer:
         threading.Thread(target=self.loop, daemon=True).start()
 
     def tell(self, model: dict) -> None:
-        """Give each question card in the queue, each open PR a queue card shows whether or not it waits on his tap yet, and each other PR waiting on his tap its story as it stands, queueing each one not yet written in the queue's order, a PR card's PRs at its place in it, then each other PR waiting on his tap; a card showing a PR decided or not yet ready still opens on its story."""
-        review = {entry["key"]: entry for entry in model["review"]}
+        """Give each question card in the queue, each open PR a queue card shows whether or not it waits on his tap yet, and each other PR waiting on his tap its story as it stands (a lane PR, which the drive holds no row for, has its card line from the lane instead), queueing each one not yet written in the queue's order, a PR card's PRs at its place in it, then each other PR waiting on his tap; a card showing a PR decided or not yet ready still opens on its story."""
+        drive_prs = state.load(self.name)["prs"]
+        review = {entry["key"]: entry for entry in model["review"] if entry["key"] in drive_prs}
         yours = [key for key, entry in review.items() if entry["group"] == "you"]
         for item in model["queue"]:
             if item["kind"] == "question":
