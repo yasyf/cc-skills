@@ -252,3 +252,14 @@ def test_each_pass_files_an_ask_for_a_lane_owing_a_staging_test_closes_one_owing
     assert set(stager.wants("durable-agents")) == {"sandsql-engine"}
     assert json.loads((tmp_path / stager.CUTS / "v3-1.json").read_text())["result"] == "after_merge"
     assert stager.starts("durable-agents", stager.wants("durable-agents")["sandsql-engine"]["cut"]) == "next"
+
+
+def test_a_landing_lock_lives_only_while_held_and_a_second_taker_is_refused_meanwhile(tmp_path) -> None:
+    from lane import cli
+
+    path = tmp_path / "landing" / "Forge-AI_monorepo-46.lock"
+    with cli.exclusive(path) as mine:
+        assert mine and path.exists()
+        with cli.exclusive(path) as again:
+            assert not again
+    assert not path.exists()

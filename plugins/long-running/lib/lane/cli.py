@@ -139,7 +139,7 @@ def conflicts(checkout: Path, default: str, number: str) -> list[str]:
 
 @contextmanager
 def exclusive(path: Path) -> Iterator[bool]:
-    """Hold a non-blocking lock for this process's life; whether it holds it."""
+    """Hold a non-blocking lock for the block's span, whether it holds it, and remove its file as it lets go, so locks live only while held, by his words "lock the most granular thing for the shortest time". A lock whose file was removed or replaced between its open and its lock is not held, since another holder took the path's new file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as held:
         try:
@@ -147,7 +147,17 @@ def exclusive(path: Path) -> Iterator[bool]:
         except BlockingIOError:
             yield False
             return
-        yield True
+        try:
+            same = path.stat().st_ino == os.fstat(held.fileno()).st_ino
+        except FileNotFoundError:
+            same = False
+        if not same:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            path.unlink()
 
 
 def land(args: argparse.Namespace) -> None:
