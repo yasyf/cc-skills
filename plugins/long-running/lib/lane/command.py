@@ -243,6 +243,11 @@ def main(argv: list[str] | None = None) -> int:
     homing.add_argument("lane")
     homing.add_argument("--channel", required=True)
     homing.add_argument("--thread")
+    replying = verbs_parser.add_parser("reply", help="the intake session's one reply in his thread, through the voice, for his words no lane holds")
+    replying.add_argument("--channel", required=True)
+    replying.add_argument("--thread", required=True)
+    replying.add_argument("--text", required=True)
+    replying.add_argument("--options", action="append", help="a button's label, once per button, the recommendation first")
     blocking = verbs_parser.add_parser("block", help="a refusal or blocker, written on the lane that waits on it, which wakes it; never a record to a lane's name")
     blocking.add_argument("lane")
     blocking.add_argument("--what", required=True)
@@ -456,6 +461,12 @@ def run(args: argparse.Namespace) -> int:
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             verbs.home(drive, args.lane, args.channel, args.thread)
             print(f"{args.lane} now posts in {args.channel}")
+        case "reply":
+            from lane import intake
+
+            if not args.drive:
+                raise store.Refused("name the drive with --drive")
+            print(intake.reply(args.drive, args.channel, args.thread, args.text, args.options))
         case "block":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             verbs.blocked(drive, args.lane, args.what, args.by)

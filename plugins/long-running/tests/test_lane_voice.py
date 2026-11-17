@@ -257,3 +257,22 @@ def test_a_post_the_voice_never_sent_tells_its_owner_once(monkeypatch: pytest.Mo
     voice.unsent("d", lanes, [row])
     assert told[0][0] == "releases" and "Your post of 3:56 PM never reached him (channel_not_found)" in told[0][1] and "release passed on staging" in told[0][1]
     assert told[1:] == [("releases", "woke")]
+
+
+def test_his_words_no_lane_holds_start_one_intake_on_the_live_drive_once_and_his_tap_there_reaches_it_too(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import intake
+
+    root = tmp_path / "lanes"
+    (root / "demo").mkdir(parents=True)
+    (root / "demo" / store.LIVE).touch()
+    monkeypatch.setattr(store, "root", lambda: root)
+    monkeypatch.setattr(store, "load_all", lambda drive: {"run-page": {"channel": "C0RUN", "thread": None}})
+    started = []
+    monkeypatch.setattr(intake, "prompt", lambda drive, channel, thread, words, link, ts: f"{channel} {words}")
+    monkeypatch.setattr(intake.session, "argv", lambda config, role, checkout, own, head, tail: [role, *tail])
+    monkeypatch.setattr(intake.subprocess, "Popen", lambda argv, **kwargs: started.append(argv))
+    monkeypatch.setattr(store, "config", lambda drive: {})
+    assert voice.heard("D0DM", None, "open a lane for the billing export", "https://x.slack.com/archives/D0DM/p1", "9.4") == "intake of 9.4: started"
+    assert voice.heard("D0DM", None, "open a lane for the billing export", "https://x.slack.com/archives/D0DM/p1", "9.4") == "intake of 9.4: already started"
+    assert voice.heard("D0DM", "9.4", 'tapped "Park run-page"', None, "9.5") == "intake of 9.5: started"
+    assert started == [["intake", "--permission-mode", "bypassPermissions", "--", "D0DM open a lane for the billing export"], ["intake", "--permission-mode", "bypassPermissions", "--", 'D0DM tapped "Park run-page"']]

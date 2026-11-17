@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
-ROLES = ("owner", "builder", "stager", "auditor", "acker")
-MODELS = {"owner": ("opus", "high"), "builder": ("opus", "high"), "stager": ("opus", "high"), "auditor": ("sonnet", "high"), "acker": ("haiku", None)}
+ROLES = ("owner", "builder", "stager", "auditor", "acker", "intake")
+MODELS = {"owner": ("opus", "high"), "builder": ("opus", "high"), "stager": ("opus", "high"), "auditor": ("sonnet", "high"), "acker": ("haiku", None), "intake": ("opus", "high")}
 ADVISED = ("owner", "builder", "stager")
 ADVISOR = "opus"
 CEILING = ("xhigh", "max")
