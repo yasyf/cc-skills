@@ -74,7 +74,7 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         **({"options": options} if options else {}),
         **({"edit_ts": edit} if edit else {}),
     }
-    request = urllib.request.Request(VOICE_URL, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getppid())})
+    request = urllib.request.Request(VOICE_URL, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())})
     try:
         with urllib.request.urlopen(request, timeout=ENQUEUE_SECONDS) as answer:
             queued = json.load(answer)
@@ -212,13 +212,15 @@ POSTS_URL = VOICE_URL + "/posts"
 SETTLE_URL = VOICE_URL + "/settle"
 FOLLOWED_HOURS = 24
 SETTLED_FILE = "settled.json"
+RETIRED = "✅ already approved; landing"
+ASKS_HIS_TAP = re.compile(r"\btap\b|your approv", re.IGNORECASE)
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
 def followed(drive: str, moment: datetime) -> list[dict]:
     """The lane posts of this drive the voice sent in the last FOLLOWED_HOURS, each with the PRs it named: those it recorded, or for a post from before it recorded them, the PRs its words link, their state and head then unknown."""
     since = (moment - timedelta(hours=FOLLOWED_HOURS)).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with urllib.request.urlopen(urllib.request.Request(f"{POSTS_URL}?since={since}", headers={"X-Claude-Pid": str(os.getppid())}), timeout=ENQUEUE_SECONDS) as answer:
+    with urllib.request.urlopen(urllib.request.Request(f"{POSTS_URL}?since={since}", headers={"X-Claude-Pid": str(os.getpid())}), timeout=ENQUEUE_SECONDS) as answer:
         listed = json.load(answer)
     lanes, taps = store.load_all(drive), listed.get("taps") or {}
     return [post | {"prs": post.get("prs") or named_prs(post.get("after") or "", {}), "about": [subject | ({"answer": taps.get(subject["ts"])} if subject["kind"] == "card" else {}) for subject in post.get("about") or []]} for post in listed.get("posts") or [] if post.get("lane") in lanes and post.get("ts")]
@@ -241,9 +243,10 @@ def settle(drive: str, posts: list[dict], prs: dict[tuple[str, int], dict]) -> l
         lines, stale = changes(post, lane, prs, releases)
         kept = done.setdefault(post["ts"], {})
         if lines and (line := " · ".join(lines)) != kept.get("line"):
-            body = json.dumps({"channel_id": post["channel_id"], "ts": post["ts"], "thread_ts": post.get("thread_ts") or "", "line": line}).encode()
-            with urllib.request.urlopen(urllib.request.Request(SETTLE_URL, body, {"Content-Type": "application/json", "X-Claude-Pid": str(os.getppid())}), timeout=ENQUEUE_SECONDS * 5) as answer:
-                changed.append(json.load(answer)["permalink"])
+            body = json.dumps({"channel_id": post["channel_id"], "ts": post["ts"], "thread_ts": post.get("thread_ts") or "", "line": line, "only_if_buttons": line == RETIRED}).encode()
+            with urllib.request.urlopen(urllib.request.Request(SETTLE_URL, body, {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())}), timeout=ENQUEUE_SECONDS * 5) as answer:
+                if permalink := json.load(answer).get("permalink"):
+                    changed.append(permalink)
             kept["line"] = line
         if stale and (why := "; ".join(stale)) != kept.get("stale"):
             told = f"Your post {post['permalink']} is stale because {why}. If what it says no longer holds, edit it: `lane say --edit {post['ts']} \"<the post as it should read now>\"`."
@@ -269,6 +272,8 @@ def changes(post: dict, lane: dict, prs: dict[tuple[str, int], dict], releases: 
     asks = {ask["ts"]: ask for ask in lane.get("asks") or [] if ask.get("ts")}
     asked = " ".join(post.get("options") or [])
     lines, stale = [], []
+    if retired(post, rows, prs):
+        return [RETIRED], []
     for pr in post["prs"]:
         key = (pr["repo"], pr["number"])
         if not (now := prs.get(key)):
@@ -304,3 +309,11 @@ def release_states(drive: str, refs: set[str]) -> dict[str, dict]:
         return {}
     tool = providers.at(Path(checkout)).release
     return {ref: {"name": record.get("name") or ref, "state": releases.RESULTS.get(record["status"], "started")} for ref in refs if (record := tool.status(ref))}
+
+
+def retired(post: dict, rows: dict[tuple[str, int], dict], prs: dict[tuple[str, int], dict]) -> bool:
+    """Whether a live question asks about work he already decided: a post with buttons, or one asking his tap or Approve, whose open PRs he has not held all carry his Approve at their heads now, so the drive retires it as landing, its buttons off (a post whose buttons are gone already is left as it is)."""
+    if not (post.get("options") or ASKS_HIS_TAP.search(post.get("after") or "")):
+        return False
+    asked = [(key, now) for pr in post["prs"] if (now := prs.get(key := (pr["repo"], pr["number"]))) and now["state"] == "OPEN" and not (rows.get(key) or {}).get("held")]
+    return bool(asked) and all((rows.get(key) or {}).get("approved_head") == now["head"] for key, now in asked)

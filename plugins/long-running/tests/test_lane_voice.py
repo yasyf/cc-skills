@@ -199,3 +199,12 @@ def test_an_edit_names_its_post_by_ts_or_permalink() -> None:
     assert voice.edit_ts("https://x.slack.com/archives/C1/p1794870990408269?thread_ts=1.1") == "1794870990.408269"
     assert voice.edit_ts("1794870990.408269") == "1794870990.408269"
     assert voice.edit_ts(None) is None
+
+
+def test_a_live_card_asking_about_work_he_already_approved_is_retired_as_landing() -> None:
+    card = {"at": "2026-11-16T17:07:41-08:00", "options": ["Merge v3 now", "Hold for now"], "after": "Run page v3 is ready to merge: tap and they go in now.", "prs": [{"repo": "Forge-AI/monorepo", "number": n, "state": "", "head": ""} for n in (53305, 53810, 54428)], "about": []}
+    lane = {"prs": [{"repo": "Forge-AI/monorepo", "number": 53305, "approved_head": "a" * 40}, {"repo": "Forge-AI/monorepo", "number": 53810, "approved_head": "b" * 40}, {"repo": "Forge-AI/monorepo", "number": 54428, "held": "his Hold"}]}
+    now = {("Forge-AI/monorepo", 53305): {"state": "OPEN", "merged": False, "head": "a" * 40}, ("Forge-AI/monorepo", 53810): {"state": "OPEN", "merged": False, "head": "b" * 40}, ("Forge-AI/monorepo", 54428): {"state": "OPEN", "merged": False, "head": "c" * 40}}
+    assert voice.changes(card, lane, now, {}) == ([voice.RETIRED], [])
+    lane["prs"][1]["approved_head"] = "old"
+    assert voice.changes(card, lane, now, {}) == ([], [])
