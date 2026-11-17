@@ -9,7 +9,7 @@ import urllib.request
 from datetime import timedelta
 from pathlib import Path
 
-from lane import session, store, supervisor, voice
+from lane import session, store, supervisor, verbs, voice
 
 INTAKES = "intake"
 PAGE = Path(__file__).with_name("intake.md")
@@ -61,6 +61,8 @@ def heard(drive: str, channel: str, thread: str | None, words: str, link: str | 
         (folder(drive) / f"{ts}.seen").touch(exist_ok=False)
     except FileExistsError:
         return f"intake of {ts}: already heard"
+    if words.startswith('tapped "'):
+        return tapped(drive, channel, words, link, ts) or f"intake of {ts}: a tap on no question of the intake's"
     picked = route(drive, words)
     if picked == CHATTER:
         return f"intake of {ts}: chatter, nothing to do"
@@ -112,3 +114,39 @@ def reply(drive: str, channel: str, thread: str, text: str, options: list[str] |
             raise store.Refused(refused.read().decode().strip()) from refused
         raise
     return f"QUEUED {queued['id']}" + (f"; {queued['warning']}" if queued.get("warning") else "")
+
+
+PENDING = "pending.json"
+PARK = "Park {lane}"
+
+
+def pending(drive: str) -> list[dict]:
+    path = folder(drive) / PENDING
+    return json.loads(path.read_text()) if path.is_file() else []
+
+
+def ask_park(drive: str, channel: str, thread: str, text: str, opening: dict) -> str:
+    """At the cap, ask him which lane to park for the lane opening would open, by his rule that a 13th lane names the lane it parks: one button per active lane, least urgent first by the last rank, the first recommended; the open waits, nothing parked, until his tap, which tapped carries out in the call that hears it."""
+    from lane import rank
+
+    lanes = {lane_id for lane_id, lane in store.load_all(drive).items() if lane["state"] != store.PARKED}
+    order = [lane_id for lane_id in rank.last(drive).get("order", []) if lane_id in lanes]
+    least = [*reversed(order), *sorted(lanes - set(order))]
+    options = [PARK.format(lane=lane_id) for lane_id in least]
+    sent = reply(drive, channel, thread, text, options)
+    kept = [*pending(drive), {"channel": channel, "thread": thread, "options": options, "open": opening, "at": store.stamp()}]
+    (folder(drive) / PENDING).write_text(json.dumps(kept, ensure_ascii=False) + "\n")
+    return sent
+
+
+def tapped(drive: str, channel: str, words: str, link: str | None, ts: str) -> str | None:
+    """His tap on a park question the intake asked: park the lane he picked and open the waiting lane in this call, then tell him in its thread; None when the tap answers no such question."""
+    label = words.removeprefix('tapped "').partition('"')[0]
+    asked = next((each for each in pending(drive) if each["channel"] == channel and label in each["options"]), None)
+    if not asked:
+        return None
+    parks = asked["options"][asked["options"].index(label)].removeprefix(PARK.format(lane=""))
+    lane = verbs.open_lane(drive, **asked["open"], parks=parks, park_words=f"{words} ({link or ts})")
+    (folder(drive) / PENDING).write_text(json.dumps([each for each in pending(drive) if each != asked], ensure_ascii=False) + "\n")
+    reply(drive, channel, asked["thread"], f"Parked {parks} and opened {lane['id']}: {lane['title']}.")
+    return f"intake of {ts}: parked {parks}, opened {lane['id']}"

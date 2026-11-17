@@ -286,6 +286,25 @@ def test_his_words_no_lane_holds_go_to_the_lane_jev_picks_in_the_call_and_only_r
     assert voice.heard("D0DM", None, "thanks", link, "9.2") == "intake of 9.2: chatter, nothing to do"
     assert voice.heard("D0DM", None, "open a lane for the billing export", link, "9.3") == "intake of 9.3: an intake session started"
     assert voice.heard("D0DM", None, "and give it the invoices too", link, "9.4").startswith("intake of 9.4: joined the intake that started at ")
-    assert voice.heard("D0DM", None, 'tapped "Approve"', None, "9.5") == "no lane holds D0DM"
+    assert voice.heard("D0DM", None, 'tapped "Approve"', None, "9.5") == "intake of 9.5: a tap on no question of the intake's"
     assert (handed, started) == ([("run-page", "9.1")], ["open a lane for the billing export"])
     assert "and give it the invoices too" in (root / "demo" / intake.INTAKES / "D0DM.jsonl").read_text()
+
+
+def test_at_the_cap_the_intake_asks_which_lane_to_park_least_urgent_first_and_his_tap_parks_it_and_opens_in_the_call(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import intake, rank, verbs
+
+    root = tmp_path / "lanes"
+    (root / "demo").mkdir(parents=True)
+    (root / "demo" / store.LIVE).touch()
+    monkeypatch.setattr(store, "root", lambda: root)
+    monkeypatch.setattr(store, "load_all", lambda drive: {"a": {"state": store.RUNNING, "channel": "C1"}, "b": {"state": store.WAITING, "channel": "C2"}, "c": {"state": store.PARKED, "channel": "C3"}})
+    monkeypatch.setattr(rank, "last", lambda drive: {"order": ["a", "b"]})
+    replied, opened = [], []
+    monkeypatch.setattr(intake, "reply", lambda drive, channel, thread, text, options=None: replied.append((thread, options)) or "QUEUED q1")
+    monkeypatch.setattr(verbs, "open_lane", lambda drive, **kwargs: opened.append(kwargs) or {"id": kwargs["lane_id"], "title": kwargs["title"]})
+    opening = {"lane_id": "billing", "title": "Billing export", "words": "open a lane for the billing export", "link": "https://x.slack.com/archives/D0DM/p1", "ts": "9.1", "worktree": "/w"}
+    assert intake.ask_park("demo", "D0DM", "9.1", "Billing export needs a lane; one must park for it.", opening) == "QUEUED q1"
+    assert replied == [("9.1", ["Park b", "Park a"])] and not opened
+    assert voice.heard("D0DM", "9.1", 'tapped "Park b"', None, "9.2") == "intake of 9.2: parked b, opened billing"
+    assert opened == [opening | {"parks": "b", "park_words": 'tapped "Park b" (9.2)'}] and intake.pending("demo") == []

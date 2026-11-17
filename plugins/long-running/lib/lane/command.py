@@ -254,6 +254,9 @@ def main(argv: list[str] | None = None) -> int:
     homing.add_argument("lane")
     homing.add_argument("--channel", required=True)
     homing.add_argument("--thread")
+    parking = verbs_parser.add_parser("ask-park", help="the intake's question at the cap: which lane to park for the lane it would open, one button per lane, least urgent first; his tap parks it and opens the new lane in the call that hears it")
+    for flag in ("--channel", "--thread", "--text", "--lane", "--title", "--words", "--link", "--ts", "--worktree"):
+        parking.add_argument(flag, required=True)
     replying = verbs_parser.add_parser("reply", help="the intake session's one reply in his thread, through the voice, for his words no lane holds")
     replying.add_argument("--channel", required=True)
     replying.add_argument("--thread", required=True)
@@ -482,6 +485,12 @@ def run(args: argparse.Namespace) -> int:
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             verbs.home(drive, args.lane, args.channel, args.thread)
             print(f"{args.lane} now posts in {args.channel}")
+        case "ask-park":
+            from lane import intake
+
+            if not args.drive:
+                raise store.Refused("name the drive with --drive")
+            print(intake.ask_park(args.drive, args.channel, args.thread, args.text, {"lane_id": args.lane, "title": args.title, "words": args.words, "link": args.link, "ts": args.ts, "worktree": args.worktree}))
         case "reply":
             from lane import intake
 
