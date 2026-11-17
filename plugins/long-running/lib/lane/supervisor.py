@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import ack, approve, audit, board, events, facts, page, queue, rank, store, verbs, voice, work
+from lane import ack, approve, audit, board, events, facts, page, queue, rank, say, store, verbs, voice, work
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -440,7 +440,7 @@ def preflighted(drive: str, install: Path) -> bool:
 
 
 def preflight(drive: str) -> tuple[bool, list[str]]:
-    """Render, on a copy of the drive's lanes, each settle edit and ruling of the posts it follows and the last hour of owner posts, through the voice in dry run: good only when the voice took every one, with each refusal or hold named."""
+    """Render, on a copy of the drive's lanes, each lane's Approve cards, each settle edit and ruling of the posts it follows and the last hour of owner posts, through cc-slack in dry run: good only when the voice took every one, with each refusal or hold named."""
     source = store.drive_dir(drive)
     kept = {key: os.environ.get(key) for key in ("LONG_RUNNING_STATE", voice.DRY_RUN)}
     with tempfile.TemporaryDirectory(prefix="lane-preflight-") as scratch:
@@ -459,10 +459,31 @@ def preflight(drive: str) -> tuple[bool, list[str]]:
 
 
 def rendered(drive: str) -> list[str]:
+    lanes = store.load_all(drive)
     posts = voice.followed(drive, store.now())
     if posts:
         voice.settle(drive, posts, facts.read_prs(voice.subject_keys(posts), commits=1))
-    return replayed(drive, store.load_all(drive))
+    return [*carded(drive, lanes), *replayed(drive, lanes)]
+
+
+def carded(drive: str, lanes: dict[str, dict]) -> list[str]:
+    """Each lane's Approve cards for every ready stack, laid out by cc-slack in dry run as the draw would post them: why each lane's cards were refused."""
+    from drive import slack
+
+    seen = page.view(drive)["prs"]
+    refused = []
+    for lane_id, lane in lanes.items():
+        if (lane.get("channel") or "").startswith(say.DIRECT) or not (ready := approve.ready_stacks(lane, seen)):
+            continue
+        argv = ["dm-status", "--dry-run", "--agent", "claude", "--drive", drive, "--as-holder", "--channel", lane["channel"], *(["--thread", lane["thread"]] if lane.get("thread") else [])]
+        argv += [flag for heads in ready for key in heads for flag in ("--tap-pr", approve.pr_url(key))]
+        try:
+            laid = slack.cc_slack(*argv, timeout=approve.DRAW_SECONDS)
+        except slack.SlackError as failed:
+            refused.append(f"{lane_id} cards: refused: {failed}")
+            continue
+        voice.RENDERED.append({"lane": lane_id, "kind": "cards", "text": " ".join(card["text"][:80] for card in laid.get("cards") or []), **laid})
+    return refused
 
 
 def replayed(drive: str, lanes: dict[str, dict]) -> list[str]:
