@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from datetime import timedelta
 from pathlib import Path
+from queue import Queue
 
 from lane import fixes, landing, releases, rows, stager, store, supervisor, verbs
 
@@ -39,7 +40,7 @@ def hold(drive: str, lane_id: str, text: str) -> str:
 
 
 def merged(drive: str, lane: dict, keys: list[str], checkout: Path, sha: str, script: str, dry_run: bool) -> str:
-    """Submit one landing unit to the repository's merge queue and return, never waiting on it: one run of the queue script with no mode, which gates the unit and submits it, from the pass's one worktree at the queue's base, skipping its local merge preflight build since every unit is green at its head and the merge queue's CI grades the merge. A bottom PR whose base branch is gone is retargeted onto the default branch and run again, as #57004's j4413-reader-first was once its parent merged; a unit the script names BLOCKED above its bottom runs again as the ready PRs below that one; each head waiting on a review never started is asked for one. Whether a submitted unit merged, failed or was ejected is read by the next pass from its one batched GitHub read, which submits it again while it stays ready. A dry run runs --check instead and submits nothing."""
+    """Submit one landing unit to the repository's merge queue and return, never waiting on it: one run of the queue script with no mode, which gates the unit and submits it, from its own slot worktree at the queue's base the pass fetched once, skipping its local merge preflight build since every unit is green at its head and the merge queue's CI grades the merge. A bottom PR whose base branch is gone is retargeted onto the default branch and run again, as #57004's j4413-reader-first was once its parent merged; a unit the script names BLOCKED above its bottom runs again as the ready PRs below that one; each head waiting on a review never started is asked for one. Whether a submitted unit merged, failed or was ejected is read by the next pass from its one batched GitHub read, which submits it again while it stays ready. A dry run runs --check instead and submits nothing."""
     from drive import land as old_land
 
     numbers = [key.rpartition("#")[2] for key in keys]
@@ -162,6 +163,10 @@ def land(args: argparse.Namespace) -> None:
                 print(f"a newer install than {here.name} landed; this pass ends and the next pass, on the new code, lands its units")
                 return
 
+            slots: Queue[Path] = Queue()
+            for index in range(min(UNITS_AT_ONCE, len(units))):
+                slots.put(slot(args.drive, checkout, index, sha))
+
             def one(unit: tuple[dict, list[str]]) -> str:
                 lane, keys = unit
                 if fixing := [key for key in keys if key in fixes.held_keys(store.load(args.drive, lane["id"]))]:
@@ -169,7 +174,11 @@ def land(args: argparse.Namespace) -> None:
                 with exclusive(unit_lock(args.drive, keys[0])) as mine:
                     if not mine:
                         return f"{lane['id']}: another lander is landing {keys[0]}; this pass skips it"
-                    return merged(args.drive, lane, keys, checkout, sha, script, args.dry_run or not stager.live(args.drive))
+                    taken = slots.get()
+                    try:
+                        return merged(args.drive, lane, keys, taken, sha, script, args.dry_run or not stager.live(args.drive))
+                    finally:
+                        slots.put(taken)
 
             with ThreadPoolExecutor(max_workers=UNITS_AT_ONCE) as pool:
                 for said in pool.map(one, units):
@@ -281,3 +290,14 @@ def main() -> int:
     args = parser.parse_args()
     args.run(args)
     return 0
+
+
+def slot(drive: str, checkout: Path, index: int, sha: str) -> Path:
+    """The pass's index-th landing slot, its own worktree of the landing clone kept under landings/ across passes and moved to sha, the queue's base the pass fetched once: each unit submitted at once runs in a slot of its own, so no two share an index or a working tree."""
+    path = store.drive_dir(drive) / LANDINGS / f"slot-{index}"
+    if not (path / ".git").exists():
+        subprocess.run(["git", "-C", str(checkout), "worktree", "add", "-q", "--detach", str(path), sha], check=True, capture_output=True, text=True)
+        return path
+    subprocess.run(["git", "-C", str(path), "checkout", "-q", "--detach", "-f", sha], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(path), "clean", "-fdq"], check=True, capture_output=True, text=True)
+    return path
