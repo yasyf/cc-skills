@@ -2,7 +2,7 @@
 """Refuse each line a change adds to long-running's code, hooks, agents or skill text that names one repository's specifics, by the patterns in foreign-names.patterns: those belong in that repository's .claude/long-running.toml.
 
 Usage: foreign-names <base>   compares HEAD with <base>, the merge base of a pull request or the push's previous head.
-       foreign-names --tree   reads every line of every tracked file of the plugin but its tests and vendored code, so none names one repository's specifics; the owner's own Slack channel ids are spared there, since they name no repository.
+       foreign-names --tree   reads every line of every tracked file of the plugin but its tests and vendored code, so none names one repository's specifics; the owner's own Slack channel ids are spared there, since they name no repository, and his-words.json, his messages quoted as he typed them.
 """
 
 import re
@@ -14,7 +14,7 @@ PATTERNS = [re.compile(line) for line in (Path(__file__).with_name("foreign-name
 SLACK_ID = r"\bC0[A-Z0-9]{8,}\b"
 PLUGIN = "plugins/long-running/"
 SCANNED = ("plugins/long-running/lib/", "plugins/long-running/hooks/", "plugins/long-running/agents/", "plugins/long-running/skills/", "plugins/long-running/capt-hook/hooks/", "plugins/long-running/lane-rules/")
-SPARED = ("plugins/long-running/lib/drive/site/vendor/", "plugins/long-running/capt-hook/hooks/tests/", "plugins/long-running/tools/foreign-names", "plugins/long-running/uv.lock")
+SPARED = ("plugins/long-running/lib/drive/site/vendor/", "plugins/long-running/his-words.json", "plugins/long-running/capt-hook/hooks/tests/", "plugins/long-running/tools/foreign-names", "plugins/long-running/uv.lock")
 
 
 def scanned(path: str) -> bool:
