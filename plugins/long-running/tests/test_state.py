@@ -596,6 +596,23 @@ def test_normalized_load_and_tracked_write_leave_unaccessed_records_encoded(stat
     assert data["orders"]["o1"]["text"] == "only this caller"
 
 
+
+def test_lazy_row_views_preserve_mapping_and_json_contracts(capsys: pytest.CaptureFixture[str]) -> None:
+    expected = {"jobs": {"j1": {"state": "waiting"}, "j2": {"state": "done"}}}
+    data = state.Snapshot(expected).read()
+    rows = data["jobs"]
+    assert list(reversed(rows.keys())) == ["j2", "j1"]
+    assert not rows.loaded
+    assert next(reversed(rows.values())) == {"state": "done"}
+    assert set(rows.loaded) == {"j2"}
+    assert next(reversed(rows.items())) == ("j2", {"state": "done"})
+    reads = state.Reads()
+    tracked = state.ReadCollection("jobs", rows, reads)
+    assert state.record_at({"jobs": tracked}, ("jobs", "j1", "launch")) is rows["j1"]
+    assert ("jobs", "j1") in reads
+    cli.emit(cli.argparse.Namespace(json=True), "", data)
+    assert json.loads(capsys.readouterr().out) == expected
+
 def test_install_normalization_is_atomic_and_runs_once(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = ordered("demo", 3)
     with closing(state.connect(path)) as db:

@@ -153,7 +153,7 @@ MCP_TOOLS = ("say", "heard", "record", "order", "job", "pr", "incident", "status
 
 
 def emit(args: argparse.Namespace, line: str, payload: object) -> int:
-    print(json.dumps(payload, indent=2) if args.json else line)
+    print(json.dumps(payload, indent=2, cls=state.RowEncoder) if args.json else line)
     return 0
 
 

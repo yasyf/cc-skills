@@ -1120,6 +1120,11 @@ class RowMapping(MutableMapping):
         return RowItems(self)
 
 
+class RowEncoder(json.JSONEncoder):
+    def default(self, value):
+        return dict(value.items()) if isinstance(value, RowMapping) else super().default(value)
+
+
 class Rows(RowMapping):
     """Independent mutable records decoded on access, retaining their encoded baseline and tracking added or removed keys."""
 
