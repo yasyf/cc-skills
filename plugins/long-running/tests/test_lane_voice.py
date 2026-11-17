@@ -259,20 +259,33 @@ def test_a_post_the_voice_never_sent_tells_its_owner_once(monkeypatch: pytest.Mo
     assert told[1:] == [("releases", "woke")]
 
 
-def test_his_words_no_lane_holds_start_one_intake_on_the_live_drive_once_and_his_tap_there_reaches_it_too(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lane import intake
+
+def test_his_words_no_lane_holds_go_to_the_lane_jev_picks_in_the_call_and_only_reading_starts_a_session_which_later_words_join(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import events, intake
 
     root = tmp_path / "lanes"
     (root / "demo").mkdir(parents=True)
     (root / "demo" / store.LIVE).touch()
+    lanes = {"run-page": {"channel": "C0RUN", "thread": None, "title": "Run page v3", "says": "Run page reads v3 journals", "state": store.WAITING}}
     monkeypatch.setattr(store, "root", lambda: root)
-    monkeypatch.setattr(store, "load_all", lambda drive: {"run-page": {"channel": "C0RUN", "thread": None}})
-    started = []
-    monkeypatch.setattr(intake, "prompt", lambda drive, channel, thread, words, link, ts: f"{channel} {words}")
-    monkeypatch.setattr(intake.session, "argv", lambda config, role, checkout, own, head, tail: [role, *tail])
-    monkeypatch.setattr(intake.subprocess, "Popen", lambda argv, **kwargs: started.append(argv))
+    monkeypatch.setattr(store, "load_all", lambda drive: lanes)
+    monkeypatch.setattr(store, "load", lambda drive, lane_id: lanes[lane_id])
     monkeypatch.setattr(store, "config", lambda drive: {})
-    assert voice.heard("D0DM", None, "open a lane for the billing export", "https://x.slack.com/archives/D0DM/p1", "9.4") == "intake of 9.4: started"
-    assert voice.heard("D0DM", None, "open a lane for the billing export", "https://x.slack.com/archives/D0DM/p1", "9.4") == "intake of 9.4: already started"
-    assert voice.heard("D0DM", "9.4", 'tapped "Park run-page"', None, "9.5") == "intake of 9.5: started"
-    assert started == [["intake", "--permission-mode", "bypassPermissions", "--", "D0DM open a lane for the billing export"], ["intake", "--permission-mode", "bypassPermissions", "--", 'D0DM tapped "Park run-page"']]
+    picks = {"where is the run page at": "run-page", "thanks": intake.CHATTER}
+    monkeypatch.setattr(intake, "route", lambda drive, words: picks.get(words, intake.READ))
+    handed, replied, started = [], [], []
+    monkeypatch.setattr(events, "message", lambda drive, lane_id, words, link, ts: handed.append((lane_id, ts)) or f"{lane_id}: 1 new")
+    monkeypatch.setattr(intake, "reply", lambda drive, channel, thread, text, options=None: replied.append((channel, thread, text)))
+    monkeypatch.setattr(intake, "prompt", lambda drive, channel, thread, words, link, ts: words)
+    monkeypatch.setattr(intake.session, "argv", lambda config, role, checkout, own, head, tail: [role, *tail])
+    monkeypatch.setattr(intake.subprocess, "Popen", lambda argv, **kwargs: started.append(argv[-1]))
+    link = "https://x.slack.com/archives/D0DM/p1"
+    assert voice.heard("D0DM", None, "where is the run page at", link, "9.1") == "intake of 9.1: run-page: 1 new"
+    assert voice.heard("D0DM", None, "where is the run page at", link, "9.1") == "intake of 9.1: already heard"
+    assert replied == [("D0DM", "9.1", "<https://x.slack.com/archives/C0RUN|Run page v3> has this: Run page reads v3 journals")]
+    assert voice.heard("D0DM", None, "thanks", link, "9.2") == "intake of 9.2: chatter, nothing to do"
+    assert voice.heard("D0DM", None, "open a lane for the billing export", link, "9.3") == "intake of 9.3: an intake session started"
+    assert voice.heard("D0DM", None, "and give it the invoices too", link, "9.4").startswith("intake of 9.4: joined the intake that started at ")
+    assert voice.heard("D0DM", None, 'tapped "Approve"', None, "9.5") == "no lane holds D0DM"
+    assert (handed, started) == ([("run-page", "9.1")], ["open a lane for the billing export"])
+    assert "and give it the invoices too" in (root / "demo" / intake.INTAKES / "D0DM.jsonl").read_text()

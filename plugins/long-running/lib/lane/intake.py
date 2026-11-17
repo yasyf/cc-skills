@@ -1,4 +1,4 @@
-"""His words that no lane holds, in his DM or in a channel no lane has as its home, reach one intake session started in the call that hears them: it answers him, hands his words to the lane they are about, or opens a lane, by intake.md, the old communicator's turn for one message. Its reply goes through the voice like any lane's post."""
+"""His words that no lane holds, in his DM or in a channel no lane has as its home, are routed in the call that hears them by one Jev pick: words about a lane's work go to that lane with lane message, which wakes its owner, and he hears in his thread which lane has them; chatter gets nothing; and only words that start new work or need real reading start one Opus intake session, by intake.md, the old communicator's turn for one message. His further messages in that channel within JOIN of a session's start join it instead of starting another. Its reply goes through the voice like any lane's post."""
 
 import json
 import os
@@ -6,6 +6,7 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
+from datetime import timedelta
 from pathlib import Path
 
 from lane import session, store, supervisor, voice
@@ -15,6 +16,10 @@ PAGE = Path(__file__).with_name("intake.md")
 COMMUNICATOR = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "communicator.md"
 WORKSPACE = re.compile(r"https://([\w-]+\.slack\.com)/")
 LANE = "intake"
+JOIN = timedelta(minutes=1)
+ROUTE_SECONDS = 5.0
+READ = "read"
+CHATTER = "chatter"
 
 
 def folder(drive: str) -> Path:
@@ -36,6 +41,7 @@ def prompt(drive: str, channel: str, thread: str | None, words: str, link: str |
         thread_note=f", in the thread of {thread}" if thread else "",
         reply_thread=thread or ts,
         words=words.replace("\n", "\n> "),
+        queue=folder(drive) / f"{channel}.jsonl",
         link=link or "none",
         lanes="\n".join(supervisor.check(drive)[1]),
         lanes_dir=store.drive_dir(drive),
@@ -48,17 +54,50 @@ def prompt(drive: str, channel: str, thread: str | None, words: str, link: str |
     )
 
 
-def start(drive: str, channel: str, thread: str | None, words: str, link: str | None, ts: str) -> str:
-    """Start one intake session for his message, detached so the call that heard it returns at once; once per message, so a second hearing of it starts none."""
+def heard(drive: str, channel: str, thread: str | None, words: str, link: str | None, ts: str) -> str:
+    """Route his message in the call that hears it: to the lane it is about, to nothing for chatter, else to an Opus intake session; once per message, so a second hearing of it does nothing."""
     folder(drive).mkdir(parents=True, exist_ok=True)
-    log = folder(drive) / f"{ts}.log"
     try:
-        out = log.open("x")
+        (folder(drive) / f"{ts}.seen").touch(exist_ok=False)
     except FileExistsError:
-        return f"intake of {ts}: already started"
-    with out:
+        return f"intake of {ts}: already heard"
+    picked = route(drive, words)
+    if picked == CHATTER:
+        return f"intake of {ts}: chatter, nothing to do"
+    if picked != READ:
+        from lane import events
+
+        lane = store.load(drive, picked)
+        delivered = events.message(drive, picked, words, link, ts)
+        reply(drive, channel, thread or ts, f"<https://{workspace(drive, link)}/archives/{lane['channel']}|{lane['title']}> has this" + (f": {lane['says']}" if lane.get("says") else "."))
+        return f"intake of {ts}: {delivered}"
+    return start(drive, channel, thread, words, link, ts)
+
+
+def route(drive: str, words: str) -> str:
+    """One Jev pick of where his words go: a lane's id, chatter, or read, which a failed pick falls to, since only a session can be sure."""
+    from drive import settled
+
+    lanes = {lane_id: {"title": lane["title"], "plan": lane.get("says") or lane.get("next") or ""} for lane_id, lane in store.load_all(drive).items() if lane["state"] != store.PARKED}
+    options = {READ: "it starts new work no lane holds, needs reading several lanes or their files to answer, or you are unsure", CHATTER: "it asks and orders nothing, such as ok or thanks"} | {lane_id: f"it is about this lane's work: {lane['title']}" for lane_id, lane in lanes.items()}
+    try:
+        return str(settled.jev({"message": words, "lanes": lanes}, {"to": settled.Pick("Where does `message`, his words, go?", options)}, ROUTE_SECONDS, "intake")["to"])
+    except settled.Unheard:
+        return READ
+
+
+def start(drive: str, channel: str, thread: str | None, words: str, link: str | None, ts: str) -> str:
+    """Start one Opus intake session for his message, detached so the call that heard it returns at once, or join the session that started in his channel within JOIN, which reads his later messages from its queue before it ends."""
+    queue = folder(drive) / f"{channel}.jsonl"
+    if (opened := folder(drive) / f"{channel}.started").is_file() and store.now() - store.parse(opened.read_text().strip()) < JOIN:
+        with queue.open("a") as out:
+            out.write(json.dumps({"ts": ts, "thread": thread, "words": words, "link": link}, ensure_ascii=False) + "\n")
+        return f"intake of {ts}: joined the intake that started at {opened.read_text().strip()}"
+    opened.write_text(store.stamp())
+    queue.write_text("")
+    with (folder(drive) / f"{ts}.log").open("w") as out:
         subprocess.Popen(session.argv(store.config(drive), "intake", store.drive_dir(drive), {}, ["-p"], ["--permission-mode", "bypassPermissions", "--", prompt(drive, channel, thread, words, link, ts)]), cwd=store.drive_dir(drive), stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
-    return f"intake of {ts}: started"
+    return f"intake of {ts}: an intake session started"
 
 
 def reply(drive: str, channel: str, thread: str, text: str, options: list[str] | None = None) -> str:
