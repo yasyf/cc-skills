@@ -60,6 +60,13 @@ def carry(drive: str, repo: str, number: int, head: str, compatible: bool, why: 
     carrying = [lane_id for lane_id, lane in store.load_all(drive).items() if any((row["repo"], row["number"]) == (repo, number) for row in lane["prs"])]
     if not carrying:
         raise store.Refused(f"no lane of {drive} carries {repo}#{number}")
+    from lane import work
+
+    row = next(row for row in store.load(drive, carrying[0])["prs"] if (row["repo"], row["number"]) == (repo, number))
+    item = work.load(drive, work.item_id("carry", f"{repo}#{number}"))
+    tapped = row.get("tapped_head") or row.get("approved_head") or ""
+    if not item or item["state"] not in (work.QUEUED, work.TAKEN) or item.get("head") != head or tapped[:12] not in item["words"]:
+        raise store.Refused(f"no open carry item judges {repo}#{number} at {head[:12]} against his tap at {tapped[:12]}; a verdict counts only from the item that names the head he tapped")
 
     def judging(lane: dict) -> None:
         for row in lane["prs"]:
