@@ -1191,3 +1191,16 @@ def test_an_ask_unreplied_two_minutes_after_he_sent_it_is_put_before_its_owner_a
     answered("a")
     [shown] = board.screens(DRIVE)["now"]
     assert shown["replies"][0]["minutes"] >= 5
+
+
+def test_an_incident_lane_whose_monitor_starts_alerting_is_woken_that_pass(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    states = {"7": "OK"}
+    monkeypatch.setattr(facts, "monitor_states", lambda drive, ids: {key: states[key] for key in ids})
+    opened("a")
+    supervisor.run_pass(DRIVE)
+    ended("a", ["his_reply"], "2h")
+    verbs.set_incident(DRIVE, "a", None, link="https://alert", monitor="7")
+    supervisor.run_pass(DRIVE)
+    states["7"] = "Alert"
+    supervisor.run_pass(DRIVE)
+    assert "monitor 7 is alerting" in store.load_all(DRIVE)["a"]["owner"]["woke"] or "monitor 7 is alerting" in store.log_path(DRIVE, "a").read_text()

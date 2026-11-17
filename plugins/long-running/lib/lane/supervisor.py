@@ -149,6 +149,8 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         monitors = dict(rank.last(drive).get("monitors", {}))
         monitors |= alone(drive, errors, "the last monitor states read stand", lambda: facts.monitor_states(drive, {str(lane["incident"]["monitor"]) for lane in lanes_now.values() if (lane.get("incident") or {}).get("monitor") and not lane["incident"].get("fix_live")})) or {}
         hurt = {lane_id for lane_id, lane in lanes_now.items() if facts.hurting(lane, monitors)}
+        if paged := hurt - set(rank.last(drive).get("hurting", [])):
+            alone(drive, errors, "an alerting incident lane was not woken", lambda: alerted(drive, paged))
         if prs:
             alone(drive, errors, "the page's view was not kept", lambda: page.keep_view(drive, prs, moment))
         order = alone(drive, errors, "rank kept its last order", lambda: rank.ranked(drive, facts.viewed(lanes_now, prs), moment, hurt, monitors)) or rank.last(drive)
@@ -221,6 +223,23 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
 
 
 REDELIVER_AFTER = timedelta(minutes=2)
+
+
+def alerted(drive: str, paged: set[str]) -> None:
+    """Wake each incident lane whose monitor began hurting users this pass, so a page starts its fix at once with no one waking it; a running owner gets it as a note."""
+
+    def waking(lanes: dict[str, dict]) -> None:
+        for lane_id in paged:
+            lane = lanes[lane_id]
+            why = f"its incident's monitor {(lane.get('incident') or {}).get('monitor')} is alerting: users are hurt now; start the fix and post in the lane's channel"
+            store.note(lane, why)
+            if lane["state"] == store.RUNNING:
+                with store.note_path(drive, lane_id).open("a") as note:
+                    note.write(why + "\n\n")
+            else:
+                verbs.woken(lane, why)
+
+    store.transact(drive, waking)
 
 
 def redeliver(drive: str, moment: datetime) -> None:
