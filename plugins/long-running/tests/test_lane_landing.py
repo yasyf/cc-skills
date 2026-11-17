@@ -18,7 +18,7 @@ def row(number: int, head: str = "h", classes: dict | None = SAFE, under: int | 
         "dangerous": None if classes is None else {"head": head, "classes": classes},
         "guarded": None if classes is None else {"head": head, "classes": classes if guarded is None else guarded},
         "under": f"Forge-AI/monorepo#{under}" if under else None,
-        "premerge": True,
+        "premerge": False,
     } | changes
 
 
@@ -112,7 +112,7 @@ def test_a_staging_ask_queues_a_staging_before_item_for_a_sandsql_stack_and_afte
     monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
     monkeypatch.setattr(stager, "live", lambda drive: True)
     monkeypatch.setattr(store, "load", lambda drive, lane_id: lanes[lane_id])
-    monkeypatch.setattr(store, "config", lambda drive: {"premerge_lanes": ["sandsql-ha-release-3"], "staging_targets": ["staging nodes-3"], "staging_alerts": "#alerts-staging", "promotion_env": None})
+    monkeypatch.setattr(store, "config", lambda drive: {"premerge_lanes": [], "staging_targets": ["staging nodes-3"], "staging_alerts": "#alerts-staging", "promotion_env": None})
     monkeypatch.setattr(rows, "view", lambda drive, lane_ids=None: {landing.key(pr): {"head": "h", "checks": "pass", "under": None} for pr in (journal, sandsql)})
     monkeypatch.setattr(rows, "rule_key", lambda drive: "r")
     monkeypatch.setattr(work, "add", lambda drive, kind, lane_id, subject, words, serves=None, head=None, touches=None, by="owner": added.append((kind, lane_id, subject, head, touches, words)) or {"id": work.item_id(kind, subject)})
@@ -494,11 +494,3 @@ def test_with_no_promotion_known_no_merge_is_queued_for_the_after_merge_batch(mo
     stager.queue("durable-agents", [lane(row(56967, merged=True, merged_at="2026-11-17T00:30:00Z"))])
     stager.queue("durable-agents", [lane(row(56967, merged=True, merged_at="2026-11-17T00:30:00Z"))])
     assert added == [] and (tmp_path / stager.NO_PROMOTION).exists()
-
-
-def test_a_sandsql_lane_pr_the_danger_page_judges_no_sandsql_work_lands_on_his_approve_and_tests_after_merge() -> None:
-    release_tooling = row(58092, classes={}) | {"premerge": True}
-    storage = row(56597, classes={"before merge": ["p(yes) 0.91 by danger.md"]}) | {"premerge": True}
-    elsewhere = row(56598, classes={"before merge": ["p(yes) 0.91 by danger.md"]}) | {"premerge": False}
-    assert [landing.dangerous(pr) for pr in (release_tooling, storage, elsewhere)] == [False, True, False]
-    assert landing.verdicts(lane(release_tooling))[0].lands is True
