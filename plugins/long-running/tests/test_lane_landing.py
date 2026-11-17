@@ -271,3 +271,22 @@ def test_a_verdict_under_a_replaced_ruling_is_dropped_from_merged_and_headless_r
     lanes = {"releases": {"id": "releases", "prs": [merged, headless]}}
     assert rows.cleared(lanes, "new") == 2
     assert [(pr["dangerous"], pr["guarded"]) for pr in lanes["releases"]["prs"]] == [(None, {"head": "h", "classes": {}, "rule": "new"}), (None, None)]
+
+
+def test_56842_failed_in_the_merge_queue_at_its_head_is_not_resubmitted_and_its_owner_is_told_once(monkeypatch, tmp_path) -> None:
+    import subprocess
+
+    from lane import cli, verbs
+
+    woken, ran = [], []
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(cli, "queue_repo", lambda checkout: "Forge-AI/monorepo")
+    monkeypatch.setattr(verbs, "blocked", lambda drive, lane_id, what, by: woken.append(what))
+    monkeypatch.setattr(verbs, "handover", lambda drive, lane_id, text, by: None)
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: ran.append(argv))
+    pr = row(56842, head="7659341")
+    failed = {"56842": {"sha": "7659341", "isCurrentlySubmittedToQueue": False, "queueEntry": {"state": "failed"}, "htmlUrl": "https://app.trunk.io/poetic/pull/56842"}}
+    for _ in range(2):
+        said = cli.merged("durable-agents", lane(pr), ["Forge-AI/monorepo#56842"], tmp_path, failed, False)
+    assert said == "run-page: the merge queue failed Forge-AI/monorepo#56842 at 7659341; it waits on a new head"
+    assert ran == [] and len(woken) == 1 and "https://app.trunk.io/poetic/pull/56842" in woken[0]

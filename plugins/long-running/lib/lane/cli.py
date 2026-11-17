@@ -67,7 +67,7 @@ def dequeued(drive: str, checkout: Path, keys: list[str]) -> list[str]:
 
 
 def merged(drive: str, lane: dict, keys: list[str], checkout: Path, held: dict[str, dict], dry_run: bool) -> str:
-    """Tell the merge queue to take one landing unit, as a person would: one submit of the unit's top PR, which the queue lands with every PR of its native stack below, and return; no worktree and no local build, since the queue's own CI grades the merge. A unit the queue already holds is left there, and its head is asked of the review bot once when the queue reads it notReady. Whether a submitted unit merged, failed or was ejected is read by the next pass, which submits it again while it stays ready."""
+    """Tell the merge queue to take one landing unit, as a person would: one submit of the unit's top PR, which the queue lands with every PR of its native stack below, and return; no worktree and no local build, since the queue's own CI grades the merge. A unit the queue already holds is left there, and its head is asked of the review bot once when the queue reads it notReady; a unit the queue failed at its current head is left out and its owner told once, by ejected(), until a new head. Whether a submitted unit merged, failed or was ejected is read by the next pass, which submits it again while it stays ready."""
     repo, _, top = keys[-1].rpartition("#")
     if repo != queue_repo(checkout):
         if dry_run:
@@ -80,6 +80,8 @@ def merged(drive: str, lane: dict, keys: list[str], checkout: Path, held: dict[s
         if state == "notReady":
             reviewed(drive, keys[-1], row["sha"])
         return f"{lane['id']}: the merge queue holds {', '.join(keys)} ({state})"
+    if (row.get("queueEntry") or {}).get("state") == "failed" and row["sha"] == next(pr["head"] for pr in lane["prs"] if landing.key(pr) == keys[-1]):
+        return ejected(drive, lane, keys, row) if not dry_run else f"would leave {', '.join(keys)} out: the merge queue failed it at {row['sha'][:12]}"
     if dry_run:
         return f"would submit {', '.join(keys)} through #{top}"
     done = subprocess.run([*queue_cli(drive), "submit", top], cwd=checkout, capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
@@ -106,14 +108,25 @@ def reviewed(drive: str, key: str, head: str) -> None:
 
 
 def conflicted(drive: str, lane: dict, keys: list[str], said: Callable[[], str]) -> None:
-    """Wake the lane's owner on a unit that conflicts with the default branch, once per set of heads, with what conflicts in full: a blocker on the lane, which fires its wait at once, and a handover entry a running owner sees at its next call, since the lane log wakes no one and only its owner can rebase."""
+    """Wake the lane's owner on a unit that conflicts with the default branch, once per set of heads, with what conflicts in full, since only its owner can rebase."""
+    woken(drive, lane, keys, "conflicts", lambda: f"{', '.join(keys)} conflicts with the default branch: {said()}. Rebase it with `ccx vcs stack submit` from its worktree; his Approve carries across your own commits, and the next landing pass queues it.")
+
+
+def ejected(drive: str, lane: dict, keys: list[str], row: dict) -> str:
+    """Wake the lane's owner on a unit the merge queue failed at its current head, once per set of heads, and leave it out of the queue until a new head, since a resubmit of the same head fails the same way."""
+    woken(drive, lane, keys, "ejected", lambda: f"the merge queue failed {', '.join(keys)} at {row['sha'][:12]}: read its run at {row['htmlUrl']}, fix it with a push, and the next landing pass queues the new head.")
+    return f"{lane['id']}: the merge queue failed {', '.join(keys)} at {row['sha'][:12]}; it waits on a new head"
+
+
+def woken(drive: str, lane: dict, keys: list[str], kind: str, what: Callable[[], str]) -> None:
+    """Tell the lane's owner what holds a unit, once per set of heads: a blocker on the lane, which fires its wait at once, and a handover entry a running owner sees at its next call, since the lane log wakes no one."""
     heads = {landing.key(row): row["head"] for row in lane["prs"]}
-    marker = store.drive_dir(drive) / LANDING / CONFLICTS / hashlib.sha256(json.dumps([[key, heads.get(key)] for key in keys]).encode()).hexdigest()[:16]
+    marker = store.drive_dir(drive) / LANDING / CONFLICTS / hashlib.sha256(json.dumps([kind, *[[key, heads.get(key)] for key in keys]]).encode()).hexdigest()[:16]
     if marker.exists():
         return
-    what = f"{', '.join(keys)} conflicts with the default branch: {said()}. Rebase it with `ccx vcs stack submit` from its worktree; his Approve carries across your own commits, and the next landing pass queues it."
-    verbs.blocked(drive, lane["id"], what, "lane-land")
-    verbs.handover(drive, lane["id"], f"- {what}", "lane-land")
+    said = what()
+    verbs.blocked(drive, lane["id"], said, "lane-land")
+    verbs.handover(drive, lane["id"], f"- {said}", "lane-land")
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
 
