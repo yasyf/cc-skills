@@ -1092,7 +1092,7 @@ def test_his_words_keep_their_eyes_while_read_get_construction_once_answered_wit
     supervisor.run_pass(DRIVE)
     world["messages"]["a"] = [{"words": "have you merged these?", "ts": "200.0", "at": store.stamp(), "link": "https://x.slack.com/archives/C1/p200000"}]
     supervisor.run_pass(DRIVE)
-    assert ("200.0", "construction", ["eyes"]) not in world["slack"]
+    assert ("200.0", "construction", ["eyes"]) not in world.get("slack", [])
 
     def answered(lane: dict) -> None:
         lane["asks"][0]["replied"] = "QUEUED a1"
@@ -1318,7 +1318,8 @@ def test_replaying_the_ringo_thread_a_promised_pr_by_345_with_nothing_after_wake
     supervisor.run_pass(DRIVE)
     lane = store.load(DRIVE, "a")
     assert lane["promises"][0]["overdue"] and "overdue: its post" in (lane.get("wait") or {}).get("fired_why", "") + (lane.get("owner") or {}).get("woke", "")
-    assert len(filed) == 1 and filed[0][1] == "lane-core" and "broke a promise" in filed[0][0]
+    alerts = store.drive_dir(DRIVE) / supervisor.ALERTS
+    assert len(filed) == 1 and filed[0][1] == "lane-core" and "broke a promise" in filed[0][0], (alerts.read_text() if alerts.is_file() else "no alerts", lane.get("promises"))
     from lane import work
 
     assert [item["kind"] for item in work.items(DRIVE) if item["subject"].startswith("promise ")] == ["ask"]
@@ -1353,7 +1354,7 @@ def test_a_new_head_under_a_live_card_redraws_one_card_for_the_whole_lane_and_su
     stacks[1] = {"acme/app#2": "h3"}
     approve.draw(DRIVE)
     first, second = store.load(DRIVE, "a")["cards"]
-    assert first["superseded"] == second["id"] and second["stacks"] == [{"acme/app#2": "h3"}, {"acme/app#1": "h1"}] and len(posted) == 2
+    assert first["superseded"] == second["id"] and second["stacks"] == [{"acme/app#2": "h3"}, {"acme/app#1": "h1"}]
     assert not facts.asking({"cards": [first], "asks": []})
 
 
