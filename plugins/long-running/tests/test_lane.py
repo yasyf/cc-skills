@@ -320,22 +320,20 @@ def test_pr_state_is_viewed_in_memory_and_never_written(world: dict) -> None:
     assert all(not {"head", "checks", "merged", "under"} & set(row) for row in kept)
 
 
-def test_the_queue_grants_by_rank_and_an_incident_hurting_users_takes_staging(world: dict) -> None:
+def test_the_queue_grants_by_rank_and_no_incident_takes_a_grant_back(world: dict) -> None:
     for lane_id in ("a", "b", "c"):
         opened(lane_id)
     world["scores"].update({"a": 1.0, "b": 3.0, "c": 0.5})
     supervisor.run_pass(DRIVE)
-    assert queue.take(DRIVE, "staging-env", "tester-a", "a", 30)["granted"] is True
-    waiting = queue.take(DRIVE, "staging-env", "tester-b", "b", 30)
+    assert queue.take(DRIVE, "release", "releaser-a", "a", 30)["granted"] is True
+    waiting = queue.take(DRIVE, "release", "releaser-b", "b", 30)
     assert (waiting["granted"], waiting["position"]) == (False, 1)
     verbs.set_incident(DRIVE, "c", None, link="https://alert")
     supervisor.run_pass(DRIVE)
-    taken = queue.take(DRIVE, "staging-env", "tester-c", "c", 30)
-    assert taken["granted"] is True
-    with pytest.raises(store.Refused, match="incident hurts users"):
-        queue.renew(DRIVE, "staging-env", "tester-a", 30)
-    queue.release(DRIVE, "staging-env", "tester-c")
-    assert queue.take(DRIVE, "staging-env", "tester-b", "b", 30)["granted"] is True
+    assert queue.take(DRIVE, "release", "releaser-c", "c", 30)["granted"] is False
+    assert queue.renew(DRIVE, "release", "releaser-a", 30)
+    with pytest.raises(store.Refused, match="grants release, not 'staging-env'"):
+        queue.take(DRIVE, "staging-env", "tester-a", "a", 30)
 
 
 def test_check_reads_each_lane_as_running_waiting_with_a_wake_or_parked(world: dict) -> None:
@@ -545,23 +543,23 @@ def test_a_freed_grant_wakes_the_next_waiting_lane_in_line(world: dict) -> None:
     opened("a")
     opened("b")
     supervisor.run_pass(DRIVE)
-    assert queue.take(DRIVE, "staging-env", "tester-a", "a", 30)["granted"] is True
-    assert queue.take(DRIVE, "staging-env", "tester-b", "b", 30)["granted"] is False
-    ended("b", ["queue_grant:staging-env"], "2h")
-    queue.release(DRIVE, "staging-env", "tester-a")
-    assert store.load(DRIVE, "b")["wait"]["fired_why"].startswith("the queue freed staging-env")
+    assert queue.take(DRIVE, "release", "tester-a", "a", 30)["granted"] is True
+    assert queue.take(DRIVE, "release", "tester-b", "b", 30)["granted"] is False
+    ended("b", ["queue_grant:release"], "2h")
+    queue.release(DRIVE, "release", "tester-a")
+    assert store.load(DRIVE, "b")["wait"]["fired_why"].startswith("the queue freed release")
 
 
 def test_a_queue_grant_wait_fires_when_the_lane_is_first_in_line_for_a_free_unit(world: dict) -> None:
     opened("a")
     opened("b")
     supervisor.run_pass(DRIVE)
-    queue.take(DRIVE, "staging-env", "tester-a", "a", 30)
-    queue.take(DRIVE, "staging-env", "tester-b", "b", 30)
-    ended("b", ["queue_grant:staging-env"], "2h")
+    queue.take(DRIVE, "release", "tester-a", "a", 30)
+    queue.take(DRIVE, "release", "tester-b", "b", 30)
+    ended("b", ["queue_grant:release"], "2h")
     assert supervisor.run_pass(DRIVE)["started"] == []
-    queue.release(DRIVE, "staging-env", "tester-a")
-    assert facts.holds(DRIVE, store.load(DRIVE, "b"), {"kind": "queue_grant", "ref": "staging-env"}, {})
+    queue.release(DRIVE, "release", "tester-a")
+    assert facts.holds(DRIVE, store.load(DRIVE, "b"), {"kind": "queue_grant", "ref": "release"}, {})
 
 
 def test_his_page_shows_each_lane_its_wait_his_unanswered_asks_and_untapped_prs(world: dict) -> None:
@@ -581,32 +579,30 @@ def test_his_page_shows_each_lane_its_wait_his_unanswered_asks_and_untapped_prs(
     assert "do a" in page.drawn(DRIVE) and "waiting on pr_merged acme/app#9" in page.drawn(DRIVE)
 
 
-def test_a_lane_in_line_must_wait_on_its_grant_and_one_holding_staging_on_its_cut(world: dict) -> None:
+def test_a_lane_in_line_must_wait_on_its_grant(world: dict) -> None:
     opened("a")
     opened("b")
     supervisor.run_pass(DRIVE)
-    queue.take(DRIVE, "staging-env", "tester-a", "a", 30)
-    queue.take(DRIVE, "staging-env", "tester-b", "b", 30)
-    with pytest.raises(store.Refused, match="stands in line for staging-env: wait on queue_grant:staging-env"):
+    queue.take(DRIVE, "release", "tester-a", "a", 30)
+    queue.take(DRIVE, "release", "tester-b", "b", 30)
+    with pytest.raises(store.Refused, match="stands in line for release: wait on queue_grant:release"):
         ended("b", ["his_reply"], "2h")
-    with pytest.raises(store.Refused, match="holds the staging env: wait on staging_result"):
-        ended("a", ["his_reply"], "2h")
-    ended("a", ["staging_result:cut-1"], "2h")
-    ended("b", ["queue_grant:staging-env", "his_reply"], "2h")
+    ended("a", ["his_reply"], "2h")
+    ended("b", ["queue_grant:release", "his_reply"], "2h")
 
 
 def test_a_lane_in_line_wakes_when_its_grant_frees_whatever_its_wait_names(world: dict) -> None:
     opened("a")
     opened("b")
     supervisor.run_pass(DRIVE)
-    queue.take(DRIVE, "staging-env", "tester-a", "a", 30)
-    queue.take(DRIVE, "staging-env", "tester-b", "b", 30)
-    ended("b", ["queue_grant:staging-env"], "2h")
+    queue.take(DRIVE, "release", "tester-a", "a", 30)
+    queue.take(DRIVE, "release", "tester-b", "b", 30)
+    ended("b", ["queue_grant:release"], "2h")
     store.update(DRIVE, "b", lambda lane: lane["wait"].__setitem__("on", [{"kind": "his_reply"}]))
     found = queue.kept(DRIVE)
-    found["leases"]["staging-env"] = []
+    found["leases"]["release"] = []
     queue.written(DRIVE, found)
-    assert supervisor.fired(DRIVE, store.load(DRIVE, "b"), {}, store.now()) == "the queue grants staging-env to it now"
+    assert supervisor.fired(DRIVE, store.load(DRIVE, "b"), {}, store.now()) == "the queue grants release to it now"
 
 
 def test_his_tap_list_keeps_every_carried_approve_through_our_own_pushes(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -631,13 +627,13 @@ def test_a_lane_whose_owner_restarted_keeps_its_place_in_line_and_its_grant(worl
     opened("a")
     opened("b")
     supervisor.run_pass(DRIVE)
-    queue.take(DRIVE, "staging-env", "a/old-token", "a", 30)
-    queue.take(DRIVE, "staging-env", "b/old-token", "b", 30)
-    queue.take(DRIVE, "staging-env", "b", "b", 30)
-    assert list(queue.kept(DRIVE)["requests"]["staging-env"]) == ["b"]
-    assert queue.renew(DRIVE, "staging-env", "a", 30)
-    queue.release(DRIVE, "staging-env", "a")
-    assert queue.take(DRIVE, "staging-env", "b", "b", 30)["granted"] is True
+    queue.take(DRIVE, "release", "a/old-token", "a", 30)
+    queue.take(DRIVE, "release", "b/old-token", "b", 30)
+    queue.take(DRIVE, "release", "b", "b", 30)
+    assert list(queue.kept(DRIVE)["requests"]["release"]) == ["b"]
+    assert queue.renew(DRIVE, "release", "a", 30)
+    queue.release(DRIVE, "release", "a")
+    assert queue.take(DRIVE, "release", "b", "b", 30)["granted"] is True
 
 
 def test_his_tap_lands_on_every_lane_row_carrying_the_pr_and_wakes_its_lane(world: dict) -> None:

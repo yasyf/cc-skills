@@ -33,7 +33,7 @@ DEFAULTS = {
 }
 PRESENCE = "presence.json"
 LIVE = "live"
-NOT_LANES = ("rank", "config", "supervisor", "staging-env", "presence", "rulings", "queue", "view")
+NOT_LANES = ("rank", "config", "supervisor", "presence", "rulings", "queue", "view")
 RULINGS = "rulings.shared.json"
 
 

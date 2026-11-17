@@ -183,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     adding.add_argument("ref")
     adding.add_argument("--words")
     adding.add_argument("--lane")
-    granting = verbs_parser.add_parser("queue", help="ask the priority queue for the staging env or a release start")
+    granting = verbs_parser.add_parser("queue", help="ask the priority queue for a release start")
     granting.add_argument("action", choices=["take", "renew", "release"])
     granting.add_argument("resource", choices=list(queue.CAPACITY))
     granting.add_argument("--holder")

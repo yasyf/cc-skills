@@ -1,4 +1,4 @@
-"""Grants from the priority queue for each contended thing beside owner slots: the staging env and release starts. Asking him is never one: a lane posts its card the moment it is ready, and his page orders the open cards by rank, by drive-redesign's ruling. A grant goes to the best-ranked lane asking, by rank.json; a re-rank never takes a grant back, except that a lane whose incident hurts users takes the staging env from a lane that is not one."""
+"""Grants from the priority queue for the one contended thing beside owner slots: release starts. Asking him is never one: a lane posts its card the moment it is ready, and his page orders the open cards by rank, by drive-redesign's ruling; nor is staging, whose cuts run side by side with no hold, by his 5:00 PM ruling. A grant goes to the best-ranked lane asking, by rank.json; a re-rank never takes a grant back."""
 
 import json
 from datetime import timedelta
@@ -6,8 +6,7 @@ from pathlib import Path
 
 from lane import rank, store
 
-CAPACITY = {"staging-env": 1, "release": 1}
-PREEMPTS = ("staging-env",)
+CAPACITY = {"release": 1}
 
 
 def path(drive: str) -> Path:
@@ -20,18 +19,13 @@ def capacity(drive: str, resource: str) -> int:
 
 def kept(drive: str) -> dict:
     found = path(drive)
-    return json.loads(found.read_text()) if found.is_file() else {"leases": {}, "requests": {}, "revoked": {}}
+    return json.loads(found.read_text()) if found.is_file() else {"leases": {}, "requests": {}}
 
 
 def written(drive: str, queue: dict) -> None:
     fresh = path(drive).with_name(".queue.json.tmp")
     fresh.write_text(json.dumps(queue, indent=1) + "\n")
     fresh.replace(path(drive))
-
-
-def hurting(drive: str, lane_id: str) -> bool:
-    """Whether the lane's incident hurt users at the last rank, which reads it from the incident's facts."""
-    return lane_id in rank.last(drive).get("hurting", [])
 
 
 def free_for(drive: str, resource: str, lane_id: str) -> bool:
@@ -67,7 +61,7 @@ def holding(drive: str, lane_id: str) -> list[str]:
 
 
 def take(drive: str, resource: str, holder: str, lane_id: str, ttl_minutes: int) -> dict:
-    """Ask for one of resource for holder, on lane_id's behalf: granted with its bound when a unit is free and no better-ranked lane is asking, or taken from a lane that is no incident when lane_id's incident hurts users and the resource is the staging env; else the holder's place in line."""
+    """Ask for one of resource for holder, on lane_id's behalf: granted with its bound when a unit is free and no better-ranked lane is asking; else the holder's place in line."""
     if resource not in CAPACITY:
         raise store.Refused(f"the queue grants {', '.join(CAPACITY)}, not {resource!r}")
     moment = store.now()
@@ -81,29 +75,21 @@ def take(drive: str, resource: str, holder: str, lane_id: str, ttl_minutes: int)
         line = sorted(requests, key=lambda name: (order.get(requests[name]["lane"], len(order)), requests[name]["at"]))
         free = capacity(drive, resource) - len(leases)
         granted = holder in line[: max(0, free)]
-        why = "granted in rank order" if granted else None
-        if not granted and resource in PREEMPTS and hurting(drive, lane_id) and (victim := next((lease for lease in leases if not hurting(drive, lease["lane"])), None)):
-            leases.remove(victim)
-            queue["revoked"][victim["holder"]] = {"resource": resource, "at": store.stamp(moment), "why": f"taken by lane {lane_id}, whose incident hurts users"}
-            granted, why = True, f"taken from {victim['holder']} for an incident hurting users"
         if granted:
             requests.pop(holder)
             leases.append({"holder": holder, "lane": lane_id, "at": store.stamp(moment), "until": store.stamp(moment + timedelta(minutes=ttl_minutes))})
-            queue["revoked"].pop(holder, None)
         queue["leases"][resource] = leases
         written(drive, queue)
     if granted:
-        return {"granted": True, "until": leases[-1]["until"], "why": why}
+        return {"granted": True, "until": leases[-1]["until"], "why": "granted in rank order"}
     return {"granted": False, "position": line.index(holder) + 1, "ahead": line[: line.index(holder)], "held_by": [lease["holder"] for lease in leases]}
 
 
 def renew(drive: str, resource: str, holder: str, ttl_minutes: int) -> str:
-    """Extend holder's grant; refused once it lapsed or an incident took it, with why."""
+    """Extend holder's grant; refused once it lapsed."""
     moment = store.now()
     with store.locked(drive):
         queue = kept(drive)
-        if revoked := queue["revoked"].get(holder):
-            raise store.Refused(f"{resource} was taken from {holder}: {revoked['why']}")
         lease = next((lease for lease in queue["leases"].get(resource, []) if held_by(lease["holder"], holder) and store.parse(lease["until"]) > moment), None)
         if lease is None:
             raise store.Refused(f"{holder} holds no live grant of {resource}")
@@ -121,7 +107,6 @@ def release(drive: str, resource: str, holder: str) -> None:
         requests = queue["requests"].get(resource, {})
         for name in [name for name in requests if held_by(name, holder)]:
             requests.pop(name)
-        queue["revoked"].pop(holder, None)
         written(drive, queue)
         line = sorted(requests.values(), key=lambda asked: (order.get(asked["lane"], len(order)), asked["at"]))
     if line:
