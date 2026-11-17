@@ -1094,7 +1094,7 @@ def test_his_words_keep_their_eyes_while_read_get_construction_once_answered_wit
     assert ("200.0", "construction", ["eyes"]) not in world.get("slack", [])
 
     def answered(lane: dict) -> None:
-        lane["asks"][0]["replied"] = "QUEUED a1"
+        next(ask for ask in lane["asks"] if ask.get("ts") == "200.0")["replied"] = "QUEUED a1"
 
     store.update(DRIVE, "a", answered)
     supervisor.run_pass(DRIVE)
