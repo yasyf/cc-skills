@@ -950,10 +950,15 @@ def test_a_lane_with_an_unmet_done_check_its_step_serves_not_is_woken_and_cannot
     supervisor.run_pass(DRIVE)
     lane = store.load(DRIVE, "a")
     assert lane["state"] == store.RUNNING and "the nearest unmet done check is 1: start a Cloud agent" in lane["owner"]["woke"]
-    with pytest.raises(store.Refused, match="your step names none"):
+    with pytest.raises(store.Refused, match="no card or question of this lane is open to him: the nearest unmet done check is 1"):
         ended("a", ["his_reply"], "2h")
+    with pytest.raises(store.Refused, match="your step names none"):
+        ended("a", ["pr_merged:acme/app#7"], "2h")
     verbs.set_next(DRIVE, "a", token_of("a"), "ship the agent fix", "Shipping the Cloud agent fix.", serves=1)
+    saying.say(DRIVE, "a", "Ship the agent fix to staging now?", token=token_of("a"), options=["Ship it", "Wait"])
     ended("a", ["his_reply"], "2h")
+    supervisor.run_pass(DRIVE)
+    assert store.load(DRIVE, "a")["state"] == store.WAITING
 
 
 def test_a_blocker_lands_on_the_lane_that_waits_on_it_and_wakes_it(world: dict) -> None:
@@ -1153,3 +1158,14 @@ def test_every_session_the_lane_drive_starts_runs_light_on_its_roles_model_and_n
         assert settings["autoMemoryEnabled"] is False and settings["env"]["LANE_OWNER"] == "d/a" and settings["permissions"]["deny"] == ["AskUserQuestion", "Bash(drive:*)"]
         assert ("CLAUDE_CODE_DISABLE_ADVISOR_TOOL" in settings["env"]) == (role not in session.ADVISED)
     assert shown == {"owner": ("opus", "high", True), "builder": ("opus", "high", True), "stager": ("opus", "high", True), "auditor": ("sonnet", "high", False), "acker": ("haiku", None, False)}
+
+
+def test_a_lane_whose_home_is_his_dm_posts_nothing_until_it_moves_to_a_project_channel(world: dict) -> None:
+    opened("a", channel="D0DM")
+    with pytest.raises(store.Refused, match="never posts there"):
+        saying.say(DRIVE, "a", "on it")
+    with pytest.raises(store.Refused, match="never his DM"):
+        verbs.home(DRIVE, "a", "D0OTHER", None)
+    verbs.home(DRIVE, "a", "C0PROJECT", None)
+    saying.say(DRIVE, "a", "on it")
+    assert store.load(DRIVE, "a")["channel"] == "C0PROJECT"

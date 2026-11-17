@@ -123,7 +123,7 @@ def holds(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], dict])
 
 
 def unproduced(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], dict]) -> str | None:
-    """Why nothing is producing the fact a wait names, or None while something is: a staging result with no stager's ask open for its cut, checks with no CI at the PR's head, a merge of a PR no Approve of his, no card asking for one and no tooling mark will land. His reply is left to his cards."""
+    """Why nothing is producing the fact a wait names, or None while something is: a staging result with no stager's ask open for its cut, checks with no CI at the PR's head, a merge of a PR no Approve of his, no card asking for one and no tooling mark will land. His reply, for a lane with an unmet done check, needs a card or question of the lane's still open to him: one he has not tapped since it was asked."""
     match event["kind"]:
         case "staging_result":
             from lane import stager
@@ -141,7 +141,17 @@ def unproduced(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], d
             if row.get("approved_head") or (row.get("guarded") or {}).get("tooling") or (row.get("carded") or {}).get("head") == pull["head"]:
                 return None
             return f"nothing will merge {event['ref']}: no Approve of his, no tooling mark, and no card asks him for one"
+        case "his_reply":
+            return None if store.unreplied(lane) or asking(lane) or not any(not check.get("met_at") for check in lane.get("done", [])) else "no card or question of this lane is open to him, so nothing he could answer would end it"
     return None
+
+
+def asking(lane: dict) -> bool:
+    """Whether a card or question of the lane is open to him: an Approve card he has not tapped, or a question with buttons asked after his newest tap."""
+    if any(not card.get("tapped") for card in lane.get("cards", [])):
+        return True
+    taps = [store.parse(ask["at"]) for ask in lane.get("asks", []) if ask["words"].startswith("tapped ")]
+    return bool(lane.get("asked_at")) and (not taps or store.parse(lane["asked_at"]) > max(taps))
 
 
 CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}

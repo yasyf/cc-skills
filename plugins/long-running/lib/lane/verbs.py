@@ -230,6 +230,8 @@ def end_turn(drive: str, lane_id: str, token: str, on: list[dict], until: str, w
         raise store.Refused(f"{flying} background agents or tasks of yours still run, and ending your turn on a wait would stop them: stay running, end your turn without end-turn, and their return wakes you; the Stop hook lets you idle while they run")
     from lane import queue
 
+    if all(event["kind"] == "his_reply" for event in on) and (idle := facts.unproduced(drive, lane, on[0], {})):
+        raise store.Refused(f"{idle}: {unserved(lane) or 'its done checks are unmet'}. Work toward it, ask him with `lane say \"<question>\" --options ...`, or wait on the fact your step needs")
     if why_unserved := unserved(lane):
         raise store.Refused(f"{why_unserved}, and your step names none: write `lane next \"<plan>\" --says \"<sentence>\" --serves <n>`, or `--serves-none \"<why>\"`, before you wait")
     if missing := [resource for resource in queue.asking(drive, lane_id) if {"kind": "queue_grant", "ref": resource} not in on]:
@@ -291,6 +293,18 @@ def unserved(lane: dict) -> str | None:
     if serves.get("none") or serves.get("check") in open_checks:
         return None
     return f"the nearest unmet done check is {open_checks[0]}: {lane['done'][open_checks[0] - 1]['words']}"
+
+
+def home(drive: str, lane_id: str, channel: str, thread: str | None) -> None:
+    """Move a lane's home, where it posts and reads his words, to its project channel, at the root or in thread."""
+    if channel.startswith(("D", "U")):
+        raise store.Refused("a lane's home is a project channel, never his DM")
+
+    def moving(lane: dict) -> None:
+        store.note(lane, f"home moved from {lane.get('channel')}/{lane.get('thread')} to {channel}/{thread}")
+        lane["channel"], lane["thread"] = channel, thread
+
+    store.update(drive, lane_id, moving, leaving_unreplied=True)
 
 
 def blocked(drive: str, lane_id: str, what: str, by: str) -> None:

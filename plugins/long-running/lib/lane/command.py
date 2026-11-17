@@ -168,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
     defecting.add_argument("--owner", required=True, help="the lane that owns that code")
     missing = verbs_parser.add_parser("audit-miss", help="a defect he found that the audits missed, kept as a rubric line every later audit checks")
     missing.add_argument("line")
+    homing = verbs_parser.add_parser("home", help="move a lane's home to its project channel, out of his DM")
+    homing.add_argument("lane")
+    homing.add_argument("--channel", required=True)
+    homing.add_argument("--thread")
     blocking = verbs_parser.add_parser("block", help="a refusal or blocker, written on the lane that waits on it, which wakes it; never a record to a lane's name")
     blocking.add_argument("lane")
     blocking.add_argument("--what", required=True)
@@ -313,6 +317,10 @@ def run(args: argparse.Namespace) -> int:
         case "audit-miss":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             audit.missed(drive, args.line)
+        case "home":
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            verbs.home(drive, args.lane, args.channel, args.thread)
+            print(f"{args.lane} now posts in {args.channel}")
         case "block":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             verbs.blocked(drive, args.lane, args.what, args.by)

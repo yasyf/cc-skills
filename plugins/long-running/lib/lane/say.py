@@ -12,12 +12,19 @@ def logged(drive: str, lane: dict, text: str, re: str | None = None, options: li
 SENDER: Callable[[str, dict, str, str | None, list[str] | None, str | None, list[str] | None, list[str] | None], str] = logged
 
 
+DIRECT = ("D", "U")
+
+
 def say(drive: str, lane_id: str, text: str, next_step: str | None = None, by: str | None = None, token: str | None = None, answers: list[str] | None = None, re: str | None = None, options: list[str] | None = None, edit: str | None = None, about: list[str] | None = None, pictures: list[str] | None = None) -> str:
     """Hand the line to SENDER (or keep it in the log while posting is off), then write what promise writes; what the sender answered. re names the one ask of his the line is about, and the line answers it alone unless answers names others; options make the line a question with a button each, whose tap reaches the lane as his words; edit names the ts of the lane's earlier post the line rewrites in place; about names what else it is about, as release:<ref> or card:<ts>, so the post follows it; pictures are files it attaches."""
     checked(next_step, by)
-    store.fenced(store.load(drive, lane_id), token)
+    store.fenced(lane := store.load(drive, lane_id), token)
+    if (lane.get("channel") or "").startswith(DIRECT):
+        raise store.Refused(f"lane {lane_id}'s home is his DM, and drive work never posts there, by his words \"drive stuff leaves DMs entirely\": give it its project channel with `lane home {lane_id} --channel <id>`, then post")
     sent = SENDER(drive, store.load(drive, lane_id), text, re, options, edit, about, pictures) if store.config(drive)["posting"] else logged(drive, store.load(drive, lane_id), text, re, options, edit, about, pictures)
     promise(drive, lane_id, text, sent, next_step, by, token, answers or ([re] if re else None))
+    if options:
+        store.update(drive, lane_id, lambda lane: lane.__setitem__("asked_at", store.stamp()), leaving_unreplied=True)
     return sent
 
 
