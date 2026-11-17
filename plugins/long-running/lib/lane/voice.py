@@ -86,6 +86,7 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         "channel_id": lane["channel"],
         "thread_ts": asked_thread(lane, about_ts),
         "text": drawn,
+        "words": text,
         "prs": named_prs(drawn, seen, lane.get("prs") or []),
         "about": subjects(lane, drawn, about_ts, about or []),
         "rules": str(ROLE_PAGE),
@@ -275,13 +276,13 @@ def unsent(drive: str, lanes: dict[str, dict], rows: list[dict]) -> None:
 
 
 def sent_since(since: datetime) -> list[dict]:
-    """The lane posts the voice posted since then, from its log: each a lane's own words that went out, never a dry run, an edit, a settle line or one it dropped."""
+    """The lane posts the voice posted since then, from its log, each with the lane's own words as it wrote them: never a dry run, an edit, a settle line or one it dropped."""
     if not VOICE_LOG.is_file():
         return []
     kept = []
     for line in VOICE_LOG.read_text().splitlines():
         sent = json.loads(line)
-        if sent.get("lane") and sent.get("permalink") and sent.get("before") and not (sent.get("dry_run") or sent.get("edited") or sent.get("dropped") or sent.get("error")) and datetime.fromisoformat(sent["at"]) >= since:
+        if sent.get("lane") and sent.get("permalink") and sent.get("words") and sent.get("ts") and not (sent.get("dry_run") or sent.get("edited") or sent.get("dropped") or sent.get("error")) and datetime.fromisoformat(sent["at"]) >= since:
             kept.append(sent)
     return kept
 

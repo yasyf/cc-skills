@@ -10,6 +10,7 @@ import tempfile
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -445,6 +446,12 @@ def preflighted(drive: str, install: Path) -> bool:
     return verdict is passed
 
 
+def copied(source: str, target: str) -> None:
+    """Copy one file of the live drive, which a pass may replace while the copy runs: a file renamed away mid-copy is left out, as the pass that replaced it would have."""
+    with suppress(FileNotFoundError):
+        shutil.copy2(source, target)
+
+
 def main_red() -> str | None:
     """Why the plugin's own main CI is red now, by its newest finished run, or None when it is green: no install is taken while it is red, whoever installed it."""
     runs = json.loads(subprocess.run(["gh", "run", "list", "-R", HOME_REPO, "-w", HOME_CI, "-b", "main", "-L", "10", "--json", "conclusion,status,url,headSha"], capture_output=True, text=True, check=True, timeout=60).stdout)
@@ -457,7 +464,7 @@ def preflight(drive: str) -> tuple[bool, list[str]]:
     source = store.drive_dir(drive)
     kept = {key: os.environ.get(key) for key in ("LONG_RUNNING_STATE", voice.DRY_RUN)}
     with tempfile.TemporaryDirectory(prefix="lane-preflight-") as scratch:
-        shutil.copytree(source, Path(scratch) / "lanes" / drive, symlinks=True, ignore=shutil.ignore_patterns("*.log", "*.jsonl", PREFLIGHT))
+        shutil.copytree(source, Path(scratch) / "lanes" / drive, symlinks=True, ignore=shutil.ignore_patterns("*.log", "*.jsonl", PREFLIGHT), copy_function=copied)
         os.environ["LONG_RUNNING_STATE"], os.environ[voice.DRY_RUN] = scratch, "1"
         try:
             failed = rendered(drive)
@@ -500,7 +507,7 @@ def carded(drive: str, lanes: dict[str, dict]) -> list[str]:
 
 
 def replayed(drive: str, lanes: dict[str, dict]) -> list[str]:
-    """Each owner post the voice sent in the last REPLAY window, sent again in dry run as its owner wrote it: what the new code refuses or holds that went out, and what Jev scores worse than when it went out."""
+    """Each owner post the voice sent in the last REPLAY window, sent again in dry run as an edit of itself in its owner's own words, so the new code draws it anew: what the new code refuses or holds that went out, and what Jev scores worse than when it went out."""
     since = store.now() - REPLAY
     worse = []
     for sent in voice.sent_since(since):
@@ -508,7 +515,7 @@ def replayed(drive: str, lanes: dict[str, dict]) -> list[str]:
             continue
         lane = lanes[sent["lane"]]
         try:
-            voice.send(drive, lane, sent["before"], None, sent.get("options") or None)
+            voice.send(drive, lane, sent["words"], sent.get("thread_ts") or None, sent.get("options") or None, edit=sent["ts"])
         except store.Refused as refused:
             worse.append(f"{sent['lane']} post {sent['permalink']}: went out, now refused: {refused}")
             continue
