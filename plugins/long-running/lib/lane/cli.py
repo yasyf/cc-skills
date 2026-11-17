@@ -7,7 +7,8 @@ import re
 import signal
 import subprocess
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
+from datetime import timedelta
 from pathlib import Path
 
 from lane import landing, releases, rows, stager, store, supervisor, verbs
@@ -18,6 +19,8 @@ CONFLICTS = "conflicts"
 REVIEWS = "reviews"
 UNREVIEWED = re.compile(r"\bnot started on head\b")
 WATCH_SECONDS = 300
+PASS_SECONDS = 1800
+LANDERS = "landers"
 CONFLICT = re.compile(r"CONFLICTING|conflicts with origin/")
 SKIP_MERGE_PREFLIGHT = "STACK_ENQUEUE_SKIP_MERGE_PREFLIGHT"
 GONE_BASE = re.compile(r"couldn't find remote ref refs/heads/(?P<branch>\S+)")
@@ -125,6 +128,7 @@ def land(args: argparse.Namespace) -> None:
     from drive import land as old_land
 
     here = Path(__file__).resolve().parents[2]
+    begun = store.now()
     with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}{'-' + '-'.join(args.lane) if args.lane else ''}.lock") as mine:
         if not mine:
             print("another landing pass runs; this one ends")
@@ -147,6 +151,9 @@ def land(args: argparse.Namespace) -> None:
         script = providers.at(checkout_of).repo.queue().script
         with old_land.fresh(args.drive, checkout_of, repo, github.default_branch(repo), store.drive_dir(args.drive) / LANDINGS) as (checkout, sha):
             for lane, keys in units:
+                if store.now() - begun > timedelta(seconds=PASS_SECONDS - WATCH_SECONDS):
+                    print(f"this pass has run {PASS_SECONDS // 60} minutes less a watch; it ends before {keys[0]} and the next pass lands the rest")
+                    return
                 if supervisor.newest_install() != here:
                     print(f"a newer install than {here.name} landed; this pass ends before {keys[0]} and the next pass, on the new code, lands the rest")
                     return
@@ -166,9 +173,35 @@ def verdicts(args: argparse.Namespace) -> None:
 
 
 def spawn(drive: str) -> None:
-    """Start one detached lane-land land for the drive, the supervisor's landing step each pass once live; its reservations keep two from queueing one unit."""
-    if stager.live(drive):
-        subprocess.Popen([str(Path(__file__).resolve().parents[2] / "bin" / "lane-land"), "--drive", drive, "land"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    """Start one detached lane-land land for the drive, the supervisor's landing step each pass once live, after reap() ends the landers it started that an install has superseded or that ran past PASS_SECONDS; its reservations keep two from queueing one unit, and each start is recorded under landing/landers so the supervisor that started it can end it."""
+    if not stager.live(drive):
+        return
+    reap(drive)
+    here = Path(__file__).resolve().parents[2]
+    started = subprocess.Popen([str(here / "bin" / "lane-land"), "--drive", drive, "land"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    folder = store.drive_dir(drive) / LANDING / LANDERS
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{started.pid}.json").write_text(json.dumps({"pid": started.pid, "install": here.name, "at": store.stamp()}) + "\n")
+
+
+def reap(drive: str) -> list[int]:
+    """End each lander the supervisor started whose install a newer one superseded or that ran past PASS_SECONDS, its whole process group with its queue script, after checking its command is this drive's lane-land land; forget each that already ended. Its units requeue on the next pass. The pids ended."""
+    folder = store.drive_dir(drive) / LANDING / LANDERS
+    newest = supervisor.newest_install().name
+    ended = []
+    for record in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+        started = json.loads(record.read_text())
+        command = subprocess.run(["ps", "-o", "command=", "-p", str(started["pid"])], capture_output=True, text=True, check=False).stdout
+        if f"lane-land --drive {drive} land" not in command:
+            record.unlink()
+            continue
+        if started["install"] == newest and store.now() - store.parse(started["at"]) <= timedelta(seconds=PASS_SECONDS):
+            continue
+        with suppress(ProcessLookupError):
+            os.killpg(started["pid"], signal.SIGTERM)
+        record.unlink()
+        ended.append(started["pid"])
+    return ended
 
 
 def stage(args: argparse.Namespace) -> None:
