@@ -103,7 +103,7 @@ def active_at(owner: dict) -> datetime | None:
         return None
     tasks = Path("/tmp") / f"claude-{os.getuid()}" / found.parent.name / owner["session"] / "tasks"
     paths = [found, *found.with_suffix("").glob("subagents/*.jsonl"), *(tasks.glob("*") if tasks.is_dir() else [])]
-    return datetime.fromtimestamp(max(path.stat().st_mtime for path in paths), UTC)
+    return datetime.fromtimestamp(max(path.stat().st_mtime for path in paths if path.exists()), UTC)
 
 
 def own_quiet_since(owner: dict) -> datetime | None:

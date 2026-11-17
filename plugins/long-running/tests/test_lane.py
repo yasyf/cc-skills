@@ -1339,7 +1339,7 @@ def test_an_owner_whose_builders_write_but_whose_own_transcript_is_quiet_reads_a
     assert store.now() - owners.active_at({"session": "s1"}) < supervisor.QUIET_BEFORE_NUDGE
 
 
-def test_replaying_the_ringo_thread_a_promised_pr_by_345_with_nothing_after_wakes_its_owner_and_files_a_defect(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_replaying_the_ringo_thread_a_promised_pr_by_345_with_nothing_after_wakes_its_owner_and_queues_the_work_with_no_defect(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     from lane import audit, verbs as lane_verbs
 
     filed = []
@@ -1359,7 +1359,7 @@ def test_replaying_the_ringo_thread_a_promised_pr_by_345_with_nothing_after_wake
     lane = store.load(DRIVE, "a")
     assert lane["promises"][0]["overdue"] and "overdue: its post" in (lane.get("wait") or {}).get("fired_why", "") + (lane.get("owner") or {}).get("woke", "")
     alerts = store.drive_dir(DRIVE) / supervisor.ALERTS
-    assert len(filed) == 1 and filed[0][1] == "lane-core" and "broke a promise" in filed[0][0], (alerts.read_text() if alerts.is_file() else "no alerts", lane.get("promises"))
+    assert filed == [], (alerts.read_text() if alerts.is_file() else "no alerts", lane.get("promises"))
     from lane import work
 
     assert [item["kind"] for item in work.items(DRIVE) if item["subject"].startswith("promise ")] == ["ask"]
@@ -1812,3 +1812,11 @@ def test_a_defect_names_a_lane_that_owns_code_and_closes_once_as_fixed_wrong_or_
     assert audit.open_defects(DRIVE) == []
     with pytest.raises(store.Refused, match="already gone"):
         audit.closed(DRIVE, found.stem, {"state": "wrong", "why": "x"})
+
+
+def test_a_conflicting_stack_is_not_ready_for_his_tap() -> None:
+    from lane import page
+
+    seen = {"acme/app#1": pull(rollup="SUCCESS", head="h1", branch="b1") | {"review": "APPROVED", "mergeable": "CONFLICTING"}}
+    stacks, counts = page.ready([{"repo": "acme/app", "number": 1}], seen)
+    assert stacks == [] and counts == {"conflicting": 1}

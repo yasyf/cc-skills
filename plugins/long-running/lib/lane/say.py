@@ -84,7 +84,7 @@ def promise(drive: str, lane_id: str, text: str, sent: str, next_step: str | Non
         for kept in lane.get("promises", []):
             if kept["thread"] == thread and not kept.get("followed"):
                 kept["followed"] = store.stamp(moment)
-        if due := bound or stated(text, moment):
+        if due := bound or stated(re.sub(r"[^.!?\n]*\?", "", text), moment):
             lane["promises"] = [*lane.get("promises", []), {"text": text, "due": store.stamp(due), "thread": thread, "at": store.stamp(moment), "sent": sent}][-50:]
         store.note(lane, f"said ({sent}): {text}")
 

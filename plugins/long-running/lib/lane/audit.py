@@ -29,7 +29,12 @@ def last(drive: str) -> str | None:
 
 
 def due(drive: str) -> bool:
-    return (newest := last(drive)) is None or store.now() - store.parse(newest) >= EVERY
+    """Whether an audit starts now: EVERY since the newest started, and that one wrote its summary, or ran past twice EVERY without one, so two audits never read the same posts at once."""
+    if (newest := last(drive)) is None:
+        return True
+    age = store.now() - store.parse(newest)
+    running = (folder(drive) / f"{newest}.md").read_text().startswith("Audit started ")
+    return age >= EVERY and (not running or age >= 2 * EVERY)
 
 
 def prompt(drive: str, moment: str, since: str) -> str:

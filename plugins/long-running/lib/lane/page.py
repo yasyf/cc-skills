@@ -95,7 +95,7 @@ def ready(taps: list[dict], seen: dict, approved: set[str] = frozenset()) -> tup
             walked.add(key := above)
         return key
 
-    stacks, counts = {}, {"behind a parent": 0, "red": 0, "CI running": 0, "no review": 0}
+    stacks, counts = {}, {"behind a parent": 0, "red": 0, "CI running": 0, "no review": 0, "conflicting": 0}
     keyed = {f"{row['repo']}#{row['number']}": row for row in taps}
     for key, row in keyed.items():
         pull = seen[key]
@@ -107,11 +107,16 @@ def ready(taps: list[dict], seen: dict, approved: set[str] = frozenset()) -> tup
             counts["CI running"] += 1
         elif pull.get("review") != "APPROVED":
             counts["no review"] += 1
+        elif pull.get("mergeable") == "CONFLICTING":
+            counts["conflicting"] += 1
         else:
             stacks[key] = {**row, "above": []}
     for key in keyed:
         if waiting(key) and (base := bottom(key)) in stacks:
             stacks[base]["above"].append(key)
+    for base in [base for base, stack in stacks.items() if any(seen[key].get("mergeable") == "CONFLICTING" for key in stack["above"])]:
+        counts["conflicting"] += 1
+        del stacks[base]
     return list(stacks.values()), {why: count for why, count in counts.items() if count}
 
 
