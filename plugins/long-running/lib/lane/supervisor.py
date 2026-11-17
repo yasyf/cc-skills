@@ -31,6 +31,8 @@ PREFLIGHT = "preflight"
 PREFLIGHT_SECONDS = 300
 REPLAY = timedelta(hours=1)
 PREFLIGHTS: dict[str, tuple[subprocess.Popen, float]] = {}
+HOME_REPO = "yasyf/cc-skills"
+HOME_CI = "long-running CI"
 
 
 def heartbeat(drive: str, moment: datetime, errors: list[str]) -> None:
@@ -413,7 +415,7 @@ def check(drive: str) -> tuple[bool, list[str]]:
 
 
 def preflighted(drive: str, install: Path) -> bool:
-    """Whether the install rendered every card and post it would send now through the voice in dry run with none refused or held. The first time a pass sees the install, its preflight starts beside the supervisor, which keeps passing on its own code; a later pass reads the verdict. The supervisor and every owner's `lane` move to an install only once it passed, so a refusal keeps the drive on the code it runs."""
+    """Whether the install rendered every card and post it would send now through the voice in dry run with none refused or held. While the plugin's main CI is red no preflight starts, so no install is taken. The first time a pass sees the install with main green, its preflight starts beside the supervisor, which keeps passing on its own code; a later pass reads the verdict. The supervisor and every owner's `lane` move to an install only once it passed, so a refusal keeps the drive on the code it runs."""
     folder = store.drive_dir(drive) / PREFLIGHT
     folder.mkdir(exist_ok=True)
     passed, refused, output = folder / f"{install.name}.passed", folder / f"{install.name}.refused", folder / f"{install.name}.out"
@@ -421,6 +423,9 @@ def preflighted(drive: str, install: Path) -> bool:
         return passed.exists()
     running = PREFLIGHTS.get(install.name)
     if running is None:
+        if red := main_red():
+            output.write_text(f"waiting: {red}\n")
+            return False
         with output.open("w") as out:
             PREFLIGHTS[install.name] = (subprocess.Popen([str(install / "bin" / "lane"), "--drive", drive, "preflight"], stdout=out, stderr=subprocess.STDOUT), time.monotonic())
         return False
@@ -437,6 +442,13 @@ def preflighted(drive: str, install: Path) -> bool:
         with (store.drive_dir(drive) / ALERTS).open("a") as out:
             out.write(json.dumps({"at": store.stamp(), "step": f"install {install.name} refused by its preflight", "error": refused.read_text().strip()[-2000:]}) + "\n")
     return verdict is passed
+
+
+def main_red() -> str | None:
+    """Why the plugin's own main CI is red now, by its newest finished run, or None when it is green: no install is taken while it is red, whoever installed it."""
+    runs = json.loads(subprocess.run(["gh", "run", "list", "-R", HOME_REPO, "-w", HOME_CI, "-b", "main", "-L", "10", "--json", "conclusion,status,url,headSha"], capture_output=True, text=True, check=True, timeout=60).stdout)
+    finished = next(run for run in runs if run["status"] == "completed" and run["conclusion"] != "cancelled")
+    return None if finished["conclusion"] == "success" else f"{HOME_CI} on main is {finished['conclusion']} at {finished['headSha'][:9]}: {finished['url']}"
 
 
 def preflight(drive: str) -> tuple[bool, list[str]]:
@@ -516,7 +528,8 @@ def settled(drive: str, seconds: int) -> tuple[bool, list[str]]:
     if verdict[1].exists():
         return False, [f"supervisor stays on its code: {install.name}'s preflight refused it", *verdict[1].read_text().splitlines()]
     if not verdict[0].exists():
-        return False, [f"supervisor ran no preflight of {install.name} in {PREFLIGHT_SECONDS}s"]
+        waiting = folder / PREFLIGHT / f"{install.name}.out"
+        return False, [f"supervisor has not taken {install.name} after {PREFLIGHT_SECONDS}s", *(waiting.read_text().splitlines() if waiting.is_file() else ["its preflight never started"])]
     log, checks = folder / "supervisor.log", folder / "checks.jsonl"
     logged, passes = log.stat().st_size, checks.stat().st_size
     time.sleep(seconds)
