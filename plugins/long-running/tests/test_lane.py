@@ -42,7 +42,7 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(supervisor.lane_land, "spawn", lambda drive: None)
     from lane import ack
 
-    monkeypatch.setattr(ack, "slack", lambda args: seen.setdefault("slack", []).append(args))
+    monkeypatch.setattr(ack, "react", lambda lane, ask, add, remove: seen.setdefault("slack", []).append((ask["ts"], add, remove)))
     folder = store.drive_dir(DRIVE)
     folder.mkdir(parents=True)
     (folder / "config.json").write_text(json.dumps({"active": 3, "slots": 2, "posting": False}))
@@ -1013,10 +1013,11 @@ def test_the_supervisor_starts_one_fix_job_per_pr_head_and_kind_for_his_approved
             row["approved_head"] = "old"
 
     store.update(DRIVE, "a", approving)
-    world["prs"][("acme/app", 1)] = pull(rollup="SUCCESS", head="h1", branch="b1") | {"mergeable": "CONFLICTING"}
-    world["prs"][("acme/app", 2)] = pull(rollup="FAILURE", head="h2", branch="b2") | {"failing": ["lint"], "mergeable": "MERGEABLE"}
-    world["prs"][("acme/app", 3)] = pull(rollup="SUCCESS", head="h3", branch="b3") | {"mergeable": "MERGEABLE", "reviewed_heads": []}
-    world["prs"][("acme/app", 4)] = pull(rollup="FAILURE", head="h4", branch="b4") | {"failing": ["unit"], "mergeable": "MERGEABLE"}
+    moved = {"commits": [("old", "him")], "commit_count": 1}
+    world["prs"][("acme/app", 1)] = pull(rollup="SUCCESS", head="h1", branch="b1") | {**moved, "mergeable": "CONFLICTING"}
+    world["prs"][("acme/app", 2)] = pull(rollup="FAILURE", head="h2", branch="b2") | {**moved, "failing": ["lint"], "mergeable": "MERGEABLE"}
+    world["prs"][("acme/app", 3)] = pull(rollup="SUCCESS", head="h3", branch="b3") | {**moved, "mergeable": "MERGEABLE", "reviewed_heads": []}
+    world["prs"][("acme/app", 4)] = pull(rollup="FAILURE", head="h4", branch="b4") | {**moved, "failing": ["unit"], "mergeable": "MERGEABLE"}
     world["prs"][("acme/app", 5)] = pull(state="MERGED", rollup="FAILURE", head="h5", branch="b5")
     supervisor.run_pass(DRIVE)
     assert [key for key, _ in started] == ["acme/app#1", "acme/app#2", "acme/app#3"]
@@ -1044,17 +1045,18 @@ def test_a_pass_step_that_raises_stops_no_other_step(world: dict, monkeypatch: p
     assert "HTTP Error 403" in (store.drive_dir(DRIVE) / supervisor.ALERTS).read_text()
 
 
-def test_his_words_get_eyes_when_a_lane_takes_them_and_a_working_line_once_its_owner_runs(world: dict) -> None:
+def test_his_words_get_a_construction_mark_once_its_owner_runs_and_a_check_once_done(world: dict) -> None:
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     opened("a", channel="C1")
     supervisor.run_pass(DRIVE)
     world["messages"]["a"] = [{"words": "have you merged these?", "ts": "200.0", "at": store.stamp(), "link": "https://x.slack.com/archives/C1/p200000"}]
     supervisor.run_pass(DRIVE)
-    calls = world["slack"]
-    assert ["react", "--url", "https://x.slack.com/archives/C1/p200000", "--name", "eyes"] in calls
-    assert sum(call[0] == "pickup" and "https://x.slack.com/archives/C1/p200000" in call for call in calls) == 1
     supervisor.run_pass(DRIVE)
-    assert sum(call[0] == "pickup" and "https://x.slack.com/archives/C1/p200000" in call for call in world["slack"]) == 1
+    assert world["slack"].count(("200.0", "construction", ["eyes"])) == 1
+    from lane import ack
+
+    ack.finished(DRIVE, "a", "200.0")
+    assert ("200.0", "white_check_mark", ["construction", "eyes"]) in world["slack"]
 
 
 def test_replaying_v3s_257_pm_wait_on_a_cut_no_stager_holds_fires_in_the_next_pass_and_twice_is_a_defect(world: dict) -> None:

@@ -328,7 +328,7 @@ def run(args: argparse.Namespace) -> int:
             verbs.done(*where(args), token(), args.ts)
             try:
                 ack.finished(*where(args), args.ts)
-            except store.Refused as failed:
+            except (store.Refused, OSError) as failed:
                 print(f"marked done; no ✅ in Slack: {failed}", file=sys.stderr)
         case "pr":
             drive, lane_id = where(args)

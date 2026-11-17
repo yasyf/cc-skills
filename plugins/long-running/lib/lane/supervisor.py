@@ -126,7 +126,6 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
                     heard[lane_id] = found
         if heard:
             alone(drive, errors, "his words reached no lane", lambda: store.transact(drive, lambda lanes: [verbs.take_messages(drive, lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()]))
-            alone(drive, errors, "his words got no 👀", lambda: ack.seen(drive, heard))
         posts = alone(drive, errors, "the voice listed no posts to follow", lambda: voice.followed(drive, moment)) or []
         prs = alone(drive, errors, "GitHub read failed", lambda: facts.read_prs(facts.pr_keys(store.load_all(drive)) | voice.subject_keys(posts), commits=1)) or {}
         if prs:
