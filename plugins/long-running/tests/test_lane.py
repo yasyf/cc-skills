@@ -1576,7 +1576,7 @@ def test_an_answer_that_left_nothing_running_takes_a_check_and_construction_come
     store.update(DRIVE, "a", lambda lane: lane["asks"][0].update({"ts": "200.0", "link": "https://x.slack.com/archives/C1/p200000", "replied": "QUEUED a1"}))
     store.update(DRIVE, "a", lambda lane: lane.update({"state": store.RUNNING, "wait": None}))
     ack.working(DRIVE)
-    store.update(DRIVE, "a", lambda lane: lane.update({"state": store.WAITING, "owner": None, "wait": {"on": [{"kind": "his_reply"}], "until": store.stamp(), "why": "answered", "set": store.stamp()}}))
+    store.update(DRIVE, "a", lambda lane: lane.update({"state": store.WAITING, "owner": None, "wait": {"on": [{"kind": "his_reply"}], "until": store.stamp(store.now() + timedelta(hours=1)), "why": "answered", "set": store.stamp()}}))
     ack.working(DRIVE)
     ack.working(DRIVE)
     assert world["slack"] == [("200.0", "construction", ["eyes"]), ("200.0", "white_check_mark", ["construction", "eyes"])]
@@ -1698,3 +1698,13 @@ def test_a_worker_whose_job_reports_blocked_frees_its_slot_so_queued_work_is_sta
     worker = {"session": "worker-session", "started": store.stamp()}
     assert not work.alive(worker | {"job": "blocked1"})
     assert work.alive(worker | {"job": "working1"})
+
+
+def test_check_names_a_row_the_last_github_read_gave_no_head_as_unread(world: dict) -> None:
+    from lane import page
+
+    opened("a", prs=[("acme/app", 7), ("acme/app", 8)])
+    (store.drive_dir(DRIVE) / page.VIEW).write_text(json.dumps({"at": store.stamp(), "prs": {"acme/app#7": {"state": "OPEN", "head": "abc"}}}))
+    good, lines = supervisor.check(DRIVE)
+    assert not good
+    assert any(line.startswith("a: UNREAD acme/app#8:") for line in lines)

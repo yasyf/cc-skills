@@ -410,6 +410,7 @@ def check(drive: str) -> tuple[bool, list[str]]:
     if len(store.active(lanes)) > shape["active"]:
         lines.append(f"queue: {len(store.active(lanes))} lanes active, over the cap of {shape['active']}; the lowest ranked is {next((lane_id for lane_id in reversed(rank.last(drive).get('order', [])) if lane_id in store.active(lanes)), '?')}, for him to park")
     running = sum(1 for lane in lanes.values() if lane["state"] == store.RUNNING)
+    seen = page.view(drive)
     for lane_id, lane in lanes.items():
         if why := store.invalid(lane):
             good = False
@@ -430,6 +431,9 @@ def check(drive: str) -> tuple[bool, list[str]]:
         if lane.get("defect"):
             good = False
             lines.append(f"{lane_id}: DEFECT {lane['defect']}")
+        if seen["at"] and (unread := [f"{row['repo']}#{row['number']}" for row in lane.get("prs", []) if f"{row['repo']}#{row['number']}" not in seen["prs"]]):
+            good = False
+            lines.append(f"{lane_id}: UNREAD {', '.join(unread)}: the last GitHub read gave no head for these rows, so nothing lands, cards or carries them")
         blocked = [entry for entry in board.entries(drive, lane_id) if entry["words"].startswith("blocked, from ")]
         if blocked and moment - store.parse(blocked[-1]["at"]) < timedelta(hours=1):
             lines.append(f"{lane_id}: BLOCKED {blocked[-1]['words'].removeprefix('blocked, from ')}")
