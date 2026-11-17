@@ -5,18 +5,18 @@ from collections.abc import Callable
 from lane import store
 
 
-def logged(drive: str, lane: dict, text: str, re: str | None = None, options: list[str] | None = None, edit: str | None = None) -> str:
+def logged(drive: str, lane: dict, text: str, re: str | None = None, options: list[str] | None = None, edit: str | None = None, about: list[str] | None = None) -> str:
     return f"log:{store.stamp()}"
 
 
-SENDER: Callable[[str, dict, str, str | None, list[str] | None, str | None], str] = logged
+SENDER: Callable[[str, dict, str, str | None, list[str] | None, str | None, list[str] | None], str] = logged
 
 
-def say(drive: str, lane_id: str, text: str, next_step: str | None = None, by: str | None = None, token: str | None = None, answers: list[str] | None = None, re: str | None = None, options: list[str] | None = None, edit: str | None = None) -> str:
-    """Hand the line to SENDER (or keep it in the log while posting is off), then write what promise writes; what the sender answered. re names the one ask of his the line is about, and the line answers it alone unless answers names others; options make the line a question with a button each, whose tap reaches the lane as his words; edit names the ts of the lane's earlier post the line rewrites in place."""
+def say(drive: str, lane_id: str, text: str, next_step: str | None = None, by: str | None = None, token: str | None = None, answers: list[str] | None = None, re: str | None = None, options: list[str] | None = None, edit: str | None = None, about: list[str] | None = None) -> str:
+    """Hand the line to SENDER (or keep it in the log while posting is off), then write what promise writes; what the sender answered. re names the one ask of his the line is about, and the line answers it alone unless answers names others; options make the line a question with a button each, whose tap reaches the lane as his words; edit names the ts of the lane's earlier post the line rewrites in place; about names what else it is about, as release:<ref> or card:<ts>, so the post follows it."""
     checked(next_step, by)
     store.fenced(store.load(drive, lane_id), token)
-    sent = SENDER(drive, store.load(drive, lane_id), text, re, options, edit) if store.config(drive)["posting"] else logged(drive, store.load(drive, lane_id), text, re, options, edit)
+    sent = SENDER(drive, store.load(drive, lane_id), text, re, options, edit, about) if store.config(drive)["posting"] else logged(drive, store.load(drive, lane_id), text, re, options, edit, about)
     promise(drive, lane_id, text, sent, next_step, by, token, answers or ([re] if re else None))
     return sent
 

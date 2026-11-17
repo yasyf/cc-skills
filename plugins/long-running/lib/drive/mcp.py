@@ -175,6 +175,7 @@ SAY = {
                     " since nothing is left running"
                 ),
             },
+            "subjects": {"type": "array", "items": TEXT, "description": "A lane owner's post: what else it is about, as release:<ref> or card:<ts>, so it follows it"},
             "options": {
                 "type": "array",
                 "items": TEXT,

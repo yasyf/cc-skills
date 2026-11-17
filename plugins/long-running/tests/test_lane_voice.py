@@ -25,6 +25,7 @@ def test_the_sender_queues_at_the_lane_channel_root_never_its_old_home_thread_an
                 "thread_ts": "",
                 "text": "Right, v3 doesn't need the conversion.",
                 "prs": [],
+                "about": [],
                 "rules": str(voice.ROLE_PAGE),
                 "asked": "",
             },
@@ -77,7 +78,7 @@ def test_a_question_carries_its_options_to_the_sender(monkeypatch: pytest.Monkey
 def test_the_sender_names_each_linked_pr_once_with_its_state() -> None:
     text = "<https://github.com/Forge-AI/monorepo/pull/57894|#57894 docs> needs your Approve; <https://github.com/Forge-AI/monorepo/pull/57894|#57894 docs> again, <https://github.com/Forge-AI/monorepo/pull/57908|#57908 release tool>."
     seen = {"Forge-AI/monorepo#57894": {"state": "OPEN"}, "Forge-AI/monorepo#57908": {"state": "MERGED"}}
-    assert voice.named_prs(text, seen) == [{"repo": "Forge-AI/monorepo", "number": 57894, "state": "OPEN"}, {"repo": "Forge-AI/monorepo", "number": 57908, "state": "MERGED"}]
+    assert voice.named_prs(text, seen) == [{"repo": "Forge-AI/monorepo", "number": 57894, "state": "OPEN", "head": "", "approved": False}, {"repo": "Forge-AI/monorepo", "number": 57908, "state": "MERGED", "head": "", "approved": False}]
 
 
 def test_importing_voice_makes_it_lane_say_s_sender() -> None:
@@ -162,15 +163,36 @@ POSTED = {"at": "2026-11-16T15:16:30.177-08:00", "options": [], "prs": [{"repo":
 @pytest.mark.parametrize(
     ("post", "rows", "now", "lines", "stale"),
     [
-        (POSTED, {}, {"state": "MERGED", "merged": True, "merged_at": "2026-11-16T23:18:05Z", "head": "a" * 40}, ["✅ #57894 merged 3:18 PM"], []),
-        (POSTED, {}, {"state": "MERGED", "merged": True, "merged_at": "2026-11-16T23:10:00Z", "head": "a" * 40}, [], []),
-        (POSTED | {"prs": [POSTED["prs"][0] | {"state": "OPEN", "head": "b" * 40}]}, {}, {"state": "OPEN", "merged": False, "head": "a" * 40}, [], ["#57894 has a new head, aaaaaaa, since it read bbbbbbb"]),
-        (POSTED | {"options": ["Approve #57894", "Hold #57894"]}, {("Forge-AI/monorepo", 57894): {"approved_head": "a" * 40}}, {"state": "OPEN", "merged": False, "head": "a" * 40}, ["✅ #57894 approved"], []),
-        (POSTED | {"options": ["Approve #57894", "Hold #57894"]}, {("Forge-AI/monorepo", 57894): {"held": "his Hold"}}, {"state": "OPEN", "merged": False, "head": "a" * 40}, ["⏸️ #57894 held"], []),
+        (POSTED, {"prs": []}, {"state": "MERGED", "merged": True, "merged_at": "2026-11-16T23:18:05Z", "head": "a" * 40}, ["✅ #57894 merged 3:18 PM"], []),
+        (POSTED, {"prs": []}, {"state": "MERGED", "merged": True, "merged_at": "2026-11-16T23:10:00Z", "head": "a" * 40}, [], []),
+        (POSTED | {"prs": [POSTED["prs"][0] | {"state": "OPEN", "head": "b" * 40}]}, {"prs": []}, {"state": "OPEN", "merged": False, "head": "a" * 40}, [], ["#57894 has a new head, aaaaaaa, since it read bbbbbbb"]),
+        (POSTED | {"options": ["Approve #57894", "Hold #57894"]}, {"prs": [{"repo": "Forge-AI/monorepo", "number": 57894, "approved_head": "a" * 40}]}, {"state": "OPEN", "merged": False, "head": "a" * 40}, ["✅ #57894 approved"], []),
+        (POSTED | {"options": ["Approve #57894", "Hold #57894"]}, {"prs": [{"repo": "Forge-AI/monorepo", "number": 57894, "held": "his Hold"}]}, {"state": "OPEN", "merged": False, "head": "a" * 40}, ["⏸️ #57894 held"], []),
     ],
 )
-def test_a_post_takes_a_state_line_when_its_pr_settles_and_tells_its_owner_when_its_head_moves(post: dict, rows: dict, now: dict, lines: list[str], stale: list[str]) -> None:
-    assert voice.changes(post, rows, {("Forge-AI/monorepo", 57894): now}) == (lines, stale)
+def test_a_post_takes_a_state_line_when_its_pr_settles_and_tells_its_owner_when_its_head_moves(post: dict, lane: dict, now: dict, lines: list[str], stale: list[str]) -> None:
+    assert voice.changes(post, lane, {("Forge-AI/monorepo", 57894): now}, {}) == (lines, stale)
+
+
+def test_a_post_follows_the_card_ask_and_release_it_is_about() -> None:
+    post = {"at": "2026-11-16T16:30:38-08:00", "prs": [], "about": [{"kind": "card", "ts": "1794877409.837249", "answer": "Wait for the regular release"}, {"kind": "ask", "ts": "9.1"}, {"kind": "release", "ref": "r1"}]}
+    lane = {"prs": [], "asks": [{"ts": "9.1", "done": "2026-11-16T17:30:00Z"}]}
+    assert voice.changes(post, lane, {}, {"r1": {"name": "release 18320", "state": "live"}}) == (["✅ answered: Wait for the regular release", "✅ done", "🚀 release 18320 live"], [])
+
+
+def test_a_post_names_the_cards_of_its_channel_and_the_subjects_its_owner_names() -> None:
+    lane = {"id": "iris", "channel": "C1"}
+    text = "See <https://x.slack.com/archives/C1/p1794877409837249|the card> and <https://x.slack.com/archives/C9/p1794877409837250|elsewhere>."
+    assert voice.subjects(lane, text, "9.1", ["release:r1"]) == [{"kind": "ask", "ts": "9.1"}, {"kind": "card", "ts": "1794877409.837249"}, {"kind": "release", "ref": "r1"}]
+    with pytest.raises(store.Refused, match="release:<ref> or card:<ts>"):
+        voice.subjects(lane, text, None, ["deploy:x"])
+
+
+def test_a_pr_he_approved_at_its_head_reads_approved_and_one_at_an_older_head_does_not() -> None:
+    text = "<https://github.com/Forge-AI/monorepo/pull/53305|#53305 pages calls>"
+    seen = {"Forge-AI/monorepo#53305": {"state": "OPEN", "head": "a" * 40}}
+    assert voice.named_prs(text, seen, [{"repo": "Forge-AI/monorepo", "number": 53305, "approved_head": "a" * 40}])[0]["approved"] is True
+    assert voice.named_prs(text, seen, [{"repo": "Forge-AI/monorepo", "number": 53305, "approved_head": "b" * 40}])[0]["approved"] is False
 
 
 def test_an_edit_names_its_post_by_ts_or_permalink() -> None:

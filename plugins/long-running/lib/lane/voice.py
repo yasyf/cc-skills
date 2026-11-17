@@ -28,6 +28,8 @@ BARE_NUMBER = re.compile(r"(?<![\w&/#])#(\d{3,})\b")
 BARE_PR_URL = re.compile(r"\s*\(?(?<![<|])(https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)\b\)?")
 LINKED_PR = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|")
 PERMALINK_TS = re.compile(r"/p(\d{10})(\d{6})")
+SLACK_MESSAGE = re.compile(r"https://[\w-]+\.slack\.com/archives/(C\w+)/p(\d{10})(\d{6})")
+ATTACHED_APPROVE = re.compile(r"^Approve #(\d+)$")
 TAPPED_PR = re.compile(r'^tapped "(Approve|Hold) #(\d+)"')
 
 
@@ -43,11 +45,11 @@ def owner_say(drive: str, lane_id: str, arguments: dict) -> str:
     """The MCP say of a lane's owner: lane.say with its promise, and when the promise's shape is refused, the post alone, since the owner never sees a post refused."""
     token = os.environ.get(TOKEN_ENV) or None
     try:
-        return say.say(drive, lane_id, arguments["text"], arguments.get("next"), arguments.get("by"), token, arguments.get("answers"), arguments.get("re"), arguments.get("options"), edit_ts(arguments.get("edit")))
+        return say.say(drive, lane_id, arguments["text"], arguments.get("next"), arguments.get("by"), token, arguments.get("answers"), arguments.get("re"), arguments.get("options"), edit_ts(arguments.get("edit")), arguments.get("subjects"))
     except store.Refused as refused:
         if not (arguments.get("next") or arguments.get("by")):
             raise
-        return f"{say.say(drive, lane_id, arguments['text'], token=token, answers=arguments.get('answers'), re=arguments.get('re'), options=arguments.get('options'), edit=edit_ts(arguments.get('edit')))}; its promise was not kept: {refused}"
+        return f"{say.say(drive, lane_id, arguments['text'], token=token, answers=arguments.get('answers'), re=arguments.get('re'), options=arguments.get('options'), edit=edit_ts(arguments.get('edit')), about=arguments.get('subjects'))}; its promise was not kept: {refused}"
 
 
 def edit_ts(edit: str | None) -> str | None:
@@ -55,7 +57,7 @@ def edit_ts(edit: str | None) -> str | None:
     return f"{found[1]}.{found[2]}" if edit and (found := PERMALINK_TS.search(edit)) else edit
 
 
-def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options: list[str] | None = None, edit: str | None = None) -> str:
+def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options: list[str] | None = None, edit: str | None = None, about: list[str] | None = None) -> str:
     """lane.say's SENDER: queue one post in the lane's channel, in the thread of the ask it is about, with the role page beside it and a button for each option, and return QUEUED and its id."""
     seen = page.view(drive)["prs"]
     drawn = linked(text, titled(lane.get("prs") or [], seen))
@@ -65,7 +67,8 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         "channel_id": lane["channel"],
         "thread_ts": asked_thread(lane, about_ts),
         "text": drawn,
-        "prs": named_prs(drawn, seen),
+        "prs": named_prs(drawn, seen, lane.get("prs") or []),
+        "about": subjects(lane, drawn, about_ts, about or []),
         "rules": str(ROLE_PAGE),
         "asked": "",
         **({"options": options} if options else {}),
@@ -74,17 +77,46 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
     request = urllib.request.Request(VOICE_URL, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getppid())})
     try:
         with urllib.request.urlopen(request, timeout=ENQUEUE_SECONDS) as answer:
-            return f"QUEUED {json.load(answer)['id']}"
+            queued = json.load(answer)
     except urllib.error.HTTPError as refused:
         if refused.code == 422:
             raise store.Refused(refused.read().decode().strip()) from refused
         raise
+    carded(drive, lane["id"], queued["id"], queued.get("attached") or [], seen)
+    return f"QUEUED {queued['id']}"
 
 
-def named_prs(text: str, seen: dict[str, dict]) -> list[dict]:
-    """Each PR the post links, once, with its GitHub state as view.json read it, so the voice can give an ask for his Approve its buttons and refuse one about a PR already merged or closed."""
+def named_prs(text: str, seen: dict[str, dict], rows: list[dict] = ()) -> list[dict]:
+    """Each PR the post links, once, with its GitHub state and head as view.json read them and whether his Approve stands at that head, so the voice can give an ask for his Approve its buttons and refuse one about a PR already merged, closed or approved."""
     keys = dict.fromkeys(f"{repo}#{number}" for repo, number in LINKED_PR.findall(text))
-    return [{"repo": key.partition("#")[0], "number": int(key.partition("#")[2]), "state": (seen.get(key) or {}).get("state") or "", "head": (seen.get(key) or {}).get("head") or ""} for key in keys]
+    approved = {f"{row['repo']}#{row['number']}": row.get("approved_head") for row in rows}
+    return [{"repo": key.partition("#")[0], "number": int(key.partition("#")[2]), "state": (pull := seen.get(key) or {}).get("state") or "", "head": pull.get("head") or "", "approved": bool(pull.get("head")) and approved.get(key) == pull.get("head")} for key in keys]
+
+
+def subjects(lane: dict, text: str, about_ts: str | None, about: list[str]) -> list[dict]:
+    """What else a post is about, beside the PRs it links: the ask --re names, each card of the lane's channel it links, and each `release:<ref>` or `card:<ts>` its owner names with --about."""
+    found = [{"kind": "ask", "ts": about_ts}] if about_ts else []
+    found += [{"kind": "card", "ts": f"{seconds}.{micros}"} for channel, seconds, micros in SLACK_MESSAGE.findall(text) if channel == lane["channel"]]
+    for named in about:
+        kind, _, ref = named.partition(":")
+        if kind not in ("release", "card") or not ref:
+            raise store.Refused(f"--about {named!r} names release:<ref> or card:<ts>")
+        found.append({"kind": kind, "ts" if kind == "card" else "ref": ref})
+    return found
+
+
+def carded(drive: str, lane_id: str, post_id: str, attached: list[str], seen: dict[str, dict]) -> None:
+    """Mark each lane PR the voice attached Approve and Hold buttons to as carded at its head by this post, the record the supervisor reads so it never draws a second card for the same head."""
+    numbers = {int(found[1]) for label in attached if (found := ATTACHED_APPROVE.match(label))}
+    if not numbers:
+        return
+
+    def marking(lane: dict) -> None:
+        for row in lane["prs"]:
+            if row["number"] in numbers and (head := (seen.get(f"{row['repo']}#{row['number']}") or {}).get("head")):
+                row["carded"] = {"head": head, "by": post_id, "at": store.stamp()}
+
+    store.update(drive, lane_id, marking)
 
 
 def asked_thread(lane: dict, about_ts: str | None) -> str:
@@ -187,9 +219,9 @@ def followed(drive: str, moment: datetime) -> list[dict]:
     """The lane posts of this drive the voice sent in the last FOLLOWED_HOURS, each with the PRs it named: those it recorded, or for a post from before it recorded them, the PRs its words link, their state and head then unknown."""
     since = (moment - timedelta(hours=FOLLOWED_HOURS)).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     with urllib.request.urlopen(urllib.request.Request(f"{POSTS_URL}?since={since}", headers={"X-Claude-Pid": str(os.getppid())}), timeout=ENQUEUE_SECONDS) as answer:
-        posts = json.load(answer) or []
-    lanes = store.load_all(drive)
-    return [post | {"prs": post.get("prs") or named_prs(post.get("after") or "", {})} for post in posts if post.get("lane") in lanes and post.get("ts")]
+        listed = json.load(answer)
+    lanes, taps = store.load_all(drive), listed.get("taps") or {}
+    return [post | {"prs": post.get("prs") or named_prs(post.get("after") or "", {}), "about": [subject | ({"answer": taps.get(subject["ts"])} if subject["kind"] == "card" else {}) for subject in post.get("about") or []]} for post in listed.get("posts") or [] if post.get("lane") in lanes and post.get("ts")]
 
 
 def subject_keys(posts: list[dict]) -> set[tuple[str, int]]:
@@ -203,9 +235,10 @@ def settle(drive: str, posts: list[dict], prs: dict[tuple[str, int], dict]) -> l
     done = json.loads(path.read_text()) if path.is_file() else {}
     lanes = store.load_all(drive)
     changed = []
+    releases = release_states(drive, {subject["ref"] for post in posts for subject in post["about"] if subject["kind"] == "release"})
     for post in posts:
         lane = lanes[post["lane"]]
-        lines, stale = changes(post, {(row["repo"], row["number"]): row for row in lane.get("prs") or []}, prs)
+        lines, stale = changes(post, lane, prs, releases)
         kept = done.setdefault(post["ts"], {})
         if lines and (line := " · ".join(lines)) != kept.get("line"):
             body = json.dumps({"channel_id": post["channel_id"], "ts": post["ts"], "thread_ts": post.get("thread_ts") or "", "line": line}).encode()
@@ -230,8 +263,10 @@ def clock(stamp: str) -> str:
     return datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(PACIFIC).strftime("%-I:%M %p")
 
 
-def changes(post: dict, rows: dict[tuple[str, int], dict], prs: dict[tuple[str, int], dict]) -> tuple[list[str], list[str]]:
-    """What changed under one post since it went out: the mechanical state lines it takes, and the judgment reasons its owner is told of."""
+def changes(post: dict, lane: dict, prs: dict[tuple[str, int], dict], releases: dict[str, dict]) -> tuple[list[str], list[str]]:
+    """What changed under one post since it went out: the mechanical state lines it takes, for its PRs, the card it names being answered, the ask it answers being done and the release it names going live or failing, and the judgment reasons its owner is told of."""
+    rows = {(row["repo"], row["number"]): row for row in lane.get("prs") or []}
+    asks = {ask["ts"]: ask for ask in lane.get("asks") or [] if ask.get("ts")}
     asked = " ".join(post.get("options") or [])
     lines, stale = [], []
     for pr in post["prs"]:
@@ -249,4 +284,23 @@ def changes(post: dict, rows: dict[tuple[str, int], dict], prs: dict[tuple[str, 
             lines.append(f"✅ #{pr['number']} approved")
         elif now["state"] == "OPEN" and pr.get("head") and now["head"] != pr["head"]:
             stale.append(f"#{pr['number']} has a new head, {now['head'][:7]}, since it read {pr['head'][:7]}")
+    for subject in post.get("about") or []:
+        if subject["kind"] == "card" and subject.get("answer"):
+            lines.append(f"✅ answered: {subject['answer']}")
+        elif subject["kind"] == "ask" and (asks.get(subject["ts"]) or {}).get("done"):
+            lines.append("✅ done")
+        elif subject["kind"] == "release" and (release := releases.get(subject["ref"])) and release["state"] in ("live", "failed"):
+            lines.append(f"{'🚀' if release['state'] == 'live' else '❌'} {release['name']} {release['state']}")
     return lines, stale
+
+
+def release_states(drive: str, refs: set[str]) -> dict[str, dict]:
+    """Each release a followed post names, by its ref, as the release tool's own record reads it now: live once it converged, failed when it failed or converged on only some, started while it runs."""
+    from drive import providers
+
+    from lane import releases
+
+    if not refs or not (checkout := store.config(drive)["checkout"]):
+        return {}
+    tool = providers.at(Path(checkout)).release
+    return {ref: {"name": record.get("name") or ref, "state": releases.RESULTS.get(record["status"], "started")} for ref in refs if (record := tool.status(ref))}
