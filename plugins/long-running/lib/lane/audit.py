@@ -78,6 +78,28 @@ def fixed(drive: str, defect_id: str, commit: str) -> None:
     path.write_text(json.dumps(kept | {"state": "fixed", "commit": commit, "fixed_at": store.stamp()}, ensure_ascii=False) + "\n")
 
 
+def remind(drive: str, open_for: timedelta) -> list[str]:
+    """Each open defect past open_for since it was filed or last sent, sent again to its owner as overdue, and its lane woken when a lane owns it, so an overdue defect is worked, never filed again by the next audit; what was sent."""
+    from lane import verbs
+
+    moment, lanes, sent = store.now(), store.load_all(drive), []
+    for found in open_defects(drive):
+        if moment - store.parse(found.get("reminded") or found["at"]) < open_for:
+            continue
+        overdue = f"OVERDUE defect {found['id']}, open since {found['at']}: {found['what']}\nEvidence: {found['evidence']}\nMechanism: {found['mechanism']}\nFix it, then `{store.launcher(drive)} --drive {drive} defect-fixed {found['id']} --commit <sha>`."
+        if found["owner"] in lanes and lanes[found["owner"]]["state"] == store.RUNNING:
+            with store.note_path(drive, found["owner"]).open("a") as note:
+                note.write(overdue + "\n\n")
+        elif found["owner"] in lanes:
+            store.update(drive, found["owner"], lambda lane: verbs.woken(lane, overdue))
+        else:
+            owners.send((store.config(drive).get("defect_to") or {}).get(found["owner"]) or found["owner"], overdue)
+        path = store.drive_dir(drive) / DEFECTS / f"{found['id']}.json"
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"reminded": store.stamp(moment)}, ensure_ascii=False) + "\n")
+        sent.append(f"defect {found['id']} sent again to {found['owner']}")
+    return sent
+
+
 def open_defects(drive: str) -> list[dict]:
     folder = store.drive_dir(drive) / DEFECTS
     return [{"id": path.stem, **kept} for path in sorted(folder.glob("*.json")) if (kept := json.loads(path.read_text()))["state"] == "open"] if folder.is_dir() else []

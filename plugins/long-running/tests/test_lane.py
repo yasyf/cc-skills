@@ -1739,3 +1739,21 @@ def test_only_point_moves_the_launcher_so_an_old_process_repointing_the_lane_sym
     store.point(DRIVE, newer)
     assert store.taken(DRIVE) == newer and (store.drive_dir(DRIVE) / "lane").readlink() == newer
     assert store.launcher(DRIVE).read_text().startswith("#!/bin/sh\nexec ")
+
+
+def test_an_overdue_defect_wakes_its_owning_lane_or_goes_back_to_its_owner_once_per_window(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import audit
+
+    sent = []
+    monkeypatch.setattr(owners, "send", lambda to, text: sent.append((to, text)))
+    opened("a")
+    ended("a", ["pr_merged:acme/app#7"])
+    lane_defect = audit.defect(DRIVE, "a waits on nothing", "a.log", "no producer", "a")
+    tool_defect = audit.defect(DRIVE, "cards flood", "x.log", "no cap", "lane-voice")
+    sent.clear()
+    for path in (lane_defect, tool_defect):
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"at": store.stamp(store.now() - timedelta(hours=1))}))
+    assert len(audit.remind(DRIVE, timedelta(minutes=30))) == 2
+    assert store.load(DRIVE, "a")["wait"]["fired_why"].startswith(f"OVERDUE defect {lane_defect.stem}")
+    assert [to for to, _ in sent] == ["lane-voice"]
+    assert audit.remind(DRIVE, timedelta(minutes=30)) == []

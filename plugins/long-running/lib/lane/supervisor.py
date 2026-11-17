@@ -288,6 +288,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
     if store.live(drive):
         alone(drive, errors, "no late ask was redelivered", lambda: redeliver(drive, store.now()))
         alone(drive, errors, "no overdue promise was raised", lambda: overdue(drive, store.now()))
+        alone(drive, errors, "no overdue defect was sent again", lambda: audit.remind(drive, DEFECT_OPEN))
         alone(drive, errors, "no block of his was checked for reaching him", lambda: blocks.told(drive, store.now()))
     if read_outside and store.live(drive):
         beside(drive, "his words got no working line", lambda: ack.working(drive) and None)
