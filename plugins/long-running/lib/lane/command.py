@@ -81,8 +81,6 @@ def queued_push(command: str, cwd: Path) -> str | None:
     """Why a push from cwd must wait: its branch's PR sits in the merge queue, and a new head ejects it, as #57687's did; None for any other command or branch, and when the PR or its queue state cannot be read, since a gate that cannot read lets the push through."""
     if not PUSH.search(command) or NO_PUSH.search(command):
         return None
-    import subprocess
-
     from drive import providers
 
     branch = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=False, timeout=10).stdout.strip()
