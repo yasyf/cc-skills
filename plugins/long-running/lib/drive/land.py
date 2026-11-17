@@ -57,7 +57,6 @@ OWN_RED = "not landed: its own change fails"
 DEQUEUED_LINE = re.compile(r"^#\d+ DEQUEUED ", re.MULTILINE)
 NOT_QUEUED_LINE = re.compile(r"^#\d+ NOT_QUEUED\b", re.MULTILINE)
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
-OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
 BRANCH_HISTORY = 50
@@ -829,7 +828,7 @@ def said(output: str) -> str:
 
 
 def enqueued(name: str, coordinator: Path, enqueue: str, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:
-    """Queue the unit through the repository's merge queue as the head of its repository's default branch holds it, run from a fresh() worktree of this Mac's landing clone and never from the coordinator's checkout, with --flake when a PR of it requeues() at the head the queue ejected it at: --check first, whose exit of ENQUEUE_FAILED ends the landing as the lander's own failure, by unfinished(), as the same exit of --watch does, and whose BLOCKED lines name each head approved only on an older one, which the queue names only once its review finished on the head; a dry run stops there, saying what it would queue and the BLOCKED lines it read; then the repository's review bot is asked to review each such head that prs, the drive's PRs as the lander read them at its start, records no ask of, each head it asks added to asked for record() to keep, and --watch, which alone tells a wait from a fix, such as GitHub still computing mergeability from a conflict, waits until the queue holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it, a GitHub read that failed before anything queued, the landing clone's fetch included, not landed by UNREAD's rule. It reads and writes no drive state, so an install that saves the drive while it makes the worktree, runs --check or waits on the queue never ends the landing."""
+    """Queue the unit through the repository's merge queue as the head of its repository's default branch holds it, run from a fresh() worktree of this Mac's landing clone and never from the coordinator's checkout, with --flake when a PR of it requeues() at the head the queue ejected it at: --check first, whose exit of ENQUEUE_FAILED ends the landing as the lander's own failure, by unfinished(), as the same exit of --watch does, and whose BLOCKED lines a dry run says; a dry run stops there, saying what it would queue and the BLOCKED lines it read; then the repository's review bot is asked to review the head of each PR of the unit that prs, the drive's PRs as the lander read them at its start, reads approved only on an older head and records no ask of, each head it asks added to asked for record() to keep, and --watch, which alone tells a wait from a fix, such as GitHub still computing mergeability from a conflict, waits until the queue holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it, a GitHub read that failed before anything queued, the landing clone's fetch included, not landed by UNREAD's rule. It reads and writes no drive state, so an install that saves the drive while it makes the worktree, runs --check or waits on the queue never ends the landing."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     flags = ["--flake"] if flake else []
@@ -847,17 +846,17 @@ def enqueued(name: str, coordinator: Path, enqueue: str, keys: list[str], prs: d
             print(checked.stdout + checked.stderr, flush=True)
             if failed := unfinished(name, "--check", keys, checked):
                 return failed
-            blocked = list(BLOCKED_LINE.finditer(checked.stdout))
             if dry_run:
+                blocked = list(BLOCKED_LINE.finditer(checked.stdout))
                 read = f"; --watch waits out or stops on what --check read: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}" if blocked else ""
                 return f"would queue {', '.join(keys)} through {Path(enqueue).name} {' '.join(['--watch', *flags])} from {branch} at {sha[:12]}: every PR below it is merged, approved by him or exempt{read}"
-            for line in blocked:
-                key = f"{repo}#{line['number']}"
-                if not OLDER_HEAD.search(line["gaps"]) or prs[key]["review_asked"] == line["head"]:
+            for key in keys:
+                pr = prs[key]
+                if pr["review"] != "stale" or pr["review_asked"] == pr["head"]:
                     continue
-                if refused := ask_review(providers.at(coordinator).repo.review_ask, repo, line["number"], line["head"]):
+                if refused := ask_review(providers.at(coordinator).repo.review_ask, repo, key.split("#")[1], pr["head"]):
                     return refused
-                asked[key] = line["head"]
+                asked[key] = pr["head"]
             try:
                 done = subprocess.run([script, "--watch", *flags, *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
             except Halted:
