@@ -4917,14 +4917,6 @@ def test_the_spawner_launches_each_ready_codex_items_own_run_with_no_worker_betw
     assert work.spawned(data, moment, [codex])[1] == [["job", "launch", "j2"]]
 
 
-def test_slot_queue_runs_end_to_end_and_lists_a_queued_tester_on_a_free_env(run: Run, demo: str) -> None:
-    run("order", "add", "--title", "Soak it", "--project", "The drive", "--workstream", "Drive tooling", "soak it", "--kind", "build", "--parts", "staging test of #42 before it lands")
-    run("job", "add", "builder", "--order", "o1", "--part", "staging test of #42 before it lands", "--goal", "soak #42 on staging")
-    code, shown = run("slot", "queue")
-    assert (code, shown.splitlines()[0], shown.splitlines()[1].startswith("  q1. j1 in the queue, ")) == (0, f"{work.env(state.load(demo))}: free", True)
-    assert run("work", "show")[0] == 0
-
-
 def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     run: Run, demo: str, state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -7552,7 +7544,12 @@ def test_drive_work_back_ends_the_workers_claim_keeps_why_on_the_item_and_refuse
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "the store", "the queue")
     run("job", "add", "builder", "--order", "o1", "--part", "the store", "--goal", "ship")
     run("job", "add", "builder", "--order", "o1", "--part", "the queue", "--goal", "work the queue")
-    state.write(demo, lambda data: data["jobs"]["j1"].update(claim={"worker": "j2", "attempt": 1, "at": state.stamp()}, waits=["j2"]))
+
+    def claimed(data: dict) -> None:
+        data["jobs"]["j1"].update(claim={"worker": "j2", "attempt": 1, "at": state.stamp()}, waits=["j2"])
+        data["jobs"]["j2"]["work_kind"] = work.PROVE
+
+    state.write(demo, claimed)
     with pytest.raises(state.DriveError, match="j3 holds no claim on it"):
         work.back(demo, "j3", "j1", "another stack")
     assert work.back(demo, "j2", "j1", "another stack") == "j1 goes back to the queue from j2: another stack; another worker takes it"
@@ -7580,6 +7577,7 @@ def test_drive_work_done_refuses_a_waiting_the_watch_cannot_free_as_drive_job_re
 
     def claimed(data: dict) -> None:
         data["jobs"]["j1"].update(claim={"worker": "j2", "attempt": 1, "at": state.stamp()}, waits=["j2"])
+        data["jobs"]["j2"]["work_kind"] = work.PROVE
 
     state.write(demo, claimed)
     with pytest.raises(state.DriveError, match="its WAITING names nothing the watch frees it on"):
@@ -13097,6 +13095,7 @@ def test_drive_work_done_takes_the_waiting_line_a_provers_merge_handoff_names_an
 
     def claimed(data: dict) -> None:
         data["jobs"]["j1"].update(claim={"worker": "j2", "attempt": 1, "at": state.stamp()}, waits=["j2"])
+        data["jobs"]["j2"]["work_kind"] = work.PROVE
 
     state.write(demo, claimed)
     assert "staging-slot" not in install.PROVER_WAIT

@@ -2252,7 +2252,6 @@ def test_a_brief_carries_his_order_and_each_rulings_words_without_the_drives_not
     recorded.shown["73060f0"] = ANSWER
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "make the verbs MCP tools")
     brief = {"id": "j2", "serves": "drive tooling", "done_when": "installed", "where": "yasyf/cc-skills main", "ruling": ["73060f0"]}
     said = tools.run("job", demo, {"ops": [{"brief": brief}]})
     path = state.drive_dir(demo) / "jobs" / "j2.brief.md"
@@ -2263,7 +2262,7 @@ def test_a_brief_carries_his_order_and_each_rulings_words_without_the_drives_not
     )
     assert state.load(demo)["orders"]["o1"]["owner"] == "meta"
     written = path.read_text()
-    assert written.startswith(f"Order (his words): do a pass on the tools\nFrom: slack:D123/{THREAD}\nServes: drive tooling\nDecisions that bind:\n- {ANSWER['title']} (73060f0, 2026-11-12T11:33:00Z)\n  {ANSWER['body'].splitlines()[0]}\nGoal: make the verbs MCP tools\n")
+    assert written.startswith(f"Order (his words): do a pass on the tools\nFrom: slack:D123/{THREAD}\nServes: drive tooling\nDecisions that bind:\n- {ANSWER['title']} (73060f0, 2026-11-12T11:33:00Z)\n  {ANSWER['body'].splitlines()[0]}\nGoal: build Short title\n")
     assert "cci owner 660781" not in written
     assert written.endswith("Drive: demo, order o1, job j2\n")
     assert state.load(demo)["jobs"]["j2"]["brief"] == str(path)

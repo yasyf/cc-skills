@@ -1858,6 +1858,8 @@ def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_ca
     on_his_stack_card(monkeypatch, 41, 42)
     with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#41"]["checks"] = "fail"
+        for number in (41, 42):
+            data["prs"][f"Forge-AI/monorepo#{number}"].update(base=STACK[number][1], branch=STACK[number][2])
     typed(41, "Approve")
     typed(42, "Hold")
     assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41)], [])

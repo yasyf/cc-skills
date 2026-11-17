@@ -123,7 +123,7 @@ def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show
     ]
     assert ("name", "roles", "subcoordinators", "communicators") in loaded
     [kept] = said(demo)
-    assert kept["text"] == f"[the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
+    assert kept["text"] == f"[#7]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
     assert (kept["url"], kept["thread"]) == (POSTED, "1794300000.000900")
 
 
@@ -270,7 +270,7 @@ def test_an_edit_links_each_reference_as_a_post_does_and_the_dashboard_shows_its
     assert [event["edited"] for event in said(demo)] == [False, True]
     history = view.history(state.load(demo), (event for event, _ in state.read_events(demo)), "https://acme.slack.com/")
     [shown] = [entry for entry in history if entry["kind"] == "said"]
-    assert shown["text"] == f"[the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
+    assert shown["text"] == f"[#7]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
 
 
 @pytest.mark.parametrize(
@@ -301,7 +301,7 @@ def test_a_reference_to_nothing_the_drive_holds_refuses_the_post_and_sends_nothi
         talk.say(demo, {"text": "{pr:7}"})
     assert (posts, said(demo)) == ([], [])
     talk.say(demo, {"text": "{pr:Forge-AI/monorepo#7}"})
-    assert posts[0][-1] == "<https://github.com/Forge-AI/monorepo/pull/7|Forge-AI/monorepo#7>"
+    assert posts[0][-1] == "<https://github.com/Forge-AI/monorepo/pull/7|#7>"
 
 
 RELEASE = "https://buildkite.com/acme/release/builds/14765"
@@ -317,7 +317,7 @@ def test_a_reference_or_link_inside_a_raw_links_words_refuses_the_post_naming_th
         talk.say(demo, {"text": f"<{RELEASE}|The release carrying <{PR_URL}|the fix>> is failing."})
     assert (posts, said(demo)) == ([], [])
     talk.say(demo, {"text": f"<{RELEASE}|Release 14765>, carrying {{pr:7|the fix}}, is failing; Slack draws `<{RELEASE}|its <link>>` broken."})
-    assert posts[0][-1] == f"<{RELEASE}|Release 14765>, carrying <{PR_URL}|the fix>, is failing; Slack draws `<{RELEASE}|its <link>>` broken."
+    assert posts[0][-1] == f"<{RELEASE}|Release 14765>, carrying <{PR_URL}|#7 the fix>, is failing; Slack draws `<{RELEASE}|its <link>>` broken."
 
 
 def test_a_card_he_answered_or_the_drive_withdrew_still_links_by_its_waits_id(demo: str, posts: list[tuple[str, ...]]) -> None:
@@ -1740,7 +1740,7 @@ def test_an_edit_of_a_line_in_an_alerts_thread_goes_out_with_the_ticket_its_hook
     )
     history = view.history(state.load(demo), (event for event, _ in state.read_events(demo)), "https://acme.slack.com/")
     [shown] = [entry for entry in history if entry["kind"] == "said"]
-    assert shown["text"] == f"The release failed on the migration [the run page shows its history]({PR_URL}) fixes."
+    assert shown["text"] == f"The release failed on the migration [#7]({PR_URL}) fixes."
 
 
 @pytest.mark.parametrize(

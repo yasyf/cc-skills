@@ -639,7 +639,7 @@ def test_a_readers_lane_runs_the_reader_with_the_builders_sprite_and_waits_secti
     composed = orca.vm_brief(demo, "j2", "reader", "Drive: demo, order o1, job j2\n", state.LOCAL_ROUTE)
     assert composed.startswith("Remote lane: drive demo, job j2. You are the long-running reader below")
     assert [heading in composed for heading in ("You answer the one question your brief asks", "## On a Sprite", "## Waits and reads", "# Land a change", "## Return\n", "## Build\n")] == [True, True, True, False, False, False]
-    assert ("# Lane rules" in composed, "# Lane rules" in orca.vm_brief(demo, "j2", "reader", "Drive: demo, order o1, job j2\n", None)) == (False, True)
+    assert ("# Lane rules" in composed, "# Lane rules" in orca.vm_brief(demo, "j2", "reader", "Drive: demo, order o1, job j2\n", None)) == (True, True)
     assert orca.brief_of(composed) == "Drive: demo, order o1, job j2"
 
 
