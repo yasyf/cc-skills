@@ -55,6 +55,19 @@ def make(name: str, session: str | None = None, started: str | None = None) -> N
     state.create(data)
 
 
+
+def save_unnormalized(data: dict) -> None:
+    with closing(state.connect(state.database_path(data["name"]))) as db:
+        db.execute("BEGIN IMMEDIATE")
+        state.rewrite(db, state.materialized(data), None)
+        db.execute("DELETE FROM meta WHERE key = 'normalization'")
+        db.execute("COMMIT")
+
+
+def normalized_import(name: str) -> dict:
+    state.normalize_store(name)
+    return state.load(name)
+
 def test_a_save_takes_down_the_mac_boxes_of_each_job_it_moves_out_of_running_or_into_done_failed_or_stopped_once(state_root: Path, mac_boxes_downed: list[str]) -> None:
     make("demo")
     with edit("demo") as data:
@@ -423,14 +436,14 @@ def test_a_load_after_another_processs_save_reads_only_the_rows_that_save_wrote_
 def test_cold_cached_and_batched_loads_skip_cyclic_scans_and_preserve_caller_collection(state_root: Path, monkeypatch: pytest.MonkeyPatch, collecting: bool) -> None:
     path = ordered("demo", 3)
     state.WHOLE_READS.pop((path, path.stat().st_ino), None)
-    original = state.marshal.loads
+    original = state.json.loads
     scans: list[bool] = []
 
-    def decode(body: bytes) -> dict:
+    def decode(body: str) -> dict:
         scans.append(gc.isenabled())
         return original(body)
 
-    monkeypatch.setattr(state.marshal, "loads", decode)
+    monkeypatch.setattr(state.json, "loads", decode)
     was_collecting = gc.isenabled()
     (gc.enable if collecting else gc.disable)()
     try:
@@ -446,7 +459,7 @@ def test_cold_cached_and_batched_loads_skip_cyclic_scans_and_preserve_caller_col
         with state.batch("demo"):
             scans.clear()
             third = state.load("demo")
-            assert scans and not any(scans)
+            assert not scans
             assert gc.isenabled() == collecting
             assert third == second
         with pytest.raises(DriveError, match="no drive named absent"):
@@ -464,18 +477,18 @@ def test_selected_loads_decode_only_requested_fields_and_keep_independent_copies
         mark.touch()
     whole = state.load("demo")
     cached = state.WHOLE_READS[(path, path.stat().st_ino)].shaped
-    decoded: list[bytes] = []
-    loads = state.marshal.loads
+    decoded: list[str] = []
+    loads = state.json.loads
 
-    def decode(body: bytes) -> dict:
+    def decode(body: str) -> dict:
         decoded.append(body)
         return loads(body)
 
-    monkeypatch.setattr(state.marshal, "loads", decode)
+    monkeypatch.setattr(state.json, "loads", decode)
     selected = state.load("demo", fields)
-    assert selected == {field: whole[field] for field in fields}
     assert cached is not None
-    assert decoded == [body for field in fields for body in (cached.collections[field].values() if field in cached.collections else [cached.fields[field]])]
+    assert decoded == [cached.fields[field] for field in fields if field not in cached.collections]
+    assert selected == {field: whole[field] for field in fields}
     if "orders" in selected:
         selected["orders"]["o0"]["text"] = "only this caller"
         assert state.load("demo", fields)["orders"]["o0"]["text"] == "order 0"
@@ -515,57 +528,38 @@ def test_writes_reuse_the_loaded_snapshot_without_encoding_the_whole_drive(
 @pytest.mark.parametrize("collecting", [True, False])
 def test_write_baseline_reuses_unchanged_fields_and_decodes_changes_without_cyclic_scans(monkeypatch: pytest.MonkeyPatch, collecting: bool) -> None:
     before = {"jobs": {"j1": {"text": "unchanged"}}, "orders": {"o1": {"text": "before"}}, "terminal": "removed"}
-    encoded = state.Snapshot(before)
-    mine = {"jobs": before["jobs"], "orders": {"o1": {"text": "after"}}, "owner": "added"}
-    loads = state.marshal.loads
-    decoded: list[bytes] = []
-
-    def decode(value: bytes):
-        assert not gc.isenabled()
-        decoded.append(value)
-        return loads(value)
-
-    monkeypatch.setattr(state.marshal, "loads", decode)
+    snapshot = state.Snapshot(before)
+    mine = snapshot.read()
+    mine["orders"]["o1"]["text"] = "after"
+    del mine["terminal"]
+    mine["owner"] = "added"
     was_collecting = gc.isenabled()
     (gc.enable if collecting else gc.disable)()
     try:
-        baseline = state.write_baseline(encoded, mine)
+        baseline = state.write_baseline(snapshot, mine)
         assert gc.isenabled() == collecting
-        assert baseline == before
-        assert baseline["jobs"] is mine["jobs"]
-        assert baseline["orders"] is not mine["orders"]
-        assert decoded == [encoded.collections["orders"]["o1"], encoded.fields["terminal"]]
+        assert not baseline["jobs"].loaded and not baseline["orders"].loaded
         assert state.written_rows(baseline, mine) == {("orders", "o1"), ("", "terminal"), ("", "owner")}
-        broken = state.Snapshot({"broken": None})
-        broken.fields["broken"] = b""
-        with pytest.raises(EOFError):
-            state.write_baseline(broken, {})
-        assert gc.isenabled() == collecting
+        assert not baseline["jobs"].loaded
+        assert baseline == before
     finally:
         (gc.enable if was_collecting else gc.disable)()
 
 
 @pytest.mark.parametrize("count", [1, 1000])
-def test_row_snapshot_baseline_decodes_only_changed_and_removed_rows(monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+def test_row_snapshot_baseline_decodes_only_changed_and_removed_rows(count: int) -> None:
     before = {"jobs": {f"j{i}": {"text": f"job {i}", "reports": [i]} for i in range(count + 2)}, "owner": "same"}
     snapshot = state.Snapshot(before)
     mine = snapshot.read()
     mine["jobs"]["j0"]["reports"].append("changed")
     del mine["jobs"]["j1"]
     mine["jobs"]["added"] = {"text": "new"}
-    loads = state.marshal.loads
-    decoded: list[bytes] = []
-
-    def decode(body: bytes):
-        decoded.append(body)
-        return loads(body)
-
-    monkeypatch.setattr(state.marshal, "loads", decode)
     baseline = state.write_baseline(snapshot, mine)
-    assert baseline == before
-    assert decoded == [snapshot.collections["jobs"]["j0"], snapshot.collections["jobs"]["j1"]]
-    assert all(baseline["jobs"][f"j{i}"] is mine["jobs"][f"j{i}"] for i in range(2, count + 2))
     assert state.written_rows(baseline, mine) == {("jobs", "j0"), ("jobs", "j1"), ("jobs", "added")}
+    assert set(mine["jobs"].loaded) == {"j0", "added"}
+    assert not baseline["jobs"].loaded
+    assert baseline["jobs"]["j0"] == before["jobs"]["j0"]
+    assert len(baseline["jobs"].loaded) == 1
     mine["jobs"]["j0"]["reports"].append("later")
     assert baseline["jobs"]["j0"] == before["jobs"]["j0"]
 
@@ -581,6 +575,85 @@ def test_row_snapshot_baseline_preserves_json_serializable_typed_values() -> Non
     assert baseline == before
     assert state.written_rows(baseline, mine) == {("jobs", "j1"), ("", "owner")}
     assert isinstance(mine["jobs"]["j1"]["text"], Message)
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def test_normalized_load_and_tracked_write_leave_unaccessed_records_encoded(state_root: Path, monkeypatch: pytest.MonkeyPatch, warm: bool) -> None:
+    path = ordered("demo", 102)
+    if warm:
+        state.load("demo")
+    else:
+        state.WHOLE_READS.pop((path, path.stat().st_ino), None)
+    monkeypatch.setattr(state, "shaped", lambda *args: pytest.fail("runtime reads must not normalize the drive"))
+    data = state.load("demo")
+    assert not data["orders"].loaded
+    assert list(data["orders"]) == [f"o{i}" for i in range(102)]
+    assert not data["orders"].loaded
+    data["orders"]["o1"]["text"] = "only this caller"
+    assert set(data["orders"].loaded) == {"o1"}
+    state.write("demo", lambda current: current["orders"]["o1"].update(text="one changed row"))
+    assert state.saved_row("demo", "orders", "o1")["text"] == "one changed row"
+    assert data["orders"]["o1"]["text"] == "only this caller"
+
+
+
+def test_lazy_row_views_preserve_mapping_and_json_contracts(capsys: pytest.CaptureFixture[str]) -> None:
+    expected = {"jobs": {"j1": {"state": "waiting"}, "j2": {"state": "done"}}}
+    data = state.Snapshot(expected).read()
+    rows = data["jobs"]
+    assert list(reversed(rows.keys())) == ["j2", "j1"]
+    assert not rows.loaded
+    assert next(reversed(rows.values())) == {"state": "done"}
+    assert set(rows.loaded) == {"j2"}
+    assert next(reversed(rows.items())) == ("j2", {"state": "done"})
+    reads = state.Reads()
+    tracked = state.ReadCollection("jobs", rows, reads)
+    assert state.record_at({"jobs": tracked}, ("jobs", "j1", "launch")) is rows["j1"]
+    assert ("jobs", "j1") in reads
+    cli.emit(cli.argparse.Namespace(json=True), "", data)
+    assert json.loads(capsys.readouterr().out) == expected
+
+
+def test_reporter_refresh_visits_only_connected_orders() -> None:
+    moment = state.stamp()
+    link = "https://acme.slack.com/archives/C1/p1794400100000200"
+    orders = {key: state.new_order(key, "slack", None, {}, moment) | {"kind": "build", "reporters": [state.reporter(link)]} for key in ("o1", "o2", "o3")}
+    orders["o2"]["jobs"] = ["j1"]
+    snapshot = state.Snapshot({"orders": orders, "jobs": {"j1": state.new_job("o2", "builder", "build", [], moment)}})
+    snapshot.collections["orders"]["o3"] = "not JSON: unrelated orders must remain unread"
+    base, current = snapshot.read(), snapshot.read()
+    current["jobs"]["j1"]["carries"]["o1"] = []
+    current["orders"]["o1"]["jobs"] = ["j1"]
+    reads = state.Reads()
+    state.refresh_reporters(base, current, [("jobs", "j1"), ("orders", "o1")], reads)
+    assert current["orders"]["o2"]["reporters"][0]["kept_by"] == "o1"
+    assert "o3" not in current["orders"].loaded
+    assert "o3" not in base["orders"].loaded
+    assert not any(key == "*" for _, key in reads)
+
+def test_install_normalization_is_atomic_and_runs_once(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = ordered("demo", 3)
+    with closing(state.connect(path)) as db:
+        db.execute("DELETE FROM meta WHERE key = 'normalization'")
+    with pytest.raises(DriveError, match="run drive install"):
+        state.load("demo")
+    shape = state.shaped
+
+    def interrupted(name: str, saved: dict) -> tuple[dict, bool]:
+        raise RuntimeError("interrupted normalization")
+
+    monkeypatch.setattr(state, "shaped", interrupted)
+    with pytest.raises(RuntimeError, match="interrupted normalization"):
+        state.normalize_store("demo")
+    with closing(state.connect(path)) as db:
+        assert db.execute("SELECT value FROM meta WHERE key = 'normalization'").fetchone() is None
+        assert db.execute("SELECT COUNT(*) FROM rows WHERE collection = 'orders'").fetchone()[0] == 3
+    monkeypatch.setattr(state, "shaped", shape)
+    state.normalize_store("demo")
+    assert len(state.load("demo")["orders"]) == 3
+    monkeypatch.setattr(state, "shaped", lambda *args: pytest.fail("normalized stores must not be normalized again"))
+    state.normalize_store("demo")
+    assert len(state.load("demo")["orders"]) == 3
 
 
 def test_selected_loads_observe_other_processes_saves_and_batch_writes(state_root: Path) -> None:
@@ -741,11 +814,11 @@ def test_migrate_saves_the_marks_shaping_set_that_the_saved_drive_lacks_so_their
     make("demo")
     with closing(state.connect(state.database_path("demo"))) as db:
         db.execute("DELETE FROM rows WHERE collection = '' AND key IN ('incident_goes_given', 'staging_owed_on_prs')")
-    assert state.load("demo")["incident_goes_given"] is True
-    assert state.stored("demo", ("incident_goes_given", "staging_owed_on_prs")) == {}
-    state.write("demo", lambda data: data.update(terminal="term-1"))
-    assert state.stored("demo", ("incident_goes_given", "staging_owed_on_prs")) == {}
+        db.execute("DELETE FROM meta WHERE key = 'normalization'")
+    with pytest.raises(DriveError, match="run drive install"):
+        state.load("demo")
     state.migrate("demo")
+    state.write("demo", lambda data: data.update(terminal="term-1"))
     assert state.stored("demo", ("incident_goes_given", "staging_owed_on_prs", "terminal")) == {"incident_goes_given": True, "staging_owed_on_prs": True, "terminal": "term-1"}
 
 
@@ -794,7 +867,7 @@ def test_migrate_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kep
     )
     kept.unlink()
     state.migrate("demo")
-    assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] is None
+    assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] == str(kept)
     assert not kept.exists()
 
 
@@ -949,7 +1022,7 @@ def test_a_drive_saved_while_the_card_store_held_whether_a_question_was_open_clo
     state_root: Path,
 ) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["closed_from_cards"]
     moment = "2026-11-09T14:00:00-08:00"
     shown, answered, withdrawn = (f"https://acme.slack.com/archives/D1/p17942000000001{n}0" for n in range(3))
@@ -969,7 +1042,7 @@ def test_a_drive_saved_while_the_card_store_held_whether_a_question_was_open_clo
             ],
         },
     }
-    state.create(data)
+    save_unnormalized(data)
     state.keep_report("demo", "j1", "DESIGN where the copy runs", "DESIGN where the copy runs\n")
     store = {"source": "live", "team_url": "", "pr_cards": [], "questions": [{"url": shown, "card": {"title": "Where?"}}]}
     closed = [
@@ -977,7 +1050,7 @@ def test_a_drive_saved_while_the_card_store_held_whether_a_question_was_open_clo
         {"waits": None, "url": withdrawn, "answer": {"label": "his order replaced it", "at": moment, "withdrawn": True}},
     ]
     state.cards_path("demo").write_text(json.dumps(store | {"closed": closed}))
-    jobs = state.load("demo")["jobs"]
+    jobs = normalized_import("demo")["jobs"]
     assert (jobs["j1"]["state"], jobs["j1"]["questions"][0]["closed"], jobs["j2"]["state"]) == ("done", None, "waiting")
     assert [question["closed"] for question in jobs["j2"]["questions"]] == [
         state.new_close("answered", "Team", None, at=moment),
@@ -987,7 +1060,7 @@ def test_a_drive_saved_while_the_card_store_held_whether_a_question_was_open_clo
     with edit("demo") as data:
         assert data["closed_from_cards"] is True
     state.cards_path("demo").write_text(json.dumps(store | {"questions": [], "closed": [{"waits": None, "url": shown, "answer": {"label": "Here", "at": moment}}, *closed]}))
-    assert state.load("demo")["jobs"]["j1"]["questions"][0]["closed"] is None
+    assert normalized_import("demo")["jobs"]["j1"]["questions"][0]["closed"] is None
 
 
 def test_a_drive_saved_holding_his_answer_on_jobs_not_owed_it_drops_each_copy_on_a_job_made_after_he_gave_it_or_marked_heard(state_root: Path) -> None:
@@ -1017,7 +1090,7 @@ def test_a_drive_saved_holding_his_answer_on_jobs_not_owed_it_drops_each_copy_on
 
 def test_a_drive_saved_with_his_message_repeated_in_an_answer_keeps_it_once_and_marks_sent_each_listed_job_given_it_once(state_root: Path) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["messages_kept_once"]
     said, retro = "build it from scratch, reusing none of the existing HA code", "and do a self retro"
     data["jobs"] = {job_id: state.new_job("o1", "builder", "build it", [], "2026-11-15T03:00:00-08:00") | {"agent": f"agent-{job_id}"} for job_id in ("j1", "j2")}
@@ -1026,10 +1099,10 @@ def test_a_drive_saved_with_his_message_repeated_in_an_answer_keeps_it_once_and_
         answer_id: {"words": words, "link": "https://acme.slack.com/archives/D1/p1794742432520639", "at": at, "said": at, "cards": {}, "jobs": {"j1": None, "j2": None}}
         for answer_id, words in (("4177bd8", " … ".join([said] * 3)), ("5a1e0f2", f"{said} … {retro}"))
     }
-    state.create(data)
+    save_unnormalized(data)
     (state.drive_dir("demo") / "jobs").mkdir(exist_ok=True)
     (state.drive_dir("demo") / "jobs" / "j1-2.md").write_text(f'His words, verbatim: "{said}"')
-    drive = state.load("demo")
+    drive = normalized_import("demo")
     assert ({answer_id: (kept["words"], kept["jobs"]) for answer_id, kept in drive["answers"].items()}, drive["messages_kept_once"]) == (
         {"4177bd8": (said, {"j1": {"mark": "sent"}, "j2": None}), "5a1e0f2": (f"{said} … {retro}", {"j1": None, "j2": None})},
         True,
@@ -1106,7 +1179,7 @@ def test_j3771_a_drive_saved_with_his_cards_on_an_unstarted_design_builders_wait
 
 def test_j6083_a_drive_saved_with_unstarted_jobs_waiting_on_earlier_changes_prs_waits_on_their_jobs_again_and_on_each_earlier_changes_builder_its_design_lists(state_root: Path) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["change_waits_stacked"]
     moment = "2026-11-15T04:00:00-08:00"
     first, second, merged, outside = (f"yasyf/cc-skills#{number}" for number in (1, 2, 3, 4))
@@ -1127,10 +1200,10 @@ def test_j6083_a_drive_saved_with_unstarted_jobs_waiting_on_earlier_changes_prs_
     }
     data["prs"] = {key: state.new_pr(state.pr_url(key), job_id, order_id) for key, job_id, order_id in ((first, "j2", "o1"), (second, "j3", "o1"), (merged, "j3", "o1"), (outside, "j7", "o2"))}
     data["prs"][merged]["state"] = "merged"
-    state.create(data)
+    save_unnormalized(data)
     listed = "".join(f"Change: {change}\n" for change in changes[:3]) + f"Change: {changes[3]} (waits on change 1 and change 2 and change 3)\n"
     state.keep_report("demo", "j1", "DESIGN copy the store in four changes", f"DESIGN copy the store in four changes\n{listed}")
-    drive = state.load("demo")
+    drive = normalized_import("demo")
     assert {job_id: (job["state"], job["waits"], job["said"]) for job_id, job in drive["jobs"].items() if job_id in ("j4", "j5", "j6")} == {
         "j4": ("waiting", ["j2", "j3", outside, "j5"], state.NOT_STARTED),
         "j5": ("waiting", [], state.NOT_STARTED),
@@ -1141,7 +1214,7 @@ def test_j6083_a_drive_saved_with_unstarted_jobs_waiting_on_earlier_changes_prs_
 
 def test_j3986_a_drive_saved_keying_his_rulings_as_typed_keys_each_by_its_full_id_and_folds_one_kept_twice(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["answers_keyed"]
     ruling, other = "596e9ccb7937b69da452c43c49fc284a31301704", "76872536b257acbecf0a8cba730ce7ef1ccbc651"
     early, late = "2026-11-13T03:02:22-08:00", "2026-11-13T03:03:34-08:00"
@@ -1155,10 +1228,10 @@ def test_j3986_a_drive_saved_keying_his_rulings_as_typed_keys_each_by_its_full_i
     closed = state.new_close("answered", None, None, seq="671985", ruling="7687253", at=late)
     question = state.new_question(None, "Which host runs the rules?", early, closed=closed)
     data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], early) | {"questions": [question], "brief_flags": {"ruling": ["596e9cc", ruling, "deadbee"]}}}
-    state.create(data)
+    save_unnormalized(data)
     listed: list[list[str]] = []
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: listed.append(argv) or json.dumps([{"id": ruling}, {"id": other}]))
-    drive = state.load("demo")
+    drive = normalized_import("demo")
     assert listed == [["ccn", "answer", "list", "--limit", "0", "--include-superseded", "--json"]]
     assert drive["answers"] == {
         ruling: kept | {"at": early, "said": late, "cards": {"demo:j1-1": dropped, "demo:j1-2": {"mark": "stands"}}, "jobs": {"j1": {"mark": "sent"}}, "approves": None},
@@ -1167,14 +1240,14 @@ def test_j3986_a_drive_saved_keying_his_rulings_as_typed_keys_each_by_its_full_i
     assert (drive["jobs"]["j1"]["questions"][0]["closed"]["ruling"], drive["jobs"]["j1"]["brief_flags"]["ruling"]) == (other, [ruling, "deadbee"])
     with edit("demo"):
         pass
-    assert (state.load("demo")["answers"] == drive["answers"], len(listed)) == (True, 2)
+    assert (normalized_import("demo")["answers"] == drive["answers"], len(listed)) == (True, 1)
 
 
 def test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dates_each_by_its_tap_once_and_rechecks_each_open_pr_that_read_one(
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["taps_dated"]
     taken, other = "2026-11-13T14:15:38-08:00", "2026-11-13T12:13:00-08:00"
     tapped = state.stamp(datetime.fromtimestamp(1794600374.250448).astimezone())
@@ -1189,19 +1262,19 @@ def test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dat
         f"yasyf/cc-skills#{number}": state.new_pr(f"https://github.com/yasyf/cc-skills/pull/{number}", "j1", "o1") | {"state": status, "answers": answers, "checker": checker}
         for number, status, answers in ((1, "open", read_tap), (2, "open", read_typed), (3, "merged", read_tap))
     }
-    state.create(data)
+    save_unnormalized(data)
     records = {"699068": {"seq": 699068, "id": "tap:demo:j1-1794600337558:1794600374.250448"}, "699080": {"seq": 699080}}
     shown: list[list[str]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: shown.append(argv) or "".join(json.dumps(records[seq]) + "\n" for seq in argv[3:]))
-    drive = state.load("demo")
+    drive = normalized_import("demo")
     dated = [question["closed"]["at"] for question in drive["jobs"]["j1"]["questions"]]
     kept = [(pr["answers"], pr["checker"]) for pr in drive["prs"].values()]
     assert (shown, dated) == ([["cci", "show", "--json", "699068", "699080"]], [tapped, tapped, other])
     assert kept == [(None, None), (read_typed, checker | {"faulted": []}), (read_tap, checker | {"faulted": []})]
     with edit("demo"):
         pass
-    state.load("demo")
-    assert len(shown) == 2
+    normalized_import("demo")
+    assert len(shown) == 1
 
 
 def test_a_drive_saved_keeping_the_answers_cc_notes_ranked_near_a_card_beside_those_a_pr_cites_drops_each_open_prs_kept_answers_and_objection_once_and_keeps_only_the_cited_ones_on_the_rest(
@@ -1277,7 +1350,7 @@ def test_a_drive_saved_with_builders_whose_goal_is_their_readers_question_gives_
 
 def test_a_drive_saved_before_proof_results_marked_marks_each_proof_that_moved_its_job_off_its_line_and_names_when_own_done_proofs_began(state_root: Path) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["proof_results_marked"], data["own_done_proofs_since"]
     ran, blocked = "DONE checked it by hand", "BLOCKED j1: repro/j1.sh exits 1"
     proof = {"pid": 1, "at": state.stamp(), "said": ran, "version": "1.0.1170"}
@@ -1287,8 +1360,8 @@ def test_a_drive_saved_before_proof_results_marked_marks_each_proof_that_moved_i
         "j2": state.new_job("o1", "builder", "end it", ["fix"], state.stamp()) | {"state": "done", "said": ran, "proof": proof},
         "j3": state.new_job("o1", "builder", "wait on him", ["fix"], state.stamp()) | {"state": "waiting", "said": "WAITING his next word", "proof": proof | {"waits": "WAIT he answers"}},
     }
-    state.create(data)
-    loaded = state.load("demo")
+    save_unnormalized(data)
+    loaded = normalized_import("demo")
     assert [loaded["jobs"][job_id]["proof"].get("result") for job_id in ("j1", "j2", "j3")] == [blocked, None, None]
     assert (loaded["own_done_proofs_since"], loaded["proof_results_marked"], state.new_drive("fresh", "coordinator", None, "/work")["own_done_proofs_since"]) == ("2026-11-15T06:49:27-08:00", True, None)
 
@@ -1388,7 +1461,7 @@ def test_the_post_that_answered_a_part_stops_delivering_it_while_a_builder_takes
 
 def test_a_drive_saved_before_old_dones_kept_puts_back_each_done_of_its_own_from_before_post_proofs_whose_first_proof_failed_and_leaves_the_others_to_their_proof(state_root: Path) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["old_dones_kept"]
     data["own_done_proofs_since"] = state.stamp(state.POST_PROOFS_MERGED)
     flipped, unproven, since = "the flipped fix", "the unproven fix", "the fix since the rule"
@@ -1399,7 +1472,7 @@ def test_a_drive_saved_before_old_dones_kept_puts_back_each_done_of_its_own_from
         "j2": state.new_job("o1", "codex", "end it", [unproven], state.stamp()) | {"state": "done", "said": "DONE ended by hand"},
         "j3": state.new_job("o1", "builder", "fix it since", [since], state.stamp()) | {"state": "failed", "said": blocked, "proof": {"pid": 1, "at": state.stamp(), "said": "DONE checked since", "version": "1.0.1170"}},
     }
-    state.create(data)
+    save_unnormalized(data)
     for job_id, line, at in (
         ("j1", "DONE checked by hand", "2026-11-12T17:26:26-08:00"),
         ("j1", blocked, "2026-11-15T07:07:57-08:00"),
@@ -1408,7 +1481,7 @@ def test_a_drive_saved_before_old_dones_kept_puts_back_each_done_of_its_own_from
         ("j3", blocked, "2026-11-15T07:31:00-08:00"),
     ):
         state.keep_report("demo", job_id, line, f"{line}\n", state.parse_time(at))
-    loaded = state.load("demo")
+    loaded = normalized_import("demo")
     assert [(loaded["jobs"][job_id]["state"], loaded["jobs"][job_id]["said"]) for job_id in ("j1", "j2", "j3")] == [("done", "DONE checked by hand"), ("done", "DONE ended by hand"), ("failed", blocked)]
     assert (install.done_before_proofs(loaded, "j1"), install.done_unproven(loaded, "j1")) == (True, False)
     assert ({part: fields["posted"] for part, fields in loaded["orders"]["o1"]["parts"].items()}, loaded["old_dones_kept"]) == ({flipped: None, unproven: None, since: None}, True)
@@ -2002,7 +2075,7 @@ def test_a_drive_saved_with_the_changes_each_part_waited_on_loads_its_parts_with
 
 def test_an_order_an_older_install_saved_keeps_the_threads_posts_on_it_went_in_its_jobs_cards_and_its_pr_cards_at_his_dm_root_once(state_root: Path) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     created = "2026-11-10T18:46:23-08:00"
     data["orders"] = {
         "o1": state.new_order("give the sprite what it needs", "terminal", None, {"give the sprite what it needs": state.new_part()}, created) | {"jobs": ["j1"]},
@@ -2014,10 +2087,10 @@ def test_an_order_an_older_install_saved_keeps_the_threads_posts_on_it_went_in_i
     card = state.new_question(None, "Which sprite?", created, card="https://acme.slack.com/archives/D123/p1794520890022349")
     data["jobs"] = {"j1": state.new_job("o1", "builder", "give it", ["give the sprite what it needs"], created) | {"questions": [card]}}
     data["prs"] = {"yasyf/cc-skills#7": state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1")}
-    state.create(data)
+    save_unnormalized(data)
     for link in ("https://acme.slack.com/archives/D123/p1794526059841239", "https://acme.slack.com/archives/D123/p1794200000000900?thread_ts=1794200000.000100"):
         state.append_event("demo", "said", text="land these", url=link, card=link, prs=["yasyf/cc-skills#7", "yasyf/cc-skills#8"])
-    orders = state.load("demo")["orders"]
+    orders = normalized_import("demo")["orders"]
     assert [[*where[:2], where[3]] for where in orders["o1"]["threads"]] == [["D123", "1794520890.022349", "question"], ["D123", "1794526059.841239", "pr"]]
     assert (orders["o2"]["threads"], "asked_in" in orders["o2"]) == ([["D123", "1794300000.000100", created, "posted"]], False)
 
@@ -2026,13 +2099,13 @@ def test_a_drive_saved_keeping_a_staging_claims_thread_as_posted_or_not_at_all_k
     state_root: Path,
 ) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["members_kept"]
     created = "2026-11-14T10:00:00-08:00"
     staging, first, second = "C0BQSADC7SS", "1794687785.402399", "1794692852.753919"
     data["orders"] = {"o1": state.new_order("test the batch writer on staging", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {"test it": state.new_part()}, created)}
     data["orders"]["o1"]["threads"] = [[staging, second, created, "posted"]]
-    state.create(data)
+    save_unnormalized(data)
 
     def said(channel: str | None, link: str, order: str = "o1", edited: bool = False) -> None:
         state.append_event("demo", "said", text="Claiming staging.", channel=channel, thread=None, url=link, card=None, order=order, visuals=[], prs=[], edited=edited)
@@ -2045,11 +2118,11 @@ def test_a_drive_saved_keeping_a_staging_claims_thread_as_posted_or_not_at_all_k
     said(None, "https://acme.slack.com/archives/D123/p1794691000000100")
     said(staging, f"https://acme.slack.com/archives/{staging}/p1794694000000100", order="o9")
     kept = [[staging, second, "members"], [staging, first, "members"]]
-    assert [[*where[:2], where[3]] for where in state.load("demo")["orders"]["o1"]["threads"]] == kept
+    assert [[*where[:2], where[3]] for where in normalized_import("demo")["orders"]["o1"]["threads"]] == kept
     with edit("demo") as drive:
         assert drive["members_kept"] is True
     said(staging, f"https://acme.slack.com/archives/{staging}/p1794695000000100")
-    assert [[*where[:2], where[3]] for where in state.load("demo")["orders"]["o1"]["threads"]] == kept
+    assert [[*where[:2], where[3]] for where in normalized_import("demo")["orders"]["o1"]["threads"]] == kept
 
 
 def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_waiting_on_that_pr_once_its_staging_test_delivered_by_its_first_check_proof_as_j1308s_was_not(
@@ -2057,7 +2130,7 @@ def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_wait
     state_root: Path,
 ) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["open_dones_held"]
     created = "2026-11-14T10:00:00-08:00"
     change, staging, read_part = "ship the writer", "staging test of #42 before it lands", "the reader"
@@ -2073,9 +2146,9 @@ def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_wait
         "Forge-AI/monorepo#42": state.new_pr(open_url, "j1", "o1"),
         "Forge-AI/monorepo#43": state.new_pr(merged_url, "j2", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210"},
     }
-    state.create(data)
+    save_unnormalized(data)
     state.keep_report("demo", "j1", done, f"{done}\nCHECK: {proof} https://buildkite.com/forge/release/builds/16121\nCASE a rollback refused: pass {proof}\n")
-    data = state.load("demo")
+    data = normalized_import("demo")
     held, kept = data["jobs"]["j1"], data["jobs"]["j2"]
     assert (held["state"], held["said"], held["waits"], kept["state"], kept["said"]) == ("waiting", f"WAITING {open_url} to merge: {done}", ["Forge-AI/monorepo#42"], "done", "DONE the reader ships")
     posted = data["orders"]["o1"]["parts"][staging]
@@ -2488,7 +2561,7 @@ def test_a_staging_tests_full_pass_keeps_his_approve_given_before_it_on_the_pr_i
 
 def test_a_drive_saved_with_approves_a_staging_pass_took_back_gives_each_open_pr_its_newest_approve_once(state_root: Path) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["staging_approves_restored"]
     created = "2026-11-15T09:00:00-08:00"
     data["orders"] = {"o1": state.new_order("ship the writer", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {"ship it": state.new_part()}, created) | {"kind": "build", "jobs": ["j1"]}}
@@ -2497,11 +2570,11 @@ def test_a_drive_saved_with_approves_a_staging_pass_took_back_gives_each_open_pr
     restored, held, worded, merged = (f"{MONOREPO}#{number}" for number in (42, 43, 44, 45))
     data["prs"] = {key: state.new_pr(state.pr_url(key), "j1", "o1") | {"fundamental": taken} for key in (restored, held, worded, merged)}
     data["prs"][merged] |= {"state": "merged", "merged_sha": "fedcba9876543210"}
-    state.create(data)
+    save_unnormalized(data)
     for key, label in ((restored, "Hold"), (restored, "Approve"), (held, "Approve"), (held, "Hold"), (worded, "Approve"), (worded, "Words"), (merged, "Approve")):
         repo, number = key.split("#")
         state.append_event("demo", "tap", repo=repo, number=int(number), label=label, head="aaaaaaa111", source="pressed the button", action_ts="1794762137.637881", lane="root")
-    data = state.load("demo")
+    data = normalized_import("demo")
     assert [(data["prs"][key]["tap"] or {}).get("label") for key in (restored, held, worded, merged)] == ["Approve", None, None, None]
     assert ({field: data["prs"][restored]["tap"][field] for field in ("head", "source", "action_ts")}, data["prs"][restored]["fundamental"], data["staging_approves_restored"]) == (
         {"head": "aaaaaaa111", "source": "pressed the button", "action_ts": "1794762137.637881"},
@@ -2512,7 +2585,7 @@ def test_a_drive_saved_with_approves_a_staging_pass_took_back_gives_each_open_pr
 
 def test_each_open_tap_saved_with_no_card_gives_a_card_press_the_prs_of_the_newest_stored_card_on_its_pr_asked_by_it_and_his_words_their_pr_alone_at_every_load(state_root: Path) -> None:
     make("demo")
-    data = state.load("demo") | {"tap_cards_kept": True}
+    data = normalized_import("demo") | {"tap_cards_kept": True}
     created = "2026-11-15T04:00:00-08:00"
     data["orders"] = {"o1": state.new_order("ship the writer", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {"ship it": state.new_part()}, created) | {"kind": "build", "jobs": ["j1"]}}
     data["jobs"] = {"j1": state.new_job("o1", "builder", "ship it", ["ship it"], created)}
@@ -2525,7 +2598,7 @@ def test_each_open_tap_saved_with_no_card_gives_a_card_press_the_prs_of_the_newe
         (uncarded, "slack", "1794765600.000100", "2026-11-15T09:00:00-08:00"),
     ):
         data["prs"][key]["tap"] = state.new_tap("Approve", "aaaaaaa111", source, action, at=tapped)
-    state.create(data)
+    save_unnormalized(data)
 
     def stored(url: str, asked: str, *keys: str) -> dict:
         return {"url": url, "prs": [state.pr_url(key) for key in keys], "asked": asked, "card": {"title": "Fix: land the writer"}}
@@ -2533,7 +2606,7 @@ def test_each_open_tap_saved_with_no_card_gives_a_card_press_the_prs_of_the_newe
     shared = stored("https://acme.slack.com/archives/D123/p1794781000000100", "2026-11-15T12:35:47-08:00", approved, joined, worded)
     alone = stored("https://acme.slack.com/archives/D123/p1794770000000100", "2026-11-15T04:23:52-08:00", approved) | {"answer": {"label": "Approve", "at": "2026-11-15T09:02:17-08:00"}}
     state.cards_path("demo").write_text(json.dumps({"source": "live", "team_url": "", "questions": [], "pr_cards": [shared], "closed": [alone]}))
-    data = state.load("demo")
+    data = normalized_import("demo")
     assert ([data["prs"][key]["tap"]["card"] for key in (approved, joined, worded, uncarded)], "tap_cards_kept" in data) == ([[approved], [approved, joined, worded], [worded], [uncarded]], False)
 
 
@@ -2557,7 +2630,7 @@ def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_fo
     data["orders"]["o1"]["jobs"] = [*testers, "j8", "j9"]
     approves = {f"{MONOREPO}#42": APPROVE, f"{MONOREPO}#43": APPROVE | {"at": "2026-11-14T11:30:00-08:00"}}
     data["prs"] = {key: state.new_pr(state.pr_url(key), job_id, "o1") | {"tap": dict(tap)} for (key, tap), job_id in zip(approves.items(), ("j8", "j9"))}
-    state.create(data)
+    save_unnormalized(data)
 
     def kept(job_id: str, line: str, body: str, at: str = passed) -> None:
         state.keep_report("demo", job_id, line, f"{line}\n{body}", state.parse_time(at))
@@ -2571,7 +2644,7 @@ def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_fo
     kept("j4", "DONE ran the staging test of #44", f"CHECK: {PROOF}\nCASE a rollback refused: pass\n")
     kept("j6", "DONE ran the staging test of #45", f"CHECK: {PROOF}\n")
     kept("j7", "DONE ran the staging test of #42", f"CHECK: {PROOF}\nCASE a rollback refused: pass\n")
-    data = state.load("demo")
+    data = normalized_import("demo")
     parts = data["orders"]["o1"]["parts"]
     assert [(state.delivered(data, "o1", part), parts[part]["posted"], parts[part]["posted_by"], parts[part]["passed_at"]) for part in (prose, followed, rerun, uncased, unnamed)] == [
         (True, PROOF, "j1", state.stamp(state.parse_time(passed))),
@@ -2662,14 +2735,14 @@ def test_a_drive_saved_before_after_merge_passes_were_kept_reads_each_merged_prs
     data["jobs"]["j9"] = state.new_job("o1", "builder", "ship them", ["prove it"], created) | {"state": "done"}
     data["orders"]["o1"] |= {"parts": {"prove it": state.new_part()}, "jobs": [*provers, "j9"]}
     data["prs"] = {f"{MONOREPO}#{number}": state.new_pr(state.pr_url(f"{MONOREPO}#{number}"), "j9", "o1") | {"state": "merged", "merged_sha": "6545af289898"} for number in provers.values()}
-    state.create(data)
+    save_unnormalized(data)
     passed, failed = "2026-11-14T11:00:00-08:00", "2026-11-14T11:20:00-08:00"
     release = "https://buildkite.com/forge/release/builds/16484"
     state.keep_report("demo", "j1", f"WAITING release:api:{MONOREPO}#56539@plat-usw2-prod", f"WAITING release:api:{MONOREPO}#56539@plat-usw2-prod: staging passed for #56539\nCHECK: {release}\nCASE old clients still read: pass\nCASE sand-exec: not exercised (staging has no Riza credentials)\n", state.parse_time(passed))
     state.keep_report("demo", "j1", f"DONE {MONOREPO}#56539 live on plat-usw2-prod", f"DONE {MONOREPO}#56539 live on plat-usw2-prod\n", state.parse_time("2026-11-14T12:00:00-08:00"))
     state.keep_report("demo", "j2", f"WAITING release:api:{MONOREPO}#56516@plat-usw2-prod", f"WAITING release:api:{MONOREPO}#56516@plat-usw2-prod: staging ran #56516\nCHECK: {release}\nCASE old clients still read: fail: 500 on GET /api/sessions\n", state.parse_time(failed))
     state.keep_report("demo", "j3", f"WAITING release:api:{MONOREPO}#56478@plat-usw2-prod", f"WAITING release:api:{MONOREPO}#56478@plat-usw2-prod: staging ran #56478\nCHECK: {release}\nCASE sand-exec: not exercised\n", state.parse_time(failed))
-    prs = state.load("demo")["prs"]
+    prs = normalized_import("demo")["prs"]
     assert [prs[f"{MONOREPO}#{number}"]["after_merge"] for number in provers.values()] == [
         {"cases": [["old clients still read", "pass"], ["sand-exec", "not exercised (staging has no Riza credentials)"]], "posted": release, "posted_by": "j1", "at": state.stamp(state.parse_time(passed))},
         {"cases": [["old clients still read", "fail: 500 on GET /api/sessions"]], "posted": None, "posted_by": "j2", "at": state.stamp(state.parse_time(failed))},
@@ -2968,7 +3041,7 @@ def test_j5802_a_drive_whose_failed_job_an_older_install_stopped_for_a_job_alrea
     state_root: Path,
 ) -> None:
     make("demo")
-    data = state.load("demo")
+    data = normalized_import("demo")
     del data["finished_replacers_undone"]
     now = state.now()
     fix, thread = "fix the proof", "thread it"
@@ -2982,9 +3055,9 @@ def test_j5802_a_drive_whose_failed_job_an_older_install_stopped_for_a_job_alrea
         "j3": state.new_job("o1", "builder", "fix it", [fix], state.stamp(now)) | {"state": "stopped", "said": "replaced by j4", "updated": state.stamp(now - timedelta(hours=2))},
         "j4": state.new_job("o1", "builder", "fix it again", [fix], state.stamp(now)) | {"state": "done", "said": "DONE fixed", "updated": state.stamp(now - timedelta(hours=1))},
     }
-    state.create(data)
+    save_unnormalized(data)
     state.keep_report("demo", "j1", "BLOCKED repro/j1.sh exits 1", "BLOCKED repro/j1.sh exits 1\nCHECK: repro/j1.sh\n")
-    data = state.load("demo")
+    data = normalized_import("demo")
     jobs = data["jobs"]
     assert {job_id: (job["state"], job["said"]) for job_id, job in jobs.items()} == {
         "j1": ("failed", "BLOCKED repro/j1.sh exits 1"),

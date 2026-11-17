@@ -132,6 +132,11 @@ tests=plugins/long-running/tests
   "$tests/test_state.py::test_row_snapshot_baseline_preserves_json_serializable_typed_values" \
   "$tests/test_watch.py::test_a_job_drive_job_add_recorded_is_not_started_until_its_worker_records_itself_and_an_orphan_a_minute_on_by_the_clock_however_long_the_pass_though_its_part_was_said_since_its_last_tick" \
   "$tests/test_watch.py::test_a_watch_process_a_newer_install_ends_at_its_first_read_still_says_a_never_started_jobs_orphan_and_heals_no_gap_its_lanes_were_not_read_for" \
+  "$tests/test_state.py::test_normalized_load_and_tracked_write_leave_unaccessed_records_encoded" \
+  "$tests/test_state.py::test_install_normalization_is_atomic_and_runs_once" \
+  "$tests/test_state.py::test_reporter_refresh_visits_only_connected_orders" \
+  "$tests/test_state.py::test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dates_each_by_its_tap_once_and_rechecks_each_open_pr_that_read_one" \
+  "$tests/test_state.py::test_lazy_row_views_preserve_mapping_and_json_contracts" \
   "$tests/test_quoted_commands.py" \
   "$tests/test_modules.py" \
   "$tests/test_reactions.py" \
