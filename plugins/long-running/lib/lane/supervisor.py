@@ -290,6 +290,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
     if store.live(drive):
         alone(drive, errors, "no late ask was redelivered", lambda: redeliver(drive, store.now()))
         alone(drive, errors, "no overdue promise was raised", lambda: overdue(drive, store.now()))
+        alone(drive, errors, "the live cards were not redrawn on this install", lambda: redrawn_on_install(drive))
         alone(drive, errors, "no overdue defect was sent again", lambda: audit.remind(drive, DEFECT_OPEN))
         alone(drive, errors, "no block of his was checked for reaching him", lambda: blocks.told(drive, store.now()))
     if read_outside and store.live(drive):
@@ -915,3 +916,15 @@ def loaded(label: str, plist: Path) -> None:
         time.sleep(1)
     if tried.returncode:
         raise store.Refused(f"launchctl bootstrap {label} exited {tried.returncode}: {tried.stderr.strip()}")
+
+
+def redrawn_on_install(drive: str) -> bool:
+    """Once per install the supervisor runs, redraw every live PR card, the old drive's and the lanes', from `drive card` on this install's renderer, in the background so the pass never waits, by his order "rewrite all the cards": a card drawn by older code, with its words and buttons, never outlives the code that drew it. Whether this pass started the redraw."""
+    marker = store.drive_dir(drive) / PREFLIGHT / f"{Path(__file__).resolve().parents[2].name}.redrawn"
+    if not store.live(drive) or not store.config(drive)["posting"] or marker.exists():
+        return False
+    marker.parent.mkdir(exist_ok=True)
+    marker.write_text(store.stamp())
+    with marker.with_suffix(".log").open("w") as out:
+        subprocess.Popen(["cc-slack", "redraw-pr-cards"], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+    return True

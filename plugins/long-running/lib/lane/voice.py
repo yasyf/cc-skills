@@ -33,7 +33,6 @@ BARE_PR_URL = re.compile(r"\s*\(?(?<![<|])(https://github\.com/[\w.-]+/[\w.-]+/p
 LINKED_PR = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|")
 PERMALINK_TS = re.compile(r"/p(\d{10})(\d{6})")
 SLACK_MESSAGE = re.compile(r"https://[\w-]+\.slack\.com/archives/(C\w+)/p(\d{10})(\d{6})")
-ATTACHED_APPROVE = re.compile(r"^Approve #(\d+)$")
 RULINGS_SENT = 60
 TAPPED_PR = re.compile(r'^tapped "(Approve|Hold) #(\d+)"')
 
@@ -109,7 +108,6 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
     if os.environ.get(DRY_RUN):
         RENDERED.append({"lane": lane["id"], "kind": "post", "text": drawn, **queued})
         return f"RENDERED {queued.get('verdict')}"
-    carded(drive, lane["id"], queued["id"], queued.get("attached") or [], seen)
     return f"QUEUED {queued['id']}" + (f"; {queued['warning']}" if queued.get("warning") else "")
 
 
@@ -136,20 +134,6 @@ def subjects(lane: dict, text: str, about_ts: str | None, about: list[str]) -> l
             raise store.Refused(f"--about {named!r} names release:<ref> or card:<ts>")
         found.append({"kind": kind, "ts" if kind == "card" else "ref": ref})
     return found
-
-
-def carded(drive: str, lane_id: str, post_id: str, attached: list[str], seen: dict[str, dict]) -> None:
-    """Mark each lane PR the voice attached Approve and Hold buttons to as carded at its head by this post, the record the supervisor reads so it never draws a second card for the same head."""
-    numbers = {int(found[1]) for label in attached if (found := ATTACHED_APPROVE.match(label))}
-    if not numbers:
-        return
-
-    def marking(lane: dict) -> None:
-        for row in lane["prs"]:
-            if row["number"] in numbers and (head := (seen.get(f"{row['repo']}#{row['number']}") or {}).get("head")):
-                row["carded"] = {"head": head, "by": post_id, "at": store.stamp()}
-
-    store.update(drive, lane_id, marking)
 
 
 def asked_thread(lane: dict, about_ts: str | None) -> str:
