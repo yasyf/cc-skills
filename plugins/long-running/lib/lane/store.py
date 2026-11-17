@@ -34,7 +34,7 @@ DEFAULTS = {
     "staging_targets": ["plat-usw2-staging"],
 }
 LIVE = "live"
-NOT_LANES = ("rank", "config", "supervisor", "presence", "rulings", "queue", "view")
+NOT_LANES = ("rank", "config", "supervisor", "presence", "rulings", "queue", "view", "github", "settled")
 RULINGS = "rulings.shared.json"
 
 

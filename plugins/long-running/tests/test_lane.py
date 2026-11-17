@@ -860,7 +860,7 @@ def test_an_owner_whose_session_and_builders_wrote_nothing_for_half_an_hour_is_s
 def test_his_word_to_an_owner_between_turns_is_put_before_it_as_a_message_once_in_a_while(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     sent = []
     quiet = {"at": None}
-    monkeypatch.setattr(owners, "quiet_since", lambda owner: quiet["at"])
+    monkeypatch.setattr(owners, "own_quiet_since", lambda owner: quiet["at"])
     monkeypatch.setattr(owners, "deliver", lambda owner, text: sent.append(text))
     opened("a")
     answered("a")
@@ -1233,3 +1233,18 @@ def test_a_done_check_can_be_reworded_or_dropped_keeping_what_the_step_serves(wo
     assert [check["words"] for check in lane["done"]] == ["start a Cloud agent", "team-lead's wording"] and lane["done"][0]["met_at"] and lane["serves"] == {"check": 2}
     with pytest.raises(store.Refused, match="1 to 2, not 5"):
         verbs.reword_check(DRIVE, "a", None, 5, "x")
+
+
+def test_an_owner_whose_builders_write_but_whose_own_transcript_is_quiet_reads_as_quiet_for_a_nudge(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import os
+    import time
+
+    own = tmp_path / "s1.jsonl"
+    own.write_text("{}\n")
+    old = time.time() - 300
+    os.utime(own, (old, old))
+    (tmp_path / "s1" / "subagents").mkdir(parents=True)
+    (tmp_path / "s1" / "subagents" / "agent-1.jsonl").write_text("{}\n")
+    monkeypatch.setattr(owners, "transcript", lambda session: own)
+    assert store.now() - owners.own_quiet_since({"session": "s1"}) > supervisor.QUIET_BEFORE_NUDGE
+    assert store.now() - owners.active_at({"session": "s1"}) < supervisor.QUIET_BEFORE_NUDGE

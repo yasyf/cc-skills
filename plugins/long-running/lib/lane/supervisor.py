@@ -207,7 +207,8 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
 
     starts = store.transact(drive, deciding, leaving_unreplied=True)
     alone(drive, errors, "no owner was nudged", lambda: nudge(drive, store.now()))
-    alone(drive, errors, "no late ask was redelivered", lambda: redeliver(drive, store.now()))
+    if store.live(drive):
+        alone(drive, errors, "no late ask was redelivered", lambda: redeliver(drive, store.now()))
     if read_outside and store.live(drive):
         alone(drive, errors, "his words got no working line", lambda: ack.working(drive))
     with ThreadPoolExecutor(max_workers=READERS) as pool:
@@ -268,7 +269,7 @@ def nudge(drive: str, moment: datetime) -> None:
         note = store.note_path(drive, lane["id"])
         if not (waiting or note.is_file() and note.read_text().strip()):
             return None
-        if not (quiet := owners.quiet_since(owner)) or moment - quiet < QUIET_BEFORE_NUDGE:
+        if not (quiet := owners.own_quiet_since(owner)) or moment - quiet < QUIET_BEFORE_NUDGE:
             return None
         if (last := owner.get("nudged")) and moment - store.parse(last) < NUDGE_EVERY:
             return None
@@ -361,10 +362,14 @@ def check(drive: str) -> tuple[bool, list[str]]:
         good = False
         lines.append(f"GitHub read failed {failed} pass{'es' * (failed != 1)} in a row")
     alerts = store.drive_dir(drive) / ALERTS
-    for row in [json.loads(line) for line in alerts.read_text().splitlines()[-20:]] if alerts.is_file() else []:
-        if moment - store.parse(row["at"]) < timedelta(minutes=15):
-            good = False
-            lines.append(f"pass step failed {row['at']}: {row['error']}")
+    recent = [row for row in (json.loads(line) for line in alerts.read_text().splitlines()[-500:]) if moment - store.parse(row["at"]) < timedelta(hours=1)] if alerts.is_file() else []
+    checked = store.drive_dir(drive) / "checks.jsonl"
+    last = json.loads(checked.read_text().splitlines()[-1]) if checked.is_file() and checked.stat().st_size else {"errors": []}
+    if last["errors"]:
+        good = False
+        lines += [f"last pass error: {error[:300]}" for error in last["errors"]]
+    for step, count in sorted({row["step"]: sum(1 for kept in recent if kept["step"] == row["step"]) for row in recent}.items()):
+        lines.append(f"pass step failed {count}x in the last hour: {step}")
     return good, lines
 
 

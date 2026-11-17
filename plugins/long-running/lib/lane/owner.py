@@ -106,6 +106,12 @@ def active_at(owner: dict) -> datetime | None:
     return datetime.fromtimestamp(max(path.stat().st_mtime for path in paths), UTC)
 
 
+def own_quiet_since(owner: dict) -> datetime | None:
+    """Since when the owner's own transcript has had no write: its builders' transcripts and tasks never count, since an owner waiting on its builders reads as busy to its session record while it reads nothing of his."""
+    found = transcript(owner["session"]) if owner.get("session") else None
+    return datetime.fromtimestamp(found.stat().st_mtime, UTC) if found else None
+
+
 def quiet_since(owner: dict) -> datetime | None:
     """Since when the owner's session has been between turns, idle or waiting on its own builders, from its session record; None while it works or before its record exists."""
     kept = record(config_dir() / "sessions" / f"{owner['pid']}.json") if owner.get("pid") else None
