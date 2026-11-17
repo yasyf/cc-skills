@@ -217,24 +217,26 @@ def heard(channel: str, thread: str | None, words: str, link: str | None, ts: st
     chosen = fitting if len(fitting) == 1 else found
     if not chosen:
         return f"no lane holds {channel}"
-    from lane import approve
+    from lane import approve, events
 
     for drive, lane_id, lane in chosen:
         if (landed := approve.tapped(drive, lane, words, ts, link)) is not None:
-            return f"{lane_id}: his tap on {', '.join(landed)}"
-        tapped_pr(drive, lane, words, link, ts)
-    return "; ".join(f"{lane_id}: {verbs.message(drive, lane_id, words, link, ts)} new" for drive, lane_id, _ in chosen)
+            return f"{lane_id}: {events.tapped(drive, landed)}"
+        if tapped_pr(drive, lane, words, link, ts):
+            events.tapped(drive, [words])
+    return "; ".join(events.message(drive, lane_id, words, link, ts) for drive, lane_id, _ in chosen)
 
 
-def tapped_pr(drive: str, lane: dict, words: str, link: str | None, ts: str) -> None:
+def tapped_pr(drive: str, lane: dict, words: str, link: str | None, ts: str) -> bool:
     """His tap on an Approve #N or Hold #N button the voice attached, written as his Approve or Hold on that lane PR at the head view.json read; his words still reach the lane beside it."""
     if not (found := TAPPED_PR.match(words)):
-        return
+        return False
     label, number = found[1], int(found[2])
     rows = [row for row in lane.get("prs") or [] if row["number"] == number]
     if len(rows) != 1 or not (head := (page.view(drive)["prs"].get(f"{rows[0]['repo']}#{number}") or {}).get("head")):
-        return
+        return False
     verbs.tapped(drive, rows[0]["repo"], number, label, head, link or "his tap on the voice's buttons", ts, named=True)
+    return True
 
 
 POSTS_URL = VOICE_URL + "/posts"

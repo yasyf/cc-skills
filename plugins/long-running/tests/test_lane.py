@@ -934,7 +934,7 @@ def test_the_supervisor_draws_one_card_per_lane_listing_its_ready_stacks_and_app
     assert [row.get("carded", {}).get("head") if row.get("carded") else None for row in store.load(DRIVE, "a")["prs"]] == ["abc1234aaaa", "def5678bbbb", None]
     asks = len(store.load(DRIVE, "a")["asks"])
     told = voice.heard("C1", None, f'tapped "Approve all 2 (Recommended)" on "A: 2 PRs wait on your Approve, all green and reviewed (card {card['id']})."', None, "1794880000.000100")
-    assert told == "a: his tap on acme/app#7, acme/app#8"
+    assert told == "a: his tap on acme/app#7, acme/app#8; the lander started"
     lane = store.load(DRIVE, "a")
     assert ([row["approved_head"] for row in lane["prs"][:2]], len(lane["asks"])) == (["abc1234aaaa", "def5678bbbb"], asks)
     supervisor.run_pass(DRIVE)
@@ -1355,3 +1355,14 @@ def test_a_new_head_under_a_live_card_redraws_one_card_for_the_whole_lane_and_su
     first, second = store.load(DRIVE, "a")["cards"]
     assert first["superseded"] == second["id"] and second["stacks"] == [{"acme/app#2": "h3"}, {"acme/app#1": "h1"}] and len(posted) == 2
     assert not facts.asking({"cards": [first], "asks": []})
+
+
+def test_his_message_reaches_a_running_owner_with_a_builder_out_in_the_call_that_hears_it(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = []
+    monkeypatch.setattr(owners, "deliver", lambda owner, text: sent.append((owner["job"], text)))
+    monkeypatch.setattr(owners, "in_flight", lambda owner: 1)
+    opened("a", channel="C1")
+    supervisor.run_pass(DRIVE)
+    told = voice.heard("C1", None, "status?", "https://x.slack.com/archives/C1/p1794883276477119", "1794883276.477119")
+    assert told.startswith("a: 1 new, delivered to its running owner") and len(sent) == 1 and "status?" in sent[0][1] and "--re 1794883276.477119" in sent[0][1]
+    assert voice.heard("C1", None, "status?", None, "1794883276.477119") == "a: seen before" and len(sent) == 1
