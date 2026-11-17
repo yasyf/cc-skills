@@ -78,6 +78,8 @@ def add(drive: str, kind: str, lane_id: str, subject: str, words: str, serves: i
     """Queue one item, or update the one this kind and subject already has: its words and head while it is queued, queued again at a new head once done or failed, or at the same head with again when what failed it is fixed, and never touched while a worker holds it, since that worker's own push moves the head. A worker is started at once when none is free."""
     if kind not in KINDS:
         raise store.Refused(f"a work item's kind is one of {', '.join(KINDS)}, not {kind!r}")
+    if kind == "staging-before" and lane_id not in store.config(drive)["premerge_lanes"]:
+        raise store.Refused(f"{lane_id} is not one of the drive config's premerge_lanes, so {subject} merges on his Approve and is tested on staging after the merge: queue staging-after once it merges, never staging-before")
     store.load(drive, lane_id)
     found = item_id(kind, subject)
     moment = store.stamp()

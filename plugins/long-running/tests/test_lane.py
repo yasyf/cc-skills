@@ -1479,6 +1479,8 @@ def test_a_failed_item_is_queued_once_more_with_why_and_a_second_failure_tells_i
     assert work.add(DRIVE, "red", "a", "acme/app#3", "fix lint")["state"] == work.FAILED
     requeued = work.add(DRIVE, "red", "a", "acme/app#3", "fix lint: the token is in place now", again=True)
     assert requeued["state"] == work.QUEUED and requeued["words"].endswith("in place now") and requeued["history"][-1]["state"] == work.FAILED
+    with pytest.raises(store.Refused, match="premerge_lanes"):
+        work.add(DRIVE, "staging-before", "a", "acme/app#58125", "run it first")
 
 
 def test_a_pass_step_that_runs_past_its_bound_lets_the_pass_move_on_and_is_not_started_twice(world: dict) -> None:
