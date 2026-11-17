@@ -1587,3 +1587,24 @@ def test_the_lanes_own_bash_hook_runs_the_team_data_guard_and_refuses_a_push_to_
     monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path)})
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "git@github.com:Forge-FDE/acme.git\n", ""))
     assert "read only for the drive" in command.read_only_push("git push origin HEAD", tmp_path)
+
+
+def test_a_block_only_he_can_clear_wakes_its_owner_to_tell_him_then_files_a_defect_and_a_post_after_it_settles_it(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import timedelta
+
+    from lane import audit, blocks
+
+    opened("a")
+    opened("b")
+    filed = []
+    monkeypatch.setattr(blocks, "judged", lambda fresh: {block["at"]: "Approve" in block["what"] for block in fresh})
+    monkeypatch.setattr(audit, "defect", lambda drive, what, evidence, mechanism, owner: filed.append((what, owner)))
+    verbs.blocked(DRIVE, "a", "#57908 waits on his Approve", "lane-land")
+    verbs.blocked(DRIVE, "b", "#57909 waits on his Approve", "lane-land")
+    saying.say(DRIVE, "b", "#57909 needs your Approve to land.", token=token_of("b"))
+    later = store.now() + blocks.TELL_WITHIN
+    blocks.told(DRIVE, later)
+    assert store.load(DRIVE, "a")["wait"]["fired_why"].startswith("a block only he can clear has not reached his thread")
+    assert store.load(DRIVE, "b")["blocks"][0]["told"]
+    blocks.told(DRIVE, later + blocks.TELL_WITHIN + timedelta(seconds=1))
+    assert filed == [("lane a never told him of a block only he can clear", "lane-voice")]

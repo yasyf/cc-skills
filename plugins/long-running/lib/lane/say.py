@@ -79,6 +79,8 @@ def promise(drive: str, lane_id: str, text: str, sent: str, next_step: str | Non
         for ask in lane["asks"]:
             if not ask.get("replied") and ask.get("ts") in (answers or []):
                 ask["replied"], ask["replied_at"] = sent, store.stamp()
+        for block in lane.get("blocks", []):
+            block.setdefault("told", store.stamp(moment))
         for kept in lane.get("promises", []):
             if kept["thread"] == thread and not kept.get("followed"):
                 kept["followed"] = store.stamp(moment)

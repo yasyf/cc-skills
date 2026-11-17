@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import ack, approve, audit, board, events, facts, incidents, page, queue, rank, say, store, verbs, voice, work
+from lane import ack, approve, audit, blocks, board, events, facts, incidents, page, queue, rank, say, store, verbs, voice, work
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -247,6 +247,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
     if store.live(drive):
         alone(drive, errors, "no late ask was redelivered", lambda: redeliver(drive, store.now()))
         alone(drive, errors, "no overdue promise was raised", lambda: overdue(drive, store.now()))
+        alone(drive, errors, "no block of his was checked for reaching him", lambda: blocks.told(drive, store.now()))
     if read_outside and store.live(drive):
         alone(drive, errors, "his words got no working line", lambda: ack.working(drive))
     with ThreadPoolExecutor(max_workers=READERS) as pool:

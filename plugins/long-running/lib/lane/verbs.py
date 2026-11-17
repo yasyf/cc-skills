@@ -373,6 +373,7 @@ def blocked(drive: str, lane_id: str, what: str, by: str) -> None:
 
     def blocking(lane: dict) -> None:
         store.note(lane, f"blocked, from {by}: {what}")
+        lane["blocks"] = [*lane.get("blocks", []), {"what": what, "by": by, "at": store.stamp()}]
         if lane["state"] == store.WAITING:
             woken(lane, f"a blocker from {by}: {what}")
 
