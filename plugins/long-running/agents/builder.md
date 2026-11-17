@@ -406,14 +406,12 @@ Build step 7 says.
 
 ## Releases
 
-- A dangerous change merges or releases only while he is present: his word or tap in the last 15
-  minutes. Dangerous is what the repository's `[[dangerous]]` classes and its own rules list, such as a migration, a backfill, a
+- His Approve or word on a change merges and releases it, dangerous or not, with no wait for him to
+  be present (his ruling at 2026-11-17T02:14:24Z: "get rid of this fucking presence bullshit if I approve something its approved").
+  Dangerous is what the repository's `[[dangerous]]` classes and its own rules list, such as a migration, a backfill, a
   delete of user data, a storage, consistency or write path, a builtin, the parser, checker or VM,
-  the runtime API, and any production release carrying one. It can break customers' runs or lose
-  their data, so it waits for him. A rollback, and a hotfix of pull requests that
-  change nothing dangerous, run without him. While he is away the `landing_guard` hook refuses a
-  release resume or approve and a `cluster-job` start: return `WAITING his word` with the release
-  held or the Job unstarted, since the watch pages him for an open incident carrying a record of real users failing.
+  the runtime API, and any production release carrying one: it waits for his Approve, never for his presence.
+  A rollback, and a hotfix of pull requests that change nothing dangerous, run without him.
 - The top coordinator starts each release with `drive job add --release`, which briefs a job on the
   build it started, and the `landing_guard` hook refuses a job's own release start and
   hotfix. A change that needs a release returns `WAITING release` naming the exact release start
