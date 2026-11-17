@@ -124,6 +124,11 @@ EOF
 cd "$repo"
 tests=plugins/long-running/tests
 "${python[@]}" -m pytest -q -n 4 --timeout=30 -p no:cacheprovider \
+  "$tests/test_state.py::test_write_baseline_reuses_unchanged_fields_and_decodes_changes_without_cyclic_scans" \
+  "$tests/test_state.py::test_row_snapshot_baseline_decodes_only_changed_and_removed_rows" \
+  "$tests/test_state.py::test_selected_loads_decode_only_requested_fields_and_keep_independent_copies" \
+  "$tests/test_state.py::test_writes_reuse_the_loaded_snapshot_without_encoding_the_whole_drive" \
+  "$tests/test_state.py::test_selected_loads_observe_other_processes_saves_and_batch_writes" \
   "$tests/test_quoted_commands.py" \
   "$tests/test_modules.py" \
   "$tests/test_reactions.py" \

@@ -300,7 +300,7 @@ CARDS_NOTED = "card_answers_noted"
 INDEX: ContextVar["Index | None"] = ContextVar("index", default=None)
 LOADED_VERSION: ContextVar[int | None] = ContextVar("loaded_version", default=None)
 LOADED_REV: ContextVar[int | None] = ContextVar("loaded_rev", default=None)
-LOADED_BASE: ContextVar[dict[str, bytes] | None] = ContextVar("loaded_base", default=None)
+LOADED_BASE: ContextVar[list["Snapshot"] | None] = ContextVar("loaded_base", default=None)
 ATTEMPT: ContextVar["Attempt | None"] = ContextVar("attempt", default=None)
 BATCHING: ContextVar[str | None] = ContextVar("batching", default=None)
 COMMITTED: ContextVar[int | None] = ContextVar("committed", default=None)
@@ -1079,6 +1079,32 @@ def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
     return rows_read(path, fields)
 
 
+class Snapshot:
+    """A normalized drive encoded by row, with independent reads and unchanged rows shared by write baselines."""
+
+    def __init__(self, data: dict) -> None:
+        self.order = tuple(data)
+        self.fields = {field: marshal.dumps(value, ROW_MARSHAL) for field, value in data.items() if field not in COLLECTIONS}
+        self.collections = {field: {key: marshal.dumps(row, ROW_MARSHAL) for key, row in value.items()} for field, value in data.items() if field in COLLECTIONS}
+
+    def read(self, fields: tuple[str, ...] | None = None) -> dict:
+        """Decode only the requested fields into independent mutable values."""
+        return {field: {key: marshal.loads(row) for key, row in self.collections[field].items()} if field in self.collections else marshal.loads(self.fields[field]) for field in (self.order if fields is None else fields)}
+
+    def baseline(self, mine: dict) -> dict:
+        """Reuse unchanged current values and decode only changed or removed original rows."""
+        baseline = {}
+        for field in self.order:
+            if field in self.collections:
+                current = mine.get(field, {})
+                previous = {key: current[key] if key in current and marshal.dumps(current[key], ROW_MARSHAL) == row else marshal.loads(row) for key, row in self.collections[field].items()}
+                baseline[field] = current if previous.keys() == current.keys() and all(previous[key] is current[key] for key in previous) else previous
+            else:
+                row = self.fields[field]
+                baseline[field] = mine[field] if field in mine and marshal.dumps(mine[field], ROW_MARSHAL) == row else marshal.loads(row)
+        return baseline
+
+
 def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]], fields: tuple[str, ...] | None = None) -> dict:
     """The drive's whole saved state as shape brings it up to this install's fields, from this process's copy of its rows, which caught_up brings up to the database once another connection committed since, as PRAGMA data_version on the copy's own connection that never writes says, reading only the rows written since; a fresh copy of what it shaped last while none did, so a verb's many loads parse and shape the drive's rows once, and a shape that says it read something outside the database that may change with no commit is shaped again on each load. Shaping runs outside READING, since it may read the drive itself. Its reads wait on another connection's write no longer than the running write's budget leaves, by waiting, so a write's load counts against that budget, and unlocked turns a wait run out into Busy there."""
     key = (path, path.stat().st_ino)
@@ -1086,27 +1112,25 @@ def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]], fields: tuple[
         if (copy := WHOLE_READS.get(key)) is None:
             copy = WHOLE_READS[key] = Copy(path)
         copy.watcher.execute(f"PRAGMA busy_timeout = {int(min(waiting().left(), WRITE_BUDGET_SECONDS) * 1000)}")
-        if (now := copy.watcher.execute("PRAGMA data_version").fetchone()[0]) == copy.version and copy.shaped:
+        if (now := copy.watcher.execute("PRAGMA data_version").fetchone()[0]) == copy.version and copy.shaped is not None:
             LOADED_VERSION.set(now)
             LOADED_REV.set(copy.shaped_rev)
             if (baseline := LOADED_BASE.get()) is not None:
-                baseline.clear()
-                baseline.update(copy.shaped)
-            return {field: marshal.loads(copy.shaped[field]) for field in (copy.shaped if fields is None else fields)}
+                baseline[:] = [copy.shaped]
+            return copy.shaped.read(fields)
         if now != copy.version:
             caught_up(copy)
             copy.version = now
         rev, saved = copy.rev, copy.built_back()
     data, keep = shape(saved)
     if keep or LOADED_BASE.get() is not None:
-        encoded = {field: marshal.dumps(value) for field, value in data.items()}
+        encoded = Snapshot(data)
         if keep:
             with READING:
                 if (copy.rev, copy.version) == (rev, now):
                     copy.shaped, copy.shaped_rev = encoded, rev
         if (baseline := LOADED_BASE.get()) is not None:
-            baseline.clear()
-            baseline.update(encoded)
+            baseline[:] = [encoded]
     LOADED_VERSION.set(now)
     LOADED_REV.set(rev)
     return data if fields is None else {field: data[field] for field in fields}
@@ -1130,7 +1154,7 @@ class Copy:
         self.version: int | None = None
         self.rev: int | None = None
         self.rows: dict[str, dict[str, tuple[int, bytes | None]]] = {}
-        self.shaped: dict[str, bytes] = {}
+        self.shaped: Snapshot | None = None
         self.shaped_rev: int | None = None
 
     def built_back(self) -> dict:
@@ -1154,7 +1178,7 @@ class Copy:
                     held[key] = (row[0], None if row[1] is None else marshal.dumps(json.loads(row[1]), ROW_MARSHAL))
             if moved:
                 self.rows[collection] = dict(sorted(held.items(), key=lambda item: item[1][0]))
-            self.shaped = {}
+            self.shaped = None
 
 
 def caught_up(copy: Copy) -> None:
@@ -5099,16 +5123,12 @@ def set_row(data: dict, row: Row, value: object) -> None:
         home[row[1]] = value
 
 
-def write_baseline(encoded: dict[str, bytes], mine: dict) -> dict:
-    """The pre-change fields, retaining separate copies only for changed values. Decode one field at a time without cyclic scans and restore the caller's collector setting on return or error."""
+def write_baseline(encoded: Snapshot, mine: dict) -> dict:
+    """The pre-change rows, retaining separate copies only for changed values. Decode changed rows without cyclic scans and restore the caller's collector setting on return or error."""
     collecting = gc.isenabled()
     gc.disable()
     try:
-        baseline = {}
-        for field, value in encoded.items():
-            previous = marshal.loads(value)
-            baseline[field] = mine[field] if field in mine and previous == mine[field] else previous
-        return baseline
+        return encoded.baseline(mine)
     finally:
         if collecting:
             gc.enable()
@@ -5164,20 +5184,21 @@ def changed_since(name: str, rev: int) -> tuple[int, set[Row] | None]:
     return newest, rows
 
 
-def loaded_raw(name: str) -> tuple[dict, dict[str, dict[str, tuple[int, bytes | None]]] | None, dict[str, bytes]]:
+def loaded_raw(name: str) -> tuple[dict, dict[str, dict[str, tuple[int, bytes | None]]] | None, Snapshot]:
     """The drive as load reads it, its unshaped rows while its database keeps no changed table, and its normalized fields encoded at that same load, which a write uses as its baseline without encoding the whole drive again. Unshaped rows are each collection's copy, since a later catch-up patches them in place, loading again while another thread's load or save moved the copy past it; None for the rows once the table is there. Baseline capture is scoped to this load alone."""
-    path, baseline = database_path(name), {}
+    path = database_path(name)
+    baseline: list[Snapshot] = []
     capturing = LOADED_BASE.set(baseline)
     try:
         while True:
             data = load(name)
             if LOADED_REV.get() is not None:
-                return data, None, baseline
+                return data, None, baseline[0]
             with READING:
                 copy = WHOLE_READS[(path, path.stat().st_ino)]
                 if (copy.version, copy.rev) != (LOADED_VERSION.get(), LOADED_REV.get()):
                     continue
-                return data, {collection: dict(records) for collection, records in copy.rows.items()}, baseline
+                return data, {collection: dict(records) for collection, records in copy.rows.items()}, baseline[0]
     finally:
         LOADED_BASE.reset(capturing)
 
