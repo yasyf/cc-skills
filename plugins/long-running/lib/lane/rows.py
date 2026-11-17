@@ -44,7 +44,7 @@ def seen(lane: dict, read: dict[str, dict], rule: str, premerge_lanes: list[str]
     for row in lane["prs"]:
         kept = {field: value for field, value in row.items() if field not in PR_STATE} | read.get(landing.key(row), {"head": None})
         kept |= {gate: kept[gate] if kept.get(gate) and kept[gate].get("rule") == rule else None for gate in ("dangerous", "guarded")}
-        joined.append(kept | {"premerge": lane["id"] in premerge_lanes})
+        joined.append(kept | {"premerge": lane["id"] in premerge_lanes and not (kept.get("not_sandsql") or {}).get("head") == kept.get("head")})
     return lane | {"prs": joined}
 
 

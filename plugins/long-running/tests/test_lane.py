@@ -1632,3 +1632,14 @@ def test_the_launcher_link_only_moves_forward_and_a_refused_reaction_is_tried_on
         ack.working(DRIVE)
     ack.working(DRIVE)
     assert tries == ["1794625385.692939"]
+
+
+def test_a_pr_of_a_sandsql_lane_marked_no_sandsql_work_at_its_head_needs_no_staging_before_merge(world: dict) -> None:
+    from lane import rows
+
+    opened("a", prs=[("acme/app", 58092)])
+    verbs.not_sandsql(DRIVE, "acme/app", 58092, "2eaba576e", "release tooling, go/ci/releasepromote.go, not SandSQL code, jobs, settings or data", "team-lead")
+    lane = store.load(DRIVE, "a")
+    read = {"acme/app#58092": {"head": "2eaba576e"}}
+    assert rows.seen(lane, read, "r", ["a"])["prs"][0]["premerge"] is False
+    assert rows.seen(lane, {"acme/app#58092": {"head": "newer"}}, "r", ["a"])["prs"][0]["premerge"] is True
