@@ -1,5 +1,6 @@
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -9,10 +10,12 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from lane import landing, releases, rows, stager, store, supervisor
+from lane import landing, releases, rows, stager, store, supervisor, verbs
 
 LANDING = "landing"
 LANDINGS = "landings"
+CONFLICTS = "conflicts"
+CONFLICT = re.compile(r"CONFLICTING|conflicts with origin/")
 SKIP_MERGE_PREFLIGHT = "STACK_ENQUEUE_SKIP_MERGE_PREFLIGHT"
 GONE_BASE = re.compile(r"couldn't find remote ref refs/heads/(?P<branch>\S+)")
 
@@ -45,7 +48,20 @@ def merged(drive: str, lane: dict, keys: list[str], guarded: bool, checkout: Pat
     done = subprocess.run([str(checkout / script), "--watch", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
     if done.returncode == 0:
         return hold(drive, lane["id"], f"{old_land.QUEUED}: {', '.join(keys)} at base {sha[:12]}")
-    return hold(drive, lane["id"], old_land.unfinished(drive, "--watch", keys, done) or f"not landed: --watch exited {done.returncode}: {old_land.said(done.stdout + done.stderr)}")
+    if CONFLICT.search(said := done.stdout + done.stderr):
+        conflicted(drive, lane, keys, old_land.said(said))
+    return hold(drive, lane["id"], old_land.unfinished(drive, "--watch", keys, done) or f"not landed: --watch exited {done.returncode}: {old_land.said(said)}")
+
+
+def conflicted(drive: str, lane: dict, keys: list[str], said: str) -> None:
+    """Hand the lane's owner a note that the unit conflicts with the default branch, once per set of heads, since the lane log wakes no one and only its owner can rebase."""
+    heads = {landing.key(row): row["head"] for row in lane["prs"]}
+    marker = store.drive_dir(drive) / LANDING / CONFLICTS / hashlib.sha256(json.dumps([[key, heads.get(key)] for key in keys]).encode()).hexdigest()[:16]
+    if marker.exists():
+        return
+    verbs.handover(drive, lane["id"], f"- lane-land could not queue {', '.join(keys)}: it conflicts with the default branch: {said}. Rebase it with `ccx vcs stack submit` from its worktree; his Approve carries across your own commits, and the next landing pass queues it.", "lane-land")
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
 
 
 def retargeted(key: str, branch: str) -> bool:
