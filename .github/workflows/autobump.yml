@@ -20,7 +20,7 @@ on:
         default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ ((github.event_name == 'workflow_dispatch' && inputs.p0) || contains(toJSON(github.event.commits.*.message), '[p0]')) && 'p0' || 'batch' }}
   cancel-in-progress: false
 
 permissions:
