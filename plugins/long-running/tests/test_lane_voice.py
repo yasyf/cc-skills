@@ -325,3 +325,30 @@ def test_a_pr_label_with_angle_brackets_or_a_link_in_its_words_reads_whole_and_n
     assert voice.linked("Merged #57535 and #56808.", rows) == (
         "Merged <https://github.com/Forge-AI/monorepo/pull/57535|#57535 tools/ci mac-box prove &lt;box&gt;> and <https://github.com/Forge-AI/monorepo/pull/56808|#56808 #56570 port &amp; fix>."
     )
+
+
+def test_a_post_whose_head_moved_tells_its_owner_once_though_passes_interleave_and_one_fails_after_telling(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(store, "load_all", lambda drive: {"ha": {"prs": []}})
+    told = []
+    monkeypatch.setattr(voice.verbs, "handover", lambda drive, lane, text, by: told.append(text))
+    monkeypatch.setattr(voice.verbs, "wake", lambda drive, lane, text, if_waiting: None)
+    moved = {"lane": "ha", "ts": "1.1", "permalink": "https://x.slack.com/archives/C1/p1000000001000001", "channel_id": "C1", "at": "2026-11-16T20:00:00-08:00", "about": [], "prs": [{"repo": "Forge-AI/monorepo", "number": 58015, "state": "OPEN", "head": "4952633" + "0" * 33}]}
+    merged = moved | {"ts": "1.2", "prs": [{"repo": "Forge-AI/monorepo", "number": 1, "state": "OPEN", "head": "a" * 40}]}
+    prs = {("Forge-AI/monorepo", 58015): {"state": "OPEN", "merged": False, "head": "8b27b8a" + "0" * 33}, ("Forge-AI/monorepo", 1): {"state": "MERGED", "merged": True, "merged_at": "2026-11-17T04:30:00Z", "head": "a" * 40}}
+    calls = []
+
+    def answered(request, timeout):
+        calls.append(request.full_url)
+        if len(calls) == 1:
+            voice.settle("d", [moved, merged], prs)
+            raise voice.urllib.error.HTTPError(request.full_url, 502, "Bad Gateway", {}, None)
+        return io.StringIO(json.dumps({"permalink": merged["permalink"]}))
+
+    monkeypatch.setattr(voice.urllib.request, "urlopen", answered)
+    with pytest.raises(voice.urllib.error.HTTPError):
+        voice.settle("d", [moved, merged], prs)
+    voice.settle("d", [moved, merged], prs)
+    assert len(told) == 1 and "#58015 has a new head, 8b27b8a, since it read 4952633" in told[0]
+    assert json.loads((tmp_path / voice.SETTLED_FILE).read_text()) == {"1.1": {"stale": "#58015 has a new head, 8b27b8a, since it read 4952633"}, "1.2": {"line": "✅ #1 merged 8:30 PM"}}
+    assert calls == [voice.SETTLE_URL, voice.SETTLE_URL]
