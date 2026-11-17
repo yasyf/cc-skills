@@ -352,3 +352,10 @@ def test_a_post_whose_head_moved_tells_its_owner_once_though_passes_interleave_a
     assert len(told) == 1 and "#58015 has a new head, 8b27b8a, since it read 4952633" in told[0]
     assert json.loads((tmp_path / voice.SETTLED_FILE).read_text()) == {"1.1": {"stale": "#58015 has a new head, 8b27b8a, since it read 4952633"}, "1.2": {"line": "✅ #1 merged 8:30 PM"}}
     assert calls == [voice.SETTLE_URL, voice.SETTLE_URL]
+
+
+def test_a_post_and_its_edit_follow_as_one_post_naming_what_the_edit_names_from_when_the_post_went_out() -> None:
+    posted = {"ts": "1794882646.782079", "at": "2026-11-16T18:30:46-08:00", "prs": [{"repo": "Forge-AI/monorepo", "number": 57649}]}
+    edited = {"ts": "1794882646.782079", "at": "2026-11-16T19:40:00-08:00", "prs": [{"repo": "Forge-AI/monorepo", "number": 57649}, {"repo": "Forge-AI/monorepo", "number": 57730}]}
+    other = {"ts": "1794883498.537539", "at": "2026-11-16T18:44:58-08:00", "prs": []}
+    assert voice.current([posted, other, edited]) == [edited | {"at": posted["at"]}, other]

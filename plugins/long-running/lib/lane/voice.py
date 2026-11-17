@@ -262,7 +262,13 @@ def followed(drive: str, moment: datetime) -> list[dict]:
         listed = json.load(answer)
     lanes, taps = store.load_all(drive), listed.get("taps") or {}
     unsent(drive, lanes, listed.get("unsent") or [])
-    return [post | {"answer": taps.get(post["ts"]), "prs": post.get("prs") or named_prs(post.get("after") or "", {}), "about": [subject | ({"answer": taps.get(subject["ts"])} if subject["kind"] == "card" else {}) for subject in post.get("about") or []]} for post in listed.get("posts") or [] if post.get("lane") in lanes and post.get("ts")]
+    return [post | {"answer": taps.get(post["ts"]), "prs": post.get("prs") or named_prs(post.get("after") or "", {}), "about": [subject | ({"answer": taps.get(subject["ts"])} if subject["kind"] == "card" else {}) for subject in post.get("about") or []]} for post in current(listed.get("posts") or []) if post.get("lane") in lanes]
+
+
+def current(posts: list[dict]) -> list[dict]:
+    """One row per post, by its ts: the newest row, an edit's, for what the post names now, at the time the post first went out, so a PR merged between the post and its edit still gives it a state line. Two rows of one post each following its own subjects made settle rewrite that post's line every pass, alternating between them: 61 s of Slack calls in one pass at 05:31:11Z."""
+    first = {post["ts"]: post["at"] for post in reversed(posts) if post.get("ts")}
+    return list({post["ts"]: post | {"at": first[post["ts"]]} for post in posts if post.get("ts")}.values())
 
 
 def unsent(drive: str, lanes: dict[str, dict], rows: list[dict]) -> None:
