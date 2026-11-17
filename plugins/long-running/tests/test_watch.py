@@ -8682,17 +8682,24 @@ def gh_recording(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return calls
 
 
-def test_a_lander_whose_only_gap_is_an_approval_on_an_older_head_asks_forge_pr_reviewer_once_a_head_and_watches(
+def stale(name: str) -> str:
+    """Mark KEY approved only on an older head, as github.review reads it; its head."""
+    with edit(name) as data:
+        data["prs"][KEY]["review"] = "stale"
+        return data["prs"][KEY]["head"]
+
+
+def test_a_lander_of_a_pr_approved_only_on_an_older_head_asks_forge_pr_reviewer_once_a_head_and_watches(
     home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
-    stale = "awaiting approval on head from {} (approved 316c682c69, on an older head)"
-    calls = enqueue_checking(tmp_path, monkeypatch, demo, f"#42 BLOCKED 34087d1264 {stale.format('forge-pr-reviewer[bot]')}; {stale.format('poetic-svc')}")
+    head = stale(demo)
+    calls = enqueue_checking(tmp_path, monkeypatch, demo, f"#42 GREEN {head} Trunk notSubmitted")
     assert land.run(demo, [KEY]) == land.QUEUED
     assert land.run(demo, [KEY]) == land.QUEUED
     assert calls.read_text() == "pr comment 42 -R Forge-AI/monorepo --body @forge-pr-reviewer review\n"
-    assert state.load(demo)["prs"][KEY]["review_asked"] == "34087d1264"
+    assert state.load(demo)["prs"][KEY]["review_asked"] == head
 
 
 def test_an_install_that_lands_while_the_lander_checks_a_pr_ends_no_landing_and_the_newest_install_records_its_outcome_and_the_head_it_asked_reviewed(
@@ -8700,7 +8707,8 @@ def test_an_install_that_lands_while_the_lander_checks_a_pr_ends_no_landing_and_
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
-    calls = enqueue_checking(tmp_path, monkeypatch, demo, "#42 BLOCKED 34087d1264 awaiting approval on head from forge-pr-reviewer[bot] (approved 316c682c69, on an older head)")
+    head = stale(demo)
+    calls = enqueue_checking(tmp_path, monkeypatch, demo, f"#42 GREEN {head} Trunk notSubmitted")
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
 
     class Execed(Exception):
@@ -8713,13 +8721,13 @@ def test_an_install_that_lands_while_the_lander_checks_a_pr_ends_no_landing_and_
     monkeypatch.setattr(install.os, "execv", execv)
     with pytest.raises(Execed) as execed:
         land.run(demo, [KEY])
-    reopened = [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED, "--asked", KEY, "34087d1264"]
+    reopened = [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED, "--asked", KEY, head]
     assert execed.value.args == (newer, reopened)
     assert calls.read_text() == "pr comment 42 -R Forge-AI/monorepo --body @forge-pr-reviewer review\n"
     monkeypatch.setattr(install, "upgraded", lambda: None)
     assert cli.main(reopened[1:]) == 0
     pr = state.load(demo)["prs"][KEY]
-    assert (pr["lander"]["outcome"], pr["review_asked"]) == (land.QUEUED, "34087d1264")
+    assert (pr["lander"]["outcome"], pr["review_asked"]) == (land.QUEUED, head)
 
 
 def test_a_head_grading_an_hour_gets_one_review_ask_from_the_watch_which_records_it_so_its_next_deadline_wakes_its_builder(
@@ -8751,22 +8759,13 @@ def test_a_lander_whose_only_gaps_are_waits_to_retarget_once_the_pr_under_them_l
     assert not calls.exists()
 
 
-def test_a_lander_whose_check_reads_github_still_computing_mergeability_waits_it_out_in_watch_and_queues(
-    home_repo: None,
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    approve(demo, KEY)
-    calls = enqueue_checking(tmp_path, monkeypatch, demo, "#42 BLOCKED 34087d1264 GitHub still computing mergeability; GitHub merge state UNKNOWN")
-    assert land.run(demo, [KEY]) == land.QUEUED
-    assert not calls.exists()
-
-
 def test_a_lander_whose_watch_stops_on_a_fix_says_its_blocked_line_having_asked_a_review_of_the_head_approved_only_on_an_older_one(
     home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
-    blocked = "#42 BLOCKED 34087d1264 awaiting approval on head from poetic-svc (approved 316c682c69, on an older head); GitHub mergeability CONFLICTING; run ccx vcs stack submit for conflicts"
+    head = stale(demo)
+    blocked = f"#42 BLOCKED {head} conflicts with origin/dev in a.go; run ccx vcs stack submit from the branch's worktree"
     stops = "watch stops: a PR needs a fix, not a wait"
     calls = enqueue_checking(tmp_path, monkeypatch, demo, blocked, f'printf "%s\\n" "{stops}" {shlex.quote(blocked)}; exit 1')
     assert land.run(demo, [KEY]) == f"not landed: stack-enqueue --watch exited 1: {stops}; {blocked}; its whole output is in {state.drive_dir(demo) / land.LOG}"

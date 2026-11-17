@@ -209,7 +209,7 @@ def labeled(node: dict, labels: list[str], label: str) -> str | None:
 
 
 def review(read: dict) -> str:
-    """approved once every reviewer's latest approval is on the PR's head, the only approval the repository's merge queue counts; stale while GitHub's reviewDecision still counts one given on an older head; changes or none otherwise."""
+    """approved once every reviewer's latest approval is on the PR's head, the only approval the repository's branch protection, and so its merge queue, counts; stale while GitHub's reviewDecision still counts one given on an older head, which the lander asks the review bot to renew; changes or none otherwise."""
     decision = REVIEWS.get(read["reviewDecision"], "none")
     if decision == "approved" and any(commit != read["headRefOid"] for commit in read["approvals"]):
         return "stale"

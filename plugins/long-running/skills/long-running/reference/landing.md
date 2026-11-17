@@ -430,10 +430,10 @@ Record any other class with `drive pr set <url> --exempt "<class>"` and clear it
   filter and LFS files as pointers, fetched under the clone's lock. It trusts
   that worktree's tool config so the enqueue command runs. A landing fix merged to the default
   branch holds for the next landing at once. The enqueue command runs twice: a check, then a watch.
-- The check runs first. When its `BLOCKED` lines name an approval on an older head, the lander
-  asks the reviewer bot for a review, once a head. The watch then waits out each wait in the
-  lander's own process, such as that approval or GitHub computing mergeability, and queues the PR,
-  or ends as `PR … not landed: <its last lines>` on the first gap that needs a fix.
+- The check runs first. When the drive reads a PR of the unit `approved on an older head`, the
+  lander then asks the reviewer bot for a review, once a head. The watch queues the unit and waits
+  in the lander's own process until the queue admits it, such as while it holds the entry for that
+  approval, or ends as `PR … not landed: <its last lines>` on the first gap that needs a fix.
 - Whatever stops a landing (his Hold, the `hold` label, a card, a wait of the PR, a rework, his
   Approve coming off, his absence from a dangerous PR), the landing loop's next pass ends the
   running lander, which dequeues what it queued. `drive pr land --dequeue` takes out a unit the queue
