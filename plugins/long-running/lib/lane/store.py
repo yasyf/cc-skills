@@ -107,6 +107,26 @@ def config(drive: str) -> dict:
     return DEFAULTS | (json.loads(path.read_text()) if path.is_file() else {})
 
 
+CONFIG_KEYS = {*DEFAULTS, "approve_cards", "budgets", "capacity", "datadog_keys", "defect_to", "gh", "gold_standard", "his_login", "hotfix_cli", "incident_worktree", "models", "premerge_lanes", "prices", "promotion_env", "queue_cli", "staging_alerts", "staging_env_file", "staging_targets", "workers", "slots"}
+
+
+def set_config(drive: str, key: str, value: object, by: str) -> object:
+    """Write one key of the drive config, a key the code reads, in one locked write logged to the drive's config log with who set it and what it was; the value it replaced."""
+    if key not in CONFIG_KEYS:
+        raise Refused(f"the code reads no config key {key!r}; keys: {', '.join(sorted(CONFIG_KEYS))}")
+    path = drive_dir(drive) / "config.json"
+    with locked(drive):
+        kept = json.loads(path.read_text()) if path.is_file() else {}
+        was = kept.get(key)
+        kept[key] = value
+        fresh = path.with_name(f".config.json.{os.getpid()}.tmp")
+        fresh.write_text(json.dumps(kept, indent=2) + "\n")
+        fresh.replace(path)
+    with (drive_dir(drive) / "config.log").open("a") as log:
+        log.write(json.dumps({"at": stamp(), "key": key, "was": was, "now": value, "by": by}) + "\n")
+    return was
+
+
 def lane_ids(drive: str) -> list[str]:
     return list(load_all(drive))
 

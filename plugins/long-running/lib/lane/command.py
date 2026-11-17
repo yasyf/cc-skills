@@ -206,6 +206,14 @@ def main(argv: list[str] | None = None) -> int:
     judged = carrying.add_mutually_exclusive_group(required=True)
     judged.add_argument("--compatible")
     judged.add_argument("--incompatible")
+    configuring = verbs_parser.add_parser("config", help="read or set one key of the drive config, logged with who set it")
+    config_verbs = configuring.add_subparsers(dest="config_verb", required=True)
+    config_get = config_verbs.add_parser("get")
+    config_get.add_argument("key", nargs="?")
+    config_set = config_verbs.add_parser("set")
+    config_set.add_argument("key")
+    config_set.add_argument("value", help="JSON, such as false, 8 or {\"opus\": ...}; anything else is a string")
+    config_set.add_argument("--by", required=True, help="who sets it, a lane or a person")
     paging = verbs_parser.add_parser("page", help="page him through Datadog On-Call: a live production failure only, what broke, for whom and its link")
     paging.add_argument("--lane")
     paging.add_argument("--why", required=True)
@@ -395,6 +403,17 @@ def run(args: argparse.Namespace) -> int:
         case "audit-miss":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             audit.missed(drive, args.line)
+        case "config":
+            shape = store.config(args.drive)
+            if args.config_verb == "get":
+                print(json.dumps(shape if args.key is None else shape.get(args.key), indent=2))
+            else:
+                try:
+                    value = json.loads(args.value)
+                except json.JSONDecodeError:
+                    value = args.value
+                was = store.set_config(args.drive, args.key, value, args.by)
+                print(f"{args.key}: {json.dumps(was)} -> {json.dumps(value)}")
         case "page":
             from lane import incidents
 

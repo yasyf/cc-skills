@@ -1608,3 +1608,8 @@ def test_a_block_only_he_can_clear_wakes_its_owner_to_tell_him_then_files_a_defe
     assert store.load(DRIVE, "b")["blocks"][0]["told"]
     blocks.told(DRIVE, later + blocks.TELL_WITHIN + timedelta(seconds=1))
     assert filed == [("lane a never told him of a block only he can clear", "lane-voice")]
+def test_lane_config_set_writes_a_key_the_code_reads_and_logs_who_set_it(world: dict) -> None:
+    assert store.set_config(DRIVE, "approve_cards", False, "team-lead") is None and store.config(DRIVE)["approve_cards"] is False
+    with pytest.raises(store.Refused, match="no config key 'approve_card'"):
+        store.set_config(DRIVE, "approve_card", True, "team-lead")
+    assert json.loads((store.drive_dir(DRIVE) / "config.log").read_text().splitlines()[-1])["by"] == "team-lead"
