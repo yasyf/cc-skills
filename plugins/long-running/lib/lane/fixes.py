@@ -36,7 +36,7 @@ def landable(row: dict, head: str) -> bool:
 
 def brief(kind_of: str, repo: str, number: int, pull: dict) -> str:
     number_head = f"{number}-{pull['head'][:7]}"
-    where = f"Work in a worktree of your own, `git worktree add ../fix-{number_head} origin/{pull['branch']}` from this checkout after `git fetch origin {pull['branch']} {pull['base']}`, never in this checkout, and remove it when done. Push with `git push --force-with-lease origin HEAD:{pull['branch']}`. Change nothing else, post nothing to Slack, and end with one line: what you pushed, or why you could not."
+    where = f"Work in a worktree of your own, `git worktree add ../fix-{number_head} {pull['head']}` from this checkout after `git fetch origin {pull['head']} +refs/heads/{pull['base']}:refs/remotes/origin/{pull['base']}`, never in this checkout, and remove it when done. Push with `git push --force-with-lease={pull['branch']}:{pull['head']} origin HEAD:{pull['branch']}`. Change nothing else, post nothing to Slack, and end with one line: what you pushed, or why you could not."
     match kind_of:
         case "conflict":
             return f"Rebase {repo}#{number} (branch {pull['branch']}) onto origin/{pull['base']} and push it, resolving each conflict so both sides' changes stand. {where}"
