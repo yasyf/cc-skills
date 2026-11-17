@@ -45,7 +45,12 @@ def told(drive: str, moment: datetime) -> None:
                     continue
                 if not block.get("woken") and moment - store.parse(block["at"]) >= TELL_WITHIN:
                     block["woken"] = store.stamp(moment)
-                    verbs.woken(lane, f"a block only he can clear has not reached his thread: {block['what']}. Tell him there what clears it, with lane say")
+                    told_why = f"a block only he can clear has not reached his thread: {block['what']}. Tell him there what clears it, with lane say"
+                    if lane["state"] == store.RUNNING:
+                        with store.note_path(drive, lane_id).open("a") as note:
+                            note.write(told_why + "\n\n")
+                    else:
+                        verbs.woken(lane, told_why)
                 elif block.get("woken") and moment - store.parse(block["woken"]) >= TELL_WITHIN:
                     block["defect"] = store.stamp(moment)
                     late.append((lane_id, block))

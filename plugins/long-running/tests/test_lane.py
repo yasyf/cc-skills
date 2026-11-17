@@ -1601,7 +1601,6 @@ def test_a_block_only_he_can_clear_wakes_its_owner_to_tell_him_then_files_a_defe
 
     opened("a")
     opened("b")
-    ended("a", ["pr_merged:acme/app#7"], "2h")
     filed = []
     monkeypatch.setattr(blocks, "judged", lambda fresh: {block["at"]: "Approve" in block["what"] for block in fresh})
     monkeypatch.setattr(audit, "defect", lambda drive, what, evidence, mechanism, owner: filed.append((what, owner)))
@@ -1610,7 +1609,7 @@ def test_a_block_only_he_can_clear_wakes_its_owner_to_tell_him_then_files_a_defe
     saying.say(DRIVE, "b", "#57909 needs your Approve to land.", token=token_of("b"))
     later = store.now() + blocks.TELL_WITHIN
     blocks.told(DRIVE, later)
-    assert store.load(DRIVE, "a")["wait"]["fired_why"].startswith("a block only he can clear has not reached his thread")
+    assert "a block only he can clear has not reached his thread" in store.note_path(DRIVE, "a").read_text()
     assert store.load(DRIVE, "b")["blocks"][0]["told"]
     blocks.told(DRIVE, later + blocks.TELL_WITHIN + timedelta(seconds=1))
     assert filed == [("lane a never told him of a block only he can clear", "lane-voice")]
