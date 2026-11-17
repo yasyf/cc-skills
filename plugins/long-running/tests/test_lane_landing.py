@@ -141,3 +141,14 @@ def test_writing_a_staging_target_that_exists_nowhere_is_refused_and_one_that_ex
         stager.targets("durable-agents", ["plat-usw2-staging sandsql-nodes-4"])
     assert stager.targets("durable-agents", ["plat-usw2-staging sandsql-nodes-3"]) == ["plat-usw2-staging sandsql-nodes-3"]
     assert stager.missing("durable-agents", "plat-usw2-staging-2") == "plat-usw2-staging-2 has no infra/envs/plat-usw2-staging-2.yaml on the default branch"
+
+
+def test_a_head_that_moved_since_its_verdict_under_the_same_danger_page_is_judged_again() -> None:
+    moved = row(1, head="old") | {"dangerous": {"head": "old", "classes": {}, "rule": "r"}, "guarded": {"head": "old", "classes": {}, "rule": "r"}}
+    still = row(2) | {"dangerous": {"head": "h", "classes": {}, "rule": "r"}, "guarded": {"head": "h", "classes": {}, "rule": "r"}}
+    lanes = {"run-page": lane(moved, still)}
+    read = {landing.key(pr): {"head": "h"} for pr in (moved, still)}
+    verdict = {"head": "h", "classes": {}, "rule": "r"}
+    judged = {gate: {landing.key(pr): verdict for pr in (moved, still)} for gate in ("dangerous", "guarded")}
+    assert rows.written(lanes, read, judged, "r") == 2
+    assert moved["dangerous"]["head"] == moved["guarded"]["head"] == "h"
