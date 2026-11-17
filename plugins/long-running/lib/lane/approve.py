@@ -63,6 +63,8 @@ def draw(drive: str) -> list[str]:
         if lane.get("card_mode") == ONE:
             stacks, words, labels = waiting[:1], stack_text(waiting[0], card), STACK_LABELS
         else:
+            carded = {key for card in live for heads in card["stacks"] for key in heads}
+            waiting = [*waiting, *[heads for heads in ready if heads not in waiting and carded & set(heads)]]
             count = sum(len(heads) for heads in waiting)
             stacks, words, labels = waiting, lane_text(lane, waiting, card), [f"Approve all {count} (Recommended)", ONE, HOLD_ALL]
         try:
@@ -71,10 +73,10 @@ def draw(drive: str) -> list[str]:
             refused.append(f"{lane_id}: its Approve card was not posted: {failed}")
             continue
 
-        def keeping(lane: dict, card: str = card, stacks: list[dict[str, str]] = stacks, sent: str = sent) -> None:
+        def keeping(lane: dict, card: str = card, stacks: list[dict[str, str]] = stacks, sent: str = sent, open_keys: set[str] = {key for heads in ready for key in heads}) -> None:
             asked = {key for heads in stacks for key in heads}
             for older in lane.get("cards", []):
-                if not older.get("tapped") and not older.get("superseded") and {key for heads in older["stacks"] for key in heads} <= asked:
+                if not older.get("tapped") and not older.get("superseded") and {key for heads in older["stacks"] for key in heads} & open_keys <= asked:
                     older["superseded"] = card
             lane["cards"] = [*lane.get("cards", []), {"id": card, "stacks": stacks, "at": store.stamp(), "sent": sent}][-50:]
             for row in lane["prs"]:

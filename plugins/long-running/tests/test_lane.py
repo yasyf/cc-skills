@@ -1300,3 +1300,22 @@ def test_each_pass_drops_expired_leases_and_rows_of_resources_the_queue_no_longe
     supervisor.run_pass(DRIVE)
     left = queue.kept(DRIVE)
     assert [lease["holder"] for lease in left["leases"]["release"]] == ["y"] and "card" not in left["leases"] and "staging-env" not in left["requests"]
+
+
+def test_a_new_head_under_a_live_card_redraws_one_card_for_the_whole_lane_and_supersedes_the_old_one(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import approve, page
+
+    posted = []
+    monkeypatch.setattr(saying, "SENDER", lambda drive, lane, words, about, options: posted.append(words) or f"QUEUED {len(posted)}")
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a")
+    stacks = [{"acme/app#1": "h1"}, {"acme/app#2": "h2"}]
+    monkeypatch.setattr(approve, "ready_stacks", lambda lane, seen: stacks)
+    monkeypatch.setattr(approve, "stacks_waiting", lambda lane, seen: [heads for heads in stacks if not any(heads == old for card in lane.get("cards", []) for old in card["stacks"])])
+    monkeypatch.setattr(page, "view", lambda drive: {"prs": {}})
+    approve.draw(DRIVE)
+    stacks[1] = {"acme/app#2": "h3"}
+    approve.draw(DRIVE)
+    first, second = store.load(DRIVE, "a")["cards"]
+    assert first["superseded"] == second["id"] and second["stacks"] == [{"acme/app#2": "h3"}, {"acme/app#1": "h1"}] and len(posted) == 2
+    assert not facts.asking({"cards": [first], "asks": []})
