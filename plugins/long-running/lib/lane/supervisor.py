@@ -140,7 +140,8 @@ def alone(drive: str, errors: list[str], what: str, step, seconds: float = STEP_
     worker.start()
     worker.join(seconds)
     if (took := time.monotonic() - began) >= SLOW_STEP_SECONDS:
-        print(f"{store.stamp()} pass step took {took:.0f}s: {what}", flush=True)
+        outcome = "still running" if worker.is_alive() else "failed" if "failed" in kept else "succeeded"
+        print(f"{store.stamp()} pass step took {took:.0f}s and {outcome}; on failure it reads: {what}", flush=True)
     if worker.is_alive():
         RUNNING_STEPS[f"{drive}:{what}"] = worker
         line, trace = f"{what}: ran past {seconds:.0f}s, so this pass moves on without it", ""
@@ -161,16 +162,17 @@ def beside(drive: str, what: str, step) -> None:
         return
 
     def running() -> None:
-        began = time.monotonic()
+        began, outcome = time.monotonic(), "succeeded"
         try:
             BESIDE_ERRORS[key] = list(step() or [])
         except Exception as failed:
             line = f"{what}: {type(failed).__name__}: {failed}"
+            outcome = "failed"
             BESIDE_ERRORS[key] = [line]
             with (store.drive_dir(drive) / ALERTS).open("a") as out:
                 out.write(json.dumps({"at": store.stamp(), "step": what, "error": line, "trace": traceback.format_exc()[-2000:]}) + "\n")
         if (took := time.monotonic() - began) >= SLOW_STEP_SECONDS:
-            print(f"{store.stamp()} step beside the pass took {took:.0f}s: {what}", flush=True)
+            print(f"{store.stamp()} step beside the pass took {took:.0f}s and {outcome}; on failure it reads: {what}", flush=True)
 
     if not BESIDE:
         running()
