@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 from datetime import datetime
 from collections.abc import Iterator
@@ -15,6 +16,7 @@ from lane import landing, releases, rows, stager, store, supervisor, verbs
 LANDING = "landing"
 LANDINGS = "landings"
 CONFLICTS = "conflicts"
+WATCH_SECONDS = 300
 CONFLICT = re.compile(r"CONFLICTING|conflicts with origin/")
 SKIP_MERGE_PREFLIGHT = "STACK_ENQUEUE_SKIP_MERGE_PREFLIGHT"
 GONE_BASE = re.compile(r"couldn't find remote ref refs/heads/(?P<branch>\S+)")
@@ -45,12 +47,26 @@ def merged(drive: str, lane: dict, keys: list[str], guarded: bool, checkout: Pat
         return hold(drive, lane["id"], failed)
     if guarded and not landing.present(heard(drive), store.now()):
         return hold(drive, lane["id"], f"not landed: {', '.join(keys)} is dangerous and his presence lapsed during the preflight at {sha[:12]}, so it lands at his next word or tap")
-    done = subprocess.run([str(checkout / script), "--watch", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
+    done = bounded([str(checkout / script), "--watch", *numbers], checkout, trusted)
+    if done is None:
+        return hold(drive, lane["id"], f"not landed: {', '.join(keys)} was not queued within {WATCH_SECONDS // 60} minutes of --watch at base {sha[:12]}, so the watch ended and the next pass queues it again")
     if done.returncode == 0:
         return hold(drive, lane["id"], f"{old_land.QUEUED}: {', '.join(keys)} at base {sha[:12]}")
     if CONFLICT.search(said := done.stdout + done.stderr):
         conflicted(drive, lane, keys, old_land.said(said))
     return hold(drive, lane["id"], old_land.unfinished(drive, "--watch", keys, done) or f"not landed: --watch exited {done.returncode}: {old_land.said(said)}")
+
+
+def bounded(argv: list[str], cwd: Path, env: dict) -> subprocess.CompletedProcess | None:
+    """Run a --watch in its own process group for at most WATCH_SECONDS; None when it ran out, its whole group ended so no script outlives it, since a watch that has not queued its unit by then waits on something no pass should sit behind, as #53092's sat 29 minutes."""
+    watch = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        out, err = watch.communicate(timeout=WATCH_SECONDS)
+    except subprocess.TimeoutExpired:
+        os.killpg(watch.pid, signal.SIGTERM)
+        watch.communicate()
+        return None
+    return subprocess.CompletedProcess(argv, watch.returncode, out, err)
 
 
 def conflicted(drive: str, lane: dict, keys: list[str], said: str) -> None:
