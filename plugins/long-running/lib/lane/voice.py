@@ -13,7 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from lane import page, say, store, verbs
-from lane.words import short
+from lane.words import pr_words
 
 LANE_ENV = "LONG_RUNNING_LANE"
 TOKEN_ENV = "LANE_TOKEN"
@@ -30,6 +30,10 @@ LINKED_PR = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|")
 PERMALINK_TS = re.compile(r"/p(\d{10})(\d{6})")
 SLACK_MESSAGE = re.compile(r"https://[\w-]+\.slack\.com/archives/(C\w+)/p(\d{10})(\d{6})")
 ATTACHED_APPROVE = re.compile(r"^Approve #(\d+)$")
+PARENTHETICAL = re.compile(r"\s*\([^)]*\)")
+BUTTON_CLAUSE = re.compile(r"[,;:](?=\s)| - | — ")
+BUTTON_WORDS = 4
+BUTTON_CHARS = 24
 TAPPED_PR = re.compile(r'^tapped "(Approve|Hold) #(\d+)"')
 
 
@@ -59,6 +63,8 @@ def edit_ts(edit: str | None) -> str | None:
 
 def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options: list[str] | None = None, edit: str | None = None, about: list[str] | None = None) -> str:
     """lane.say's SENDER: queue one post in the lane's channel, in the thread of the ask it is about, with the role page beside it and a button for each option, and return QUEUED and its id."""
+    if options:
+        text, options = buttoned(text, options)
     seen = page.view(drive)["prs"]
     drawn = linked(text, titled(lane.get("prs") or [], seen))
     body = {
@@ -84,6 +90,28 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         raise
     carded(drive, lane["id"], queued["id"], queued.get("attached") or [], seen)
     return f"QUEUED {queued['id']}"
+
+
+def button(option: str) -> str:
+    """An option as a button Slack shows whole: its parentheticals, such as (Recommended), dropped, cut at its first clause, at most BUTTON_WORDS words and BUTTON_CHARS characters, by his words "the buttons are all cut off I have no idea what they're saying"."""
+    words = BUTTON_CLAUSE.split(PARENTHETICAL.sub("", option).strip(), maxsplit=1)[0].split()
+    kept: list[str] = []
+    for word in words[:BUTTON_WORDS]:
+        if len(" ".join([*kept, word])) > BUTTON_CHARS:
+            break
+        kept.append(word)
+    return " ".join(kept)
+
+
+def buttoned(text: str, options: list[str]) -> tuple[str, list[str]]:
+    """A question's text and buttons as he can read them: each option shortened to a button, and when any was shortened, each listed in full under its button's name at the post's end; options that shorten to an empty or repeated button go on as given, for the voice to refuse with the rule."""
+    labels = [button(option) for option in options]
+    if not all(labels) or len({label.casefold() for label in labels}) < len(labels):
+        return text, options
+    if labels == [option.strip() for option in options]:
+        return text, labels
+    listed = "\n".join(f"{n}. *{label}*: {option.strip()}" for n, (label, option) in enumerate(zip(labels, options, strict=True), 1))
+    return f"{text.rstrip()}\n\n{listed}", labels
 
 
 def named_prs(text: str, seen: dict[str, dict], rows: list[dict] = ()) -> list[dict]:
@@ -138,8 +166,8 @@ def asked_thread(lane: dict, about_ts: str | None) -> str:
 def titled(prs: list[dict], seen: dict[str, dict]) -> list[dict]:
     """The lane's PR rows, each with no words of its own given a few from its GitHub title as the supervisor's last pass read it into view.json, then every other PR of the drive's lanes that view.json holds, so a #N any lane holds never goes out as a bare number."""
     held = {f"{row['repo']}#{row['number']}" for row in prs}
-    own = [row if row.get("words") or not (pull := seen.get(f"{row['repo']}#{row['number']}")) else row | {"words": short(pull["title"])} for row in prs]
-    return own + [{"repo": key.partition("#")[0], "number": int(key.partition("#")[2]), "words": short(pull["title"])} for key, pull in seen.items() if key not in held and pull.get("title")]
+    own = [row if row.get("words") or not (pull := seen.get(f"{row['repo']}#{row['number']}")) else row | {"words": pr_words(row["repo"], row["number"], pull["title"])} for row in prs]
+    return own + [{"repo": key.partition("#")[0], "number": int(key.partition("#")[2]), "words": pr_words(key.partition("#")[0], int(key.partition("#")[2]), pull["title"])} for key, pull in seen.items() if key not in held and pull.get("title")]
 
 
 def linked(text: str, prs: list[dict]) -> str:

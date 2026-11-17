@@ -3,6 +3,7 @@ import json
 
 import pytest
 from lane import store, voice
+from lane import words as words_module
 
 
 def test_the_sender_queues_at_the_lane_channel_root_never_its_old_home_thread_and_returns_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -141,11 +142,14 @@ def test_a_post_naming_an_ask_the_lane_never_heard_is_refused_before_it_goes_out
         ("✨ New: migration gates as four simple rules", "migration gates as four simple rules"),
         ("⚡️ run_tallies reads each step's kept page row", "run_tallies reads each step's kept page row"),
         (":fire: delete today's run page", "delete today's run page"),
+        (":recycle: Cleanup", ""),
+        ("♻️ Refactor", ""),
+        (":sparkles: New: migration gates as four simple rules", "migration gates as four simple rules"),
         ("New: a sync ends each LTX file", "a sync ends each LTX file"),
     ],
 )
 def test_a_title_reads_as_a_few_words(title: str, words: str) -> None:
-    assert voice.short(title) == words
+    assert words_module.short(title) == words
 
 
 def test_a_lane_pr_with_no_words_takes_them_from_its_title() -> None:
@@ -208,3 +212,32 @@ def test_a_live_card_asking_about_work_he_already_approved_is_retired_as_landing
     assert voice.changes(card, lane, now, {}) == ([voice.RETIRED], [])
     lane["prs"][1]["approved_head"] = "old"
     assert voice.changes(card, lane, now, {}) == ([], [])
+
+
+def test_a_pr_whose_title_is_one_generic_word_takes_its_bodys_first_line(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setattr(store, "root", lambda: tmp_path)
+    calls = []
+
+    def viewed(argv, **_):
+        calls.append(argv)
+        return __import__("subprocess").CompletedProcess(argv, 0, "## Summary\n\n**Drops the old card queue** and its tests.\n", "")
+
+    monkeypatch.setattr(words_module.subprocess, "run", viewed)
+    assert words_module.pr_words("Forge-AI/monorepo", 57649, ":recycle: Cleanup") == "Drops the old card queue and its tests."
+    assert words_module.pr_words("Forge-AI/monorepo", 57649, ":recycle: Cleanup") == "Drops the old card queue and its tests."
+    assert len(calls) == 1
+    assert words_module.pr_words("Forge-AI/monorepo", 1, "♻️ Drop the card queue") == "Drop the card queue"
+
+
+@pytest.mark.parametrize(
+    ("options", "labels", "listed"),
+    [
+        (["Approve", "Hold"], ["Approve", "Hold"], False),
+        (["Approve as built: note required, chat's end only", "Approve, and also show the note on the sidebar row", "Make the note optional, then approve", "Hold"], ["Approve as built", "Approve", "Make the note optional", "Hold"], True),
+        (["Approve all 3 (Recommended)", "One at a time", "Hold all"], ["Approve all 3", "One at a time", "Hold all"], True),
+    ],
+)
+def test_buttons_are_short_enough_for_slack_and_a_shortened_one_is_listed_in_full(options: list[str], labels: list[str], listed: bool) -> None:
+    text, shown = voice.buttoned("Pick one:", options)
+    assert shown == labels and all(len(label) <= voice.BUTTON_CHARS and len(label.split()) <= voice.BUTTON_WORDS for label in shown)
+    assert (f"1. *{labels[0]}*: {options[0]}" in text) is listed

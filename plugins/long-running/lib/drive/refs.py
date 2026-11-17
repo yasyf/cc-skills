@@ -7,7 +7,7 @@ from drive import dashboard, limits, picture, providers, reads, render, settled,
 from drive import slack as slack_api
 from drive.limits import REF
 from drive.state import DriveError
-from lane.words import short
+from lane import words as lane_words
 
 ACK = re.compile(r"\bAck: (https://\S+)")
 OPEN_LINK = re.compile(r"<((?:https?://|mailto:)[^<>|\s]*)\|[^<>]*\Z")
@@ -223,7 +223,7 @@ def pr(prs: dict, ref: str, label: str, pr_cards: list[dict]) -> dict:
     if key in prs:
         found = prs[key]
         shown = view.head_card(found, pr_cards)
-        return {"kind": "pr", "title": pr_words(key, label or (short(view.pr_title(found)) if found["title"] else "")), "url": found["url"], "board": found["url"], "card": shown["url"] if shown else None}
+        return {"kind": "pr", "title": pr_words(key, label or (lane_words.pr_words(*key.split("#"), view.pr_title(found)) if found["title"] else "")), "url": found["url"], "board": found["url"], "card": shown["url"] if shown else None}
     if label:
         url = state.pr_url(key)
         return {"kind": "pr", "title": pr_words(key, label), "url": url, "board": url}
