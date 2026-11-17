@@ -443,7 +443,7 @@ def check(drive: str) -> tuple[bool, list[str]]:
 
 
 def preflighted(drive: str, install: Path) -> bool:
-    """Whether the install rendered every card and post it would send now through the voice in dry run with none refused or held. While the plugin's main CI is red no preflight starts, so no install is taken. The first time a pass sees the install with main green, its preflight starts beside the supervisor, which keeps passing on its own code; a later pass reads the verdict. The supervisor and every owner's `lane` move to an install only once it passed, so a refusal keeps the drive on the code it runs."""
+    """Whether the install rendered every card and post it would send now through the voice in dry run with none refused or held. While the plugin's main CI is red no preflight starts, so no install is taken, unless `lane take --p0` named it a fix for live harm. The first time a pass sees the install with main green, its preflight starts beside the supervisor, which keeps passing on its own code; a later pass reads the verdict. The supervisor and every owner's `lane` move to an install only once it passed, so a refusal keeps the drive on the code it runs."""
     folder = store.drive_dir(drive) / PREFLIGHT
     folder.mkdir(exist_ok=True)
     passed, refused, output = folder / f"{install.name}.passed", folder / f"{install.name}.refused", folder / f"{install.name}.out"
@@ -451,8 +451,8 @@ def preflighted(drive: str, install: Path) -> bool:
         return passed.exists()
     running = PREFLIGHTS.get(install.name)
     if running is None:
-        if red := main_red():
-            output.write_text(f"waiting: {red}\n")
+        if not (folder / f"{install.name}.p0").exists() and (red := main_red()):
+            output.write_text(f"waiting: {red}; a fix for live harm is taken anyway with `lane --drive {drive} take {install.name} --p0 \"<why>\"`\n")
             return False
         with output.open("w") as out:
             PREFLIGHTS[install.name] = (subprocess.Popen([str(install / "bin" / "lane"), "--drive", drive, "preflight"], stdout=out, stderr=subprocess.STDOUT), time.monotonic())
@@ -476,6 +476,18 @@ def copied(source: str, target: str) -> None:
     """Copy one file of the live drive, which a pass may replace while the copy runs: a file renamed away mid-copy is left out, as the pass that replaced it would have."""
     with suppress(FileNotFoundError):
         shutil.copy2(source, target)
+
+
+def take(drive: str, version: str, why: str) -> str:
+    """Let the supervisor take one install while the plugin's main CI is red, for a fix of live harm: its preflight still runs and still refuses what it would refuse."""
+    if not (Path(__file__).resolve().parents[3] / version / "bin" / "lane").exists():
+        raise store.Refused(f"no install {version} beside this one")
+    folder = store.drive_dir(drive) / PREFLIGHT
+    folder.mkdir(exist_ok=True)
+    (folder / f"{version}.p0").write_text(json.dumps({"at": store.stamp(), "why": why}) + "\n")
+    (folder / f"{version}.out").unlink(missing_ok=True)
+    (store.drive_dir(drive) / "kick").touch()
+    return f"{version} is taken past a red main for: {why}"
 
 
 def main_red() -> str | None:
