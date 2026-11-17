@@ -32,7 +32,7 @@ def keep_view(drive: str, prs: dict[tuple[str, int], dict], moment: datetime) ->
         since = {}
     kept = {}
     for (repo, number), pull in prs.items():
-        kept[f"{repo}#{number}"] = {key: pull[key] for key in ("state", "merged", "head", "rollup", "review", "base", "branch", "title", "failing", "mergeable", "reviewed_heads") if key in pull}
+        kept[f"{repo}#{number}"] = {key: pull[key] for key in ("state", "merged", "head", "rollup", "review", "base", "base_open", "branch", "default", "title", "failing", "mergeable", "reviewed_heads") if key in pull}
         if read := since.get((repo, number)):
             kept[f"{repo}#{number}"] |= {"commits": read["commits"], "whole": read["commit_count"] <= len(read["commits"])}
         elif (repo, number) in moved and "commits" in (last := before.get(f"{repo}#{number}", {})):
@@ -46,7 +46,7 @@ def merge_view(drive: str, prs: dict[tuple[str, int], dict], moment: datetime) -
     """Keep a GitHub read of a few lane PRs, as an event reads them, over their rows in the page's view, leaving every other PR's row as the last read left it."""
     kept = view(drive)["prs"]
     for (repo, number), pull in prs.items():
-        kept[f"{repo}#{number}"] = kept.get(f"{repo}#{number}", {}) | {key: pull[key] for key in ("state", "merged", "head", "rollup", "review", "base", "branch", "title", "failing", "mergeable", "reviewed_heads") if key in pull}
+        kept[f"{repo}#{number}"] = kept.get(f"{repo}#{number}", {}) | {key: pull[key] for key in ("state", "merged", "head", "rollup", "review", "base", "base_open", "branch", "default", "title", "failing", "mergeable", "reviewed_heads") if key in pull}
     path = store.drive_dir(drive) / VIEW
     fresh = path.with_name(f".view.json.{os.getpid()}.tmp")
     fresh.write_text(json.dumps({"at": view(drive).get("at") or store.stamp(moment), "prs": kept}) + "\n")

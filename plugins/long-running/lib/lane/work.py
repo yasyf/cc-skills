@@ -296,6 +296,10 @@ def adds(drive: str) -> list[str]:
             if pull_row and pull_row["state"] == "OPEN" and tapped and pull_row["head"] != tapped and (row.get("carried") or {}).get("head") != pull_row["head"] and key not in fixing:
                 item = add(drive, "carry", lane_id, key, carry_brief(drive, key, tapped, pull_row), head=pull_row["head"], touches=[row["repo"]], by="supervisor")
                 added.append(f"{item['id']} carry {key} at {pull_row['head'][:7]}")
+            if pull_row and pull_row["state"] == "OPEN" and pull_row.get("base_open") is False and key not in fixing:
+                item = add(drive, "rebase", lane_id, key, f"{key} sits on branch {pull_row['base']}, which no open PR heads any more, so nothing can land it. Rebase it onto {pull_row['default']}, keeping only its own commits, retarget the PR to {pull_row['default']} with a leased push, and finish with its new head.", head=pull_row["head"], touches=[row["repo"]], by="supervisor")
+                added.append(f"{item['id']} rebase {key}: its base {pull_row['base']} has no open PR")
+                continue
             if key in fixing or not fixes.wanted(row, pull_row) or not (kind_of := fixes.kind(row, pull_row)):
                 continue
             before = load(drive, item_id(FIX_KINDS[kind_of], key))
