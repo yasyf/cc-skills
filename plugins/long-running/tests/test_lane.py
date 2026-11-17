@@ -1205,7 +1205,7 @@ def test_the_pr_read_of_300_prs_goes_in_chunks_of_40_and_a_failed_chunk_drops_on
         asked.append(len(chunk))
         if chunk[0] == ("acme/app", 1):
             raise subprocess.TimeoutExpired("gh", 45)
-        return {key: {"state": "OPEN"} for key in chunk}
+        return {key: {"state": "OPEN", "rollup": "SUCCESS"} for key in chunk}
 
     monkeypatch.setattr(facts, "read_chunk", reading)
     lost: list[str] = []
