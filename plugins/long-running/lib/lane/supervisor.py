@@ -498,7 +498,7 @@ def copied(source: str, target: str) -> None:
 
 def take(drive: str, version: str, why: str) -> str:
     """Let the supervisor take one install that brings new red tests, for a fix of live harm: its preflight still runs and still refuses what it would refuse."""
-    if not (Path(__file__).resolve().parents[3] / version / "bin" / "lane").exists():
+    if not any(install.name == version for install in installs_beside(drive)):
         raise store.Refused(f"no install {version} beside this one")
     folder = store.drive_dir(drive) / PREFLIGHT
     folder.mkdir(exist_ok=True)
@@ -561,6 +561,11 @@ def held_by(drive: str, version: str) -> str | None:
     return f"{version} carries {', '.join(carried)}" if carried else None
 
 
+def installs_beside(drive: str) -> list[Path]:
+    """Every install in the plugin cache the drive's link points into, whichever checkout or install runs this."""
+    return [folder for folder in store.launcher(drive).resolve().parents[2].iterdir() if (folder / "bin" / "lane").is_file()]
+
+
 def installs_held(drive: str) -> dict[str, dict]:
     path = store.drive_dir(drive) / PREFLIGHT / HOLDS
     return json.loads(path.read_text()) if path.is_file() else {}
@@ -579,7 +584,7 @@ def hold_install(drive: str, sha: str, why: str | None, by: str | None) -> str:
     path.write_text(json.dumps(holds, indent=1) + "\n")
     marks = store.drive_dir(drive) / "parses"
     marks.mkdir(exist_ok=True)
-    for install in Path(__file__).resolve().parents[3].iterdir():
+    for install in installs_beside(drive):
         mark = marks / install.name
         if mark.is_file() and mark.read_text().startswith(f"broken\nheld: {full[:9]}"):
             mark.unlink()
