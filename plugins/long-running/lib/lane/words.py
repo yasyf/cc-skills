@@ -17,8 +17,9 @@ MARKDOWN_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 
 
 def label(number: int, words: str) -> str:
-    """A PR link's label, `#N words`, safe inside Slack's `<url|label>`: a Slack or markdown link in the words reads as its own text, a leading `#N` they repeat is said once, and `&`, `<` and `>` are escaped, so words such as `prove <box>` or `[#56570](url)` never break the link or show its markup."""
+    """A PR link's label, `#N words`, safe inside Slack's `<url|label>`: a Slack or markdown link in the words reads as its own text, a leading `#N` they repeat is said once, a title's kind prefix such as `New:` is dropped as `short` drops it, and `&`, `<` and `>` are escaped, so words such as `prove <box>` or `[#56570](url)` never break the link or show its markup."""
     plain = MARKDOWN_LINK.sub(r"\1", SLACK_LINK.sub(r"\1", words)).strip().removeprefix(f"#{number}").strip()
+    plain = short(plain) or plain
     return " ".join(filter(None, [f"#{number}", plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")]))
 
 
