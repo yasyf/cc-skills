@@ -85,10 +85,12 @@ def cleared(lanes: dict[str, dict], key: str) -> int:
 
 
 def written(lanes: dict[str, dict], read: dict[str, dict], judged: dict[str, dict[str, dict]], key: str) -> int:
-    """Write each gate's verdict at a PR's current head on its row, unless the row already holds one at that head under this rule, so a head that moved since its last verdict is judged again. The count written."""
+    """Write each gate's verdict at a PR's current head on its row, unless the row already holds one at that head under this rule, so a head that moved since its last verdict is judged again; a row added after the read, such as a PR opened while the judge ran, waits for the next judge. The count written."""
     count = 0
     for lane in lanes.values():
         for row in lane["prs"]:
+            if landing.key(row) not in read:
+                continue
             head = read[landing.key(row)]["head"]
             for gate, verdicts in judged.items():
                 kept = row.get(gate) or {}

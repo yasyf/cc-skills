@@ -516,3 +516,12 @@ def test_a_side_step_of_the_landing_pass_that_fails_is_written_to_the_alerts_and
     assert cli.alone("durable-agents", "queueing staging tests", unauthorized) is None
     assert cli.alone("durable-agents", "reading release freezes", lambda: ["frozen"]) == ["frozen"]
     assert "the pass goes on" in capsys.readouterr().out and "401" in (tmp_path / supervisor.ALERTS).read_text()
+
+
+def test_a_pr_opened_while_the_judge_ran_keeps_no_verdict_until_the_next_judge_and_the_others_are_written() -> None:
+    judged_row = {"repo": "Forge-AI/monorepo", "number": 1, "dangerous": None}
+    opened_after = {"repo": "Forge-AI/monorepo", "number": 58093, "dangerous": None}
+    lanes = {"a": {"id": "a", "prs": [judged_row, opened_after]}}
+    verdict = {"head": "h", "classes": {}, "rule": "r"}
+    assert rows.written(lanes, {"Forge-AI/monorepo#1": {"head": "h"}}, {"dangerous": {"Forge-AI/monorepo#1": verdict}}, "r") == 1
+    assert judged_row["dangerous"] == verdict and opened_after["dangerous"] is None
