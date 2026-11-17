@@ -11,22 +11,17 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from datetime import timedelta
 from pathlib import Path
-from queue import Queue
 
 from lane import fixes, landing, releases, rows, stager, store, supervisor, verbs
 
 LANDING = "landing"
-LANDINGS = "landings"
 CONFLICTS = "conflicts"
 REVIEWS = "reviews"
-UNREVIEWED = re.compile(r"\bnot started on head\b")
 UNIT_SECONDS = 300
 UNITS_AT_ONCE = 8
 PASS_SECONDS = 600
 LANDERS = "landers"
 CONFLICT = re.compile(r"CONFLICTING|conflicts with origin/")
-SKIP_MERGE_PREFLIGHT = "STACK_ENQUEUE_SKIP_MERGE_PREFLIGHT"
-GONE_BASE = re.compile(r"couldn't find remote ref refs/heads/(?P<branch>\S+)")
 
 
 def unit_lock(drive: str, key: str) -> Path:
@@ -39,62 +34,48 @@ def hold(drive: str, lane_id: str, text: str) -> str:
     return text
 
 
-def merged(drive: str, lane: dict, keys: list[str], checkout: Path, sha: str, script: str, dry_run: bool) -> str:
-    """Submit one landing unit to the repository's merge queue and return, never waiting on it: one run of the queue script with no mode, which gates the unit and submits it, from its own slot worktree at the queue's base the pass fetched once, skipping its local merge preflight build since every unit is green at its head and the merge queue's CI grades the merge. A bottom PR whose base branch is gone is retargeted onto the default branch and run again, as #57004's j4413-reader-first was once its parent merged; a unit the script names BLOCKED above its bottom runs again as the ready PRs below that one; each head waiting on a review never started is asked for one. Whether a submitted unit merged, failed or was ejected is read by the next pass from its one batched GitHub read, which submits it again while it stays ready. A dry run runs --check instead and submits nothing."""
-    from drive import land as old_land
+def queue_cli(drive: str) -> list[str]:
+    """The words, run from the drive's checkout, that read and submit to the repository's merge queue, from the drive config's queue_cli, as the monorepo's own queue script calls `tools/ci trunk`."""
+    return store.config(drive)["queue_cli"]
 
-    numbers = [key.rpartition("#")[2] for key in keys]
-    trusted = os.environ | {old_land.MISE_TRUST: str(checkout), SKIP_MERGE_PREFLIGHT: "1"}
-    mode = ["--check"] if dry_run else []
 
-    def submitted(numbers: list[str]) -> subprocess.CompletedProcess | None:
-        return bounded([str(checkout / script), *mode, *numbers], checkout, trusted)
+def queued(drive: str, checkout: Path, numbers: list[str]) -> dict[str, dict]:
+    """Each PR's merge queue row by number, read in one call: its state, its head and whether the queue holds it now."""
+    done = subprocess.run([*queue_cli(drive), "status", *numbers], cwd=checkout, capture_output=True, text=True, check=True, timeout=UNIT_SECONDS)
+    return json.loads(done.stdout)
 
-    if (done := submitted(numbers)) and (gone := GONE_BASE.search(done.stdout + done.stderr)) and retargeted(keys[0], gone["branch"]):
-        done = submitted(numbers)
-    if done and (blocked := old_land.BLOCKED_LINE.search(done.stdout)) and (cut := numbers.index(blocked["number"]) if blocked["number"] in numbers else 0):
-        numbers, keys = numbers[:cut], keys[:cut]
-        done = submitted(numbers)
-    if done is None:
-        return hold(drive, lane["id"], f"not landed: the queue script did not answer for {', '.join(keys)} within {UNIT_SECONDS // 60} minutes at base {sha[:12]}, so the next pass submits it again")
-    if refused := reviews_asked(drive, keys[0].rpartition("#")[0], checkout, done.stdout):
-        return hold(drive, lane["id"], refused)
-    said = done.stdout + done.stderr
+
+def merged(drive: str, lane: dict, keys: list[str], checkout: Path, held: dict[str, dict], dry_run: bool) -> str:
+    """Tell the merge queue to take one landing unit, as a person would: one submit of the unit's top PR, which the queue lands with every PR of its native stack below, and return; no worktree and no local build, since the queue's own CI grades the merge. A unit the queue already holds is left there, and its head is asked of the review bot once when the queue reads it notReady. Whether a submitted unit merged, failed or was ejected is read by the next pass, which submits it again while it stays ready."""
+    top = keys[-1].rpartition("#")[2]
+    if (row := held.get(top) or {}).get("isCurrentlySubmittedToQueue"):
+        state = (row.get("queueEntry") or {}).get("state") or row.get("state")
+        if state == "notReady":
+            reviewed(drive, keys[-1], row["sha"])
+        return f"{lane['id']}: the merge queue holds {', '.join(keys)} ({state})"
     if dry_run:
-        return f"would queue {', '.join(keys)} at base {sha[:12]}; --check exited {done.returncode}: {old_land.said(said)}"
+        return f"would submit {', '.join(keys)} through #{top}"
+    done = subprocess.run([*queue_cli(drive), "submit", top], cwd=checkout, capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
+    said = " ".join((done.stdout + done.stderr).split())[:600]
     if done.returncode == 0:
-        return hold(drive, lane["id"], f"{old_land.QUEUED}: {', '.join(keys)} at base {sha[:12]}")
+        return hold(drive, lane["id"], f"queued for merge: {', '.join(keys)} through #{top}")
     if CONFLICT.search(said):
-        conflicted(drive, lane, keys, old_land.said(said))
-    return hold(drive, lane["id"], old_land.unfinished(drive, "the submit", keys, done) or f"not landed: the queue script exited {done.returncode}: {old_land.said(said)}")
+        conflicted(drive, lane, keys, said)
+    return hold(drive, lane["id"], f"not landed: the merge queue refused #{top}: {said}")
 
 
-def reviews_asked(drive: str, repo: str, checkout: Path, checked: str) -> str | None:
-    """Ask the repository's review bot, once per head, to review each head --check names BLOCKED on a review it has not started, as #53092's ai-review never started and the old --watch waited on it for 29 minutes; why the unit holds when the ask was refused, None otherwise."""
+def reviewed(drive: str, key: str, head: str) -> None:
+    """Ask the repository's review bot, once per head, for a head the merge queue reads notReady, as #53092's ai-review never started on its head and the queue waited on it."""
     from drive import land as old_land
     from drive import providers
 
-    for line in old_land.BLOCKED_LINE.finditer(checked):
-        marker = store.drive_dir(drive) / LANDING / REVIEWS / f"{line['number']}-{line['head']}"
-        if not (old_land.OLDER_HEAD.search(line["gaps"]) or UNREVIEWED.search(line["gaps"])) or marker.exists():
-            continue
-        if refused := old_land.ask_review(providers.at(checkout).repo.review_ask, repo, line["number"], line["head"]):
-            return refused
+    marker = store.drive_dir(drive) / LANDING / REVIEWS / f"{key.rpartition('#')[2]}-{head[:10]}"
+    if marker.exists():
+        return
+    repo, _, number = key.rpartition("#")
+    if not old_land.ask_review(providers.at(Path(store.config(drive)["checkout"])).repo.review_ask, repo, number, head):
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
-    return None
-
-
-def bounded(argv: list[str], cwd: Path, env: dict) -> subprocess.CompletedProcess | None:
-    """Run one queue script call in its own process group for at most UNIT_SECONDS; None when it ran out, its whole group ended so no script outlives it and the pass moves on."""
-    watch = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
-    try:
-        out, err = watch.communicate(timeout=UNIT_SECONDS)
-    except subprocess.TimeoutExpired:
-        os.killpg(watch.pid, signal.SIGTERM)
-        watch.communicate()
-        return None
-    return subprocess.CompletedProcess(argv, watch.returncode, out, err)
 
 
 def conflicted(drive: str, lane: dict, keys: list[str], said: str) -> None:
@@ -106,17 +87,6 @@ def conflicted(drive: str, lane: dict, keys: list[str], said: str) -> None:
     verbs.handover(drive, lane["id"], f"- lane-land could not queue {', '.join(keys)}: it conflicts with the default branch: {said}. Rebase it with `ccx vcs stack submit` from its worktree; his Approve carries across your own commits, and the next landing pass queues it.", "lane-land")
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
-
-
-def retargeted(key: str, branch: str) -> bool:
-    """Retarget a PR whose base is the gone branch onto its repository's default branch; whether it did, false for a PR based elsewhere."""
-    from drive import github
-
-    repo, _, number = key.rpartition("#")
-    base = subprocess.run(["gh", "pr", "view", number, "--repo", repo, "--json", "baseRefName", "-q", ".baseRefName"], capture_output=True, text=True, check=False, timeout=60).stdout.strip()
-    if base != branch:
-        return False
-    return subprocess.run(["gh", "pr", "edit", number, "--repo", repo, "--base", github.default_branch(repo)], capture_output=True, text=True, check=False, timeout=60).returncode == 0
 
 
 @contextmanager
@@ -133,9 +103,7 @@ def exclusive(path: Path) -> Iterator[bool]:
 
 
 def land(args: argparse.Namespace) -> None:
-    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, writes each unjudged head's verdict by rows.judge, prints what his Approve lands now in each lane, and in live mode submits every landing unit at once by merged(), UNITS_AT_ONCE at a time, from one fresh worktree for the whole pass, and exits; the next pass reads what came of each."""
-    from drive import github, providers
-    from drive import land as old_land
+    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, writes each unjudged head's verdict by rows.judge, prints what his Approve lands now in each lane, reads the merge queue's row for every unit in one call, and in live mode submits every unit the queue does not hold by merged(), UNITS_AT_ONCE at a time, and exits; the next pass reads what came of each."""
 
     here = Path(__file__).resolve().parents[2]
     with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}{'-' + '-'.join(args.lane) if args.lane else ''}.lock") as mine:
@@ -155,34 +123,24 @@ def land(args: argparse.Namespace) -> None:
                     units.append((lane, list(verdict.keys)))
         if not units:
             return
-        checkout_of = Path(store.config(args.drive)["checkout"])
-        repo = github.repo_of(units[0][1][0])
-        script = providers.at(checkout_of).repo.queue().script
-        with old_land.fresh(args.drive, checkout_of, repo, github.default_branch(repo), store.drive_dir(args.drive) / LANDINGS) as (checkout, sha):
-            if supervisor.newest_install() != here:
-                print(f"a newer install than {here.name} landed; this pass ends and the next pass, on the new code, lands its units")
-                return
+        if supervisor.newest_install() != here:
+            print(f"a newer install than {here.name} landed; this pass ends and the next pass, on the new code, lands its units")
+            return
+        checkout = Path(store.config(args.drive)["checkout"])
+        held = queued(args.drive, checkout, [keys[-1].rpartition("#")[2] for _, keys in units])
 
-            slots: Queue[Path] = Queue()
-            for index in range(min(UNITS_AT_ONCE, len(units))):
-                slots.put(slot(args.drive, checkout, index, sha))
+        def one(unit: tuple[dict, list[str]]) -> str:
+            lane, keys = unit
+            if fixing := [key for key in keys if key in fixes.held_keys(store.load(args.drive, lane["id"]))]:
+                return f"{lane['id']}: a fix job is working on {', '.join(fixing)}; this pass leaves {keys[0]} for the next"
+            with exclusive(unit_lock(args.drive, keys[0])) as mine:
+                if not mine:
+                    return f"{lane['id']}: another lander is landing {keys[0]}; this pass skips it"
+                return merged(args.drive, lane, keys, checkout, held, args.dry_run or not stager.live(args.drive))
 
-            def one(unit: tuple[dict, list[str]]) -> str:
-                lane, keys = unit
-                if fixing := [key for key in keys if key in fixes.held_keys(store.load(args.drive, lane["id"]))]:
-                    return f"{lane['id']}: a fix job is working on {', '.join(fixing)}; this pass leaves {keys[0]} for the next"
-                with exclusive(unit_lock(args.drive, keys[0])) as mine:
-                    if not mine:
-                        return f"{lane['id']}: another lander is landing {keys[0]}; this pass skips it"
-                    taken = slots.get()
-                    try:
-                        return merged(args.drive, lane, keys, taken, sha, script, args.dry_run or not stager.live(args.drive))
-                    finally:
-                        slots.put(taken)
-
-            with ThreadPoolExecutor(max_workers=UNITS_AT_ONCE) as pool:
-                for said in pool.map(one, units):
-                    print(said)
+        with ThreadPoolExecutor(max_workers=UNITS_AT_ONCE) as pool:
+            for said in pool.map(one, units):
+                print(said)
 
 
 def verdicts(args: argparse.Namespace) -> None:
@@ -290,14 +248,3 @@ def main() -> int:
     args = parser.parse_args()
     args.run(args)
     return 0
-
-
-def slot(drive: str, checkout: Path, index: int, sha: str) -> Path:
-    """The pass's index-th landing slot, its own worktree of the landing clone kept under landings/ across passes and moved to sha, the queue's base the pass fetched once: each unit submitted at once runs in a slot of its own, so no two share an index or a working tree."""
-    path = store.drive_dir(drive) / LANDINGS / f"slot-{index}"
-    if not (path / ".git").exists():
-        subprocess.run(["git", "-C", str(checkout), "worktree", "add", "-q", "--detach", str(path), sha], check=True, capture_output=True, text=True)
-        return path
-    subprocess.run(["git", "-C", str(path), "checkout", "-q", "--detach", "-f", sha], check=True, capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(path), "clean", "-fdq"], check=True, capture_output=True, text=True)
-    return path
