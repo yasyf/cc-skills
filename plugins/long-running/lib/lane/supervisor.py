@@ -6,6 +6,7 @@ import plistlib
 import runpy
 import subprocess
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,7 @@ from lane import owner as owners
 RESTART_WINDOW = timedelta(minutes=30)
 QUIET_BEFORE_NUDGE = timedelta(seconds=60)
 NUDGE_EVERY = timedelta(minutes=10)
+ALERTS = "alerts.jsonl"
 READERS = 6
 BOOTOUT_SECONDS = 30
 BOOTSTRAP_TRIES = 10
@@ -81,6 +83,18 @@ def backoff(lane: dict, moment: datetime, shape: dict) -> timedelta | None:
     return timedelta(minutes=min(60, 5 * 2**over)) if over >= 0 else None
 
 
+def alone(drive: str, errors: list[str], what: str, step):
+    """Run one step of a pass on its own: what it returns, or, when it raises anything, None, with what failed and why in the pass's errors and in the drive's alerts.jsonl, which `lane check` shows, so no step stops another again, as the Approve card's 403 stopped every pass of 1.0.1691."""
+    try:
+        return step()
+    except Exception as failed:
+        line = f"{what}: {type(failed).__name__}: {failed}"
+        errors.append(line)
+        with (store.drive_dir(drive) / ALERTS).open("a") as out:
+            out.write(json.dumps({"at": store.stamp(), "step": what, "error": line, "trace": traceback.format_exc()[-2000:]}) + "\n")
+        return None
+
+
 def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True) -> dict:
     """One pass; what it started and why, and each read that failed, which never gates a time wake or a lease. A verb's own pass (read_outside false) starts owners only while the drive's supervisor runs, so a drive being staged takes his words and starts nothing until its supervisor's first pass."""
     shape = store.config(drive)
@@ -108,33 +122,20 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
                 elif found:
                     heard[lane_id] = found
         if heard:
-            store.transact(drive, lambda lanes: [verbs.take_messages(drive, lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()])
-        posts = []
-        try:
-            posts = voice.followed(drive, moment)
-        except OSError as failed:
-            errors.append(f"the voice listed no posts to follow: {failed}")
-        try:
-            prs = facts.read_prs(facts.pr_keys(store.load_all(drive)) | voice.subject_keys(posts), commits=1)
-        except store.Refused as failed:
-            errors.append(str(failed))
+            alone(drive, errors, "his words reached no lane", lambda: store.transact(drive, lambda lanes: [verbs.take_messages(drive, lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()]))
+        posts = alone(drive, errors, "the voice listed no posts to follow", lambda: voice.followed(drive, moment)) or []
+        prs = alone(drive, errors, "GitHub read failed", lambda: facts.read_prs(facts.pr_keys(store.load_all(drive)) | voice.subject_keys(posts), commits=1)) or {}
         if prs:
-            reviewed(drive, prs, facts.his_login(drive))
+            alone(drive, errors, "his GitHub reviews were not read", lambda: reviewed(drive, prs, facts.his_login(drive)))
         if prs and posts:
-            try:
-                voice.settle(drive, posts, prs)
-            except OSError as failed:
-                errors.append(f"a post did not follow its subjects: {failed}")
+            alone(drive, errors, "a post did not follow its subjects", lambda: voice.settle(drive, posts, prs))
         lanes_now = store.load_all(drive)
         monitors = dict(rank.last(drive).get("monitors", {}))
-        try:
-            monitors |= facts.monitor_states(drive, {str(lane["incident"]["monitor"]) for lane in lanes_now.values() if (lane.get("incident") or {}).get("monitor") and not lane["incident"].get("fix_live")})
-        except store.Refused as failed:
-            errors.append(f"{failed}; the last monitor states read stand")
+        monitors |= alone(drive, errors, "the last monitor states read stand", lambda: facts.monitor_states(drive, {str(lane["incident"]["monitor"]) for lane in lanes_now.values() if (lane.get("incident") or {}).get("monitor") and not lane["incident"].get("fix_live")})) or {}
         hurt = {lane_id for lane_id, lane in lanes_now.items() if facts.hurting(lane, monitors)}
         if prs:
-            page.keep_view(drive, prs, moment)
-        order = rank.ranked(drive, facts.viewed(lanes_now, prs), moment, hurt, monitors)
+            alone(drive, errors, "the page's view was not kept", lambda: page.keep_view(drive, prs, moment))
+        order = alone(drive, errors, "rank kept its last order", lambda: rank.ranked(drive, facts.viewed(lanes_now, prs), moment, hurt, monitors)) or rank.last(drive)
         if order.get("error"):
             errors.append(f"rank kept its last order: {order['error']}")
     else:
@@ -185,14 +186,14 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         return starts
 
     starts = store.transact(drive, deciding, leaving_unreplied=True)
-    nudge(drive, store.now())
+    alone(drive, errors, "no owner was nudged", lambda: nudge(drive, store.now()))
     with ThreadPoolExecutor(max_workers=READERS) as pool:
         errors += [error for error in pool.map(lambda start: launching(drive, start, shape), starts) if error]
     if read_outside:
-        lane_land.spawn(drive)
+        alone(drive, errors, "no lander started", lambda: lane_land.spawn(drive))
         if prs:
-            errors += approve.draw(drive)
-            errors += [line for line in fixes.start(drive) if ": no fix job for " in line]
+            errors += alone(drive, errors, "no Approve card was drawn", lambda: approve.draw(drive)) or []
+            errors += [line for line in alone(drive, errors, "no fix job started", lambda: fixes.start(drive)) or [] if ": no fix job for " in line]
         heartbeat(drive, store.now(), errors)
     return {"started": [start["lane"] for start in starts if start["token"]], "errors": errors}
 

@@ -513,7 +513,7 @@ def test_handover_entries_append_signed_and_clear_together(world: dict) -> None:
     verbs.handover(DRIVE, "a", "PR list: #7, #8", "drive-redesign")
     verbs.handover(DRIVE, "a", "old drives are stopped", "team-lead")
     kept = store.load(DRIVE, "a")["handover"]
-    assert "#7, #8" in kept and "old drives are stopped" in kept and "from drive-redesign" in kept and "from team-lead" in kept
+    assert "#7, #8" in kept and "old drives are stopped" in kept and "by drive-redesign" in kept and "by team-lead" in kept
     verbs.handover(DRIVE, "a", None)
     assert store.load(DRIVE, "a")["handover"] is None
 
@@ -1001,3 +1001,17 @@ def test_the_supervisor_starts_one_fix_job_per_pr_head_and_kind_for_his_approved
     monkeypatch.setattr(owners, "record", lambda path: {"state": "done"})
     supervisor.run_pass(DRIVE)
     assert [key for key, _ in started] == ["acme/app#1", "acme/app#2", "acme/app#3", "acme/app#4"]
+
+
+def test_a_pass_step_that_raises_stops_no_other_step(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import approve
+
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", prs=[("acme/app", 7)])
+    world["prs"][("acme/app", 7)] = pull(rollup="SUCCESS")
+    landed = []
+    monkeypatch.setattr(supervisor.lane_land, "spawn", lambda drive: landed.append(drive))
+    monkeypatch.setattr(approve, "draw", lambda drive: (_ for _ in ()).throw(RuntimeError("HTTP Error 403: Forbidden")))
+    result = supervisor.run_pass(DRIVE)
+    assert landed == [DRIVE] and any("no Approve card was drawn: RuntimeError: HTTP Error 403" in error for error in result["errors"])
+    assert "HTTP Error 403" in (store.drive_dir(DRIVE) / supervisor.ALERTS).read_text()
