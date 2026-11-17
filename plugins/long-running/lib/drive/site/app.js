@@ -2198,7 +2198,7 @@ function laneNowScreen() {
 
 function laneCost(cost) {
   if (!cost) return '';
-  if (cost.dollars_per_hour != null) return ` · $${cost.dollars_per_hour.toFixed(2)}/hr`;
+  if (cost.dollars_per_hour != null) return ` · $${cost.dollars_per_hour.toFixed(2)}/hr at list price`;
   const total = Object.values(cost.tokens ?? {}).reduce((sum, kinds) => sum + Object.values(kinds).reduce((a, b) => a + b, 0), 0);
   return total ? ` · ${(total / 1e6).toFixed(1)}M tokens/hr` : '';
 }
