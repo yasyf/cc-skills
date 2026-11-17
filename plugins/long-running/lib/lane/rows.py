@@ -1,10 +1,8 @@
 """lane-land's reads and writes of lane PRs: their state from GitHub, kept in memory and never on a row, and on each row the dangerous reader's verdict at a head and its stack's staging proof."""
 
 import hashlib
-import subprocess
 from fnmatch import fnmatchcase
 from concurrent.futures import ThreadPoolExecutor
-from functools import cache
 from pathlib import Path
 
 import httpx
@@ -13,7 +11,7 @@ from spawnllm import JEV, Binary, BinaryAnswer, DecideError, DecideKeyMissing, d
 from lane import facts, landing, store
 
 CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}
-PR_STATE = ("head", "checks", "merged", "under", "commits", "whole", "foreign", "premerge", "title", "mergeable")
+PR_STATE = ("head", "checks", "merged", "under", "commits", "whole", "premerge", "title", "mergeable")
 DANGER = Path(__file__).with_name("danger.md")
 BEFORE_MERGE = "plainly needs a staging pass before merge, by his 17:00 ruling"
 DANGER_AT = 0.6
@@ -41,29 +39,13 @@ def view(drive: str, lane_ids: list[str] | None = None) -> dict[str, dict]:
 
 
 def seen(lane: dict, read: dict[str, dict], rule: str, premerge_lanes: list[str]) -> dict:
-    """The lane with each prs row joined to its PR's state from view(), in memory, a PR GitHub did not answer keeping no head, so it never lands, a verdict judged under a bar other than rule dropped, so a head stays unjudged and holds until judge() reads it against the bar in force, with `premerge` when the drive config's premerge_lanes names the lane, so its every PR waits on a staging proof, and with `foreign`, the commits since his approved head that our lanes' account did not author, by foreign()."""
+    """The lane with each prs row joined to its PR's state from view(), in memory, a PR GitHub did not answer keeping no head, so it never lands, a verdict judged under a bar other than rule dropped, so a head stays unjudged and holds until judge() reads it against the bar in force, with `premerge` when the drive config's premerge_lanes names the lane, so its every PR waits on a staging proof."""
     joined = []
     for row in lane["prs"]:
         kept = {field: value for field, value in row.items() if field not in PR_STATE} | read.get(landing.key(row), {"head": None})
         kept |= {gate: kept[gate] if kept.get(gate) and kept[gate].get("rule") == rule else None for gate in ("dangerous", "guarded")}
-        joined.append(kept | {"premerge": lane["id"] in premerge_lanes, "foreign": foreign(kept.get("commits") or [], kept["approved_head"], ours(), kept.get("whole", False))})
+        joined.append(kept | {"premerge": lane["id"] in premerge_lanes})
     return lane | {"prs": joined}
-
-
-def foreign(commits: list[tuple[str, str | None]], approved: str | None, account: str, whole: bool) -> list[str] | None:
-    """Each commit after his approved head on the PR authored by any account but ours, as `<sha> by <login>`, so a teammate's push needs his tap again while our lanes' own pushes keep his Approve, by his 14:13 words and team-lead's rule; when a rebase dropped his approved head from a PR whose every commit was read, each of its commits another account authored, since a rebase keeps authors; None when his approved head is not among the last COMMITS_READ commits of a longer PR, which landing reads as needing his tap; empty for none."""
-    oids = [oid for oid, _ in commits]
-    if approved and approved not in oids and whole:
-        return [f"{oid[:12]} by {login or 'an unknown author'}" for oid, login in commits if login != account]
-    if not approved or approved not in oids:
-        return None
-    return [f"{oid[:12]} by {login or 'an unknown author'}" for oid, login in commits[oids.index(approved) + 1 :] if login != account]
-
-
-@cache
-def ours() -> str:
-    """The GitHub account our lanes push as, the one gh is signed in to."""
-    return subprocess.run(["gh", "api", "user", "-q", ".login"], capture_output=True, text=True, check=True, timeout=60).stdout.strip()
 
 
 def unjudged(lanes: dict[str, dict], key: str) -> list[str]:

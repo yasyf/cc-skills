@@ -46,15 +46,6 @@ def test_his_approve_stands_on_a_moved_head_only_once_a_model_judged_the_change_
     assert landing.verdicts(lane(stale))[0].lands is False
 
 
-def test_foreign_lists_the_commits_after_his_approved_head_that_another_account_authored() -> None:
-    commits = [("a" * 40, "lane-bot"), ("b" * 40, "lane-bot"), ("c" * 40, "teammate"), ("d" * 40, "lane-bot")]
-    assert rows.foreign(commits, "a" * 40, "lane-bot", False) == [f"{'c' * 12} by teammate"]
-    assert rows.foreign(commits, "c" * 40, "lane-bot", False) == []
-    assert rows.foreign(commits, "e" * 40, "lane-bot", False) is None
-    assert rows.foreign(commits, "e" * 40, "lane-bot", True) == [f"{'c' * 12} by teammate"]
-    assert rows.foreign([("f" * 40, "lane-bot")], "e" * 40, "lane-bot", True) == []
-
-
 def test_a_dangerous_stack_lands_whole_only_on_a_pass_at_its_top_head() -> None:
     bottom, top = row(1, classes=MIGRATION), row(2, head="t", under=1)
     unproven = landing.verdicts(lane(bottom, top))
@@ -96,7 +87,6 @@ def test_a_head_the_presence_classes_have_not_read_never_lands() -> None:
 
 
 def test_a_verdict_judged_under_an_older_danger_page_is_dropped_so_the_head_holds_until_judged_again(monkeypatch) -> None:
-    monkeypatch.setattr(rows, "ours", lambda: "lane-bot")
     current = row(1) | {"dangerous": {"head": "h", "classes": {}, "rule": "new"}, "guarded": {"head": "h", "classes": {}, "rule": "new"}}
     older = row(2) | {"dangerous": {"head": "h", "classes": {}, "rule": "old"}, "guarded": {"head": "h", "classes": {}, "rule": "old"}}
     read = {landing.key(pr): {"head": "h", "checks": "pass", "under": None} for pr in (current, older)}
@@ -122,7 +112,6 @@ def test_a_staging_ask_from_a_lane_with_no_premerge_pr_returns_after_merge_and_c
     monkeypatch.setattr(store, "load", lambda drive, lane_id: lanes[lane_id])
     monkeypatch.setattr(rows, "view", lambda drive: {landing.key(pr): {"head": "h", "checks": "pass", "under": None} for pr in (journal, sandsql)})
     monkeypatch.setattr(rows, "rule_key", lambda drive: "r")
-    monkeypatch.setattr(rows, "ours", lambda: "lane-bot")
     assert stager.want("durable-agents", "run-page-v3") == stager.AFTER_MERGE
     assert not (tmp_path / stager.WANTS / "run-page-v3.json").exists()
     assert stager.want("durable-agents", "sandsql-ha-release-3").startswith("sandsql-ha-release-3-")
@@ -202,7 +191,6 @@ def test_a_stager_is_told_the_staging_alerts_channel_to_read_into_each_stacks_re
 
 
 def test_a_sandsql_lanes_pr_waits_on_a_staging_proof_whatever_the_judge_scored_and_another_lanes_lands(monkeypatch) -> None:
-    monkeypatch.setattr(rows, "ours", lambda: "lane-bot")
     pr = row(56892) | {"dangerous": {"head": "h", "classes": {}, "rule": "r"}, "guarded": {"head": "h", "classes": {}, "rule": "r"}}
     read = {landing.key(pr): {"head": "h", "checks": "pass", "under": None}}
     sandsql = rows.seen({"id": "sandsql-engine", "prs": [pr]}, read, "r", ["sandsql-engine"])

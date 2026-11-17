@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 from lane import facts, queue, rank, stager, store, supervisor, verbs, voice
 from lane import owner as owners
-from lane import rows as lane_rows
 from lane import say as saying
 
 DRIVE = "lanes-test"
@@ -37,7 +36,6 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(facts, "his_messages", lambda lane: seen["messages"].pop(lane["id"], []))
     monkeypatch.setattr(facts, "his_login", lambda drive: "him")
     monkeypatch.setattr(voice, "followed", lambda drive, moment: [])
-    monkeypatch.setattr(lane_rows, "ours", lambda: "lanes-bot")
     monkeypatch.setattr(rank, "judge", lambda text, told: dict(seen["scores"]))
     monkeypatch.setattr(supervisor.lane_land, "spawn", lambda drive: None)
     from lane import ack
