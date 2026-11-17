@@ -214,11 +214,11 @@ def main(argv: list[str] | None = None) -> int:
     config_set.add_argument("key")
     config_set.add_argument("value", help="JSON, such as false, 8 or {\"opus\": ...}; anything else is a string")
     config_set.add_argument("--by", required=True, help="who sets it, a lane or a person")
-    sandsql = verbs_parser.add_parser("not-sandsql", help="a PR of a SandSQL lane that is no SandSQL work at its head, so it takes no staging test before merge")
-    sandsql.add_argument("pr")
-    sandsql.add_argument("--head", required=True)
-    sandsql.add_argument("--why", required=True)
-    sandsql.add_argument("--by", required=True)
+    exempting = verbs_parser.add_parser("premerge-exempt", help="a PR of a premerge lane that is not the work its pre-merge test is for, at its head, so it takes no staging test before merge")
+    exempting.add_argument("pr")
+    exempting.add_argument("--head", required=True)
+    exempting.add_argument("--why", required=True)
+    exempting.add_argument("--by", required=True)
     triaging = verbs_parser.add_parser("incident-triage", help="an alert's triage verdict: open an incident lane, join an open one, or drop it")
     triaging.add_argument("monitor")
     verdicts = triaging.add_mutually_exclusive_group(required=True)
@@ -443,8 +443,8 @@ def run(args: argparse.Namespace) -> int:
                     value = args.value
                 was = store.set_config(args.drive, args.key, value, args.by)
                 print(f"{args.key}: {json.dumps(was)} -> {json.dumps(value)}")
-        case "not-sandsql":
-            print(" ".join(verbs.not_sandsql(args.drive, *pr_ref(args.pr), args.head, args.why, args.by)))
+        case "premerge-exempt":
+            print(" ".join(verbs.premerge_exempt(args.drive, *pr_ref(args.pr), args.head, args.why, args.by)))
         case "incident-triage":
             from lane import incidents
 

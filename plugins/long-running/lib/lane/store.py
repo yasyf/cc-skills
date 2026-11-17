@@ -32,6 +32,7 @@ DEFAULTS = {
     "checkout": None,
     "queue_cli": None,
     "premerge_lanes": [],
+    "premerge_question": None,
     "staging_alerts": None,
     "staging_targets": [],
     "staging_env_file": None,

@@ -91,8 +91,8 @@ def carry(drive: str, repo: str, number: int, head: str, compatible: bool, why: 
     return carrying
 
 
-def not_sandsql(drive: str, repo: str, number: int, head: str, why: str, by: str) -> list[str]:
-    """Mark one PR of a SandSQL lane as no SandSQL work at its head, by his 5:02 PM words "nothing other than the ssql work needs to run before merging", so it lands on his Approve with its staging test after merge; a new head needs the judgement again. The lanes it was written on."""
+def premerge_exempt(drive: str, repo: str, number: int, head: str, why: str, by: str) -> list[str]:
+    """Mark one PR of a premerge lane as not the work its pre-merge test is for, at its head, by his 5:02 PM words "nothing other than the ssql work needs to run before merging", so it lands on his Approve with its staging test after the merge."""
     carrying = [lane_id for lane_id, lane in store.load_all(drive).items() if any((row["repo"], row["number"]) == (repo, number) for row in lane["prs"])]
     if not carrying:
         raise store.Refused(f"no lane of {drive} carries {repo}#{number}")
@@ -100,8 +100,8 @@ def not_sandsql(drive: str, repo: str, number: int, head: str, why: str, by: str
     def marking(lane: dict) -> None:
         for row in lane["prs"]:
             if (row["repo"], row["number"]) == (repo, number):
-                row["not_sandsql"] = {"head": head, "why": why, "by": by, "at": store.stamp()}
-        store.note(lane, f"{repo}#{number} at {head[:12]} is no SandSQL work, so no staging test before merge: {why} ({by})")
+                row["premerge_exempt"] = {"head": head, "why": why, "by": by, "at": store.stamp()}
+        store.note(lane, f"{repo}#{number} at {head[:12]} is not the work its pre-merge test is for, so no staging test before merge: {why} ({by})")
 
     for lane_id in carrying:
         store.update(drive, lane_id, marking, leaving_unreplied=True)

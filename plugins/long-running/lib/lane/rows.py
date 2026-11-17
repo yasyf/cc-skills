@@ -20,7 +20,7 @@ JUDGED_AT = 20
 JUDGES = 6
 FILES_SHOWN = 150
 JUDGE_SECONDS = 60.0
-CLEARLY_NOT_SANDSQL = 0.1
+CLEARLY_NOT_PREMERGE = 0.1
 
 
 def view(drive: str, lane_ids: list[str] | None = None) -> dict[str, dict]:
@@ -45,7 +45,7 @@ def seen(lane: dict, read: dict[str, dict], rule: str, premerge_lanes: list[str]
     for row in lane["prs"]:
         kept = {field: value for field, value in row.items() if field not in PR_STATE} | read.get(landing.key(row), {"head": None})
         kept |= {gate: kept[gate] if kept.get(gate) and kept[gate].get("rule") == rule else None for gate in ("dangerous", "guarded")}
-        joined.append(kept | {"premerge": lane["id"] in premerge_lanes and not cleared_of_sandsql(kept, rule)})
+        joined.append(kept | {"premerge": lane["id"] in premerge_lanes and not cleared_of_premerge(kept, rule)})
     return lane | {"prs": joined}
 
 
@@ -59,9 +59,9 @@ def judge(drive: str, read: dict[str, dict]) -> int:
     key = rule_key(drive)
     if cleared(store.load_all(drive), key):
         store.transact(drive, lambda lanes: cleared(lanes, key))
-    sandsql = {"sandsql_work": sandsql_work(drive, read, found)} if (found := sandsql_unjudged(drive, read, key)) else {}
+    premerge = {"premerge_work": premerge_work(drive, read, found)} if (found := premerge_unjudged(drive, read, key)) else {}
     if not (waiting := unjudged({lane_id: seen(lane, read, key, store.config(drive)["premerge_lanes"]) for lane_id, lane in store.load_all(drive).items()}, key)):
-        return store.transact(drive, lambda lanes: written(lanes, read, sandsql, key)) if sandsql else 0
+        return store.transact(drive, lambda lanes: written(lanes, read, premerge, key)) if premerge else 0
     files = readable(waiting)
     verdicts: dict[str, dict] = {}
     chunks = [dict(list(files.items())[start : start + JUDGED_AT]) for start in range(0, len(files), JUDGED_AT)]
@@ -69,7 +69,7 @@ def judge(drive: str, read: dict[str, dict]) -> int:
         for answered in pool.map(lambda chunk: asked(drive, chunk, read), chunks):
             verdicts |= {pr: verdict | {"rule": key} for pr, verdict in answered.items()}
     marks = presence(drive, files, key)
-    return store.transact(drive, lambda lanes: written(lanes, read, {"guarded": marks, "dangerous": verdicts} | sandsql, key))
+    return store.transact(drive, lambda lanes: written(lanes, read, {"guarded": marks, "dangerous": verdicts} | premerge, key))
 
 
 def cleared(lanes: dict[str, dict], key: str) -> int:
@@ -125,36 +125,37 @@ def asked(drive: str, chunk: dict[str, tuple[str, list[str]]], read: dict[str, d
     return found
 
 
-def cleared_of_sandsql(row: dict, rule: str) -> bool:
-    """Whether a premerge lane's PR is clearly no SandSQL work at its head: lane not-sandsql marked it, or the SandSQL-work verdict under this bar answered a clear no, so it merges on his Approve and tests after the merge. A borderline or missing verdict keeps it held."""
-    if (row.get("not_sandsql") or {}).get("head") == row.get("head"):
+def cleared_of_premerge(row: dict, rule: str) -> bool:
+    """Whether a premerge lane's PR is clearly not the work its pre-merge test is for, at its head: lane premerge-exempt marked it, or the model answered a clear no to the drive config's premerge_question under this bar, so it merges on his Approve and tests after the merge. A borderline or missing verdict keeps it held."""
+    if (row.get("premerge_exempt") or {}).get("head") == row.get("head"):
         return True
-    verdict = row.get("sandsql_work") or {}
-    return verdict.get("head") == row.get("head") and verdict.get("rule") == rule and verdict["p_yes"] <= CLEARLY_NOT_SANDSQL
+    verdict = row.get("premerge_work") or {}
+    return verdict.get("head") == row.get("head") and verdict.get("rule") == rule and verdict["p_yes"] <= CLEARLY_NOT_PREMERGE
 
 
-def sandsql_unjudged(drive: str, read: dict[str, dict], key: str) -> list[str]:
-    """Each open PR of a premerge lane with a head and no SandSQL-work verdict at it under this bar."""
-    premerge = store.config(drive)["premerge_lanes"]
-    return list(dict.fromkeys(landing.key(row) for lane_id, lane in store.load_all(drive).items() if lane_id in premerge for row in seen(lane, read, key, premerge)["prs"] if row["head"] and not row.get("merged") and ((row.get("sandsql_work") or {}).get("head"), (row.get("sandsql_work") or {}).get("rule")) != (row["head"], key)))
+def premerge_unjudged(drive: str, read: dict[str, dict], key: str) -> list[str]:
+    """Each open PR of a premerge lane with a head and no premerge_question verdict at it under this bar; none when the drive config asks no premerge_question."""
+    if not (premerge := store.config(drive)["premerge_lanes"]) or not store.config(drive)["premerge_question"]:
+        return []
+    return list(dict.fromkeys(landing.key(row) for lane_id, lane in store.load_all(drive).items() if lane_id in premerge for row in seen(lane, read, key, premerge)["prs"] if row["head"] and not row.get("merged") and ((row.get("premerge_work") or {}).get("head"), (row.get("premerge_work") or {}).get("rule")) != (row["head"], key)))
 
 
-def sandsql_work(drive: str, read: dict[str, dict], keys: list[str]) -> dict[str, dict]:
-    """A model's answer for each PR of keys, {head, p_yes, rule}, to whether it changes SandSQL code, jobs, cluster settings or stored data by the danger page, with its title and changed files as the evidence, by team-lead's 20:40 ruling that a premerge lane only makes a PR a candidate and only a clear no skips the test before merge."""
+def premerge_work(drive: str, read: dict[str, dict], keys: list[str]) -> dict[str, dict]:
+    """A model's answer for each PR of keys, {head, p_yes, rule}, to the drive config's premerge_question against the danger page, with its title and changed files as the evidence, by team-lead's 20:40 ruling that a premerge lane only makes a PR a candidate and only a clear no skips the test before merge."""
     key = rule_key(drive)
     files = readable(keys)
     chunks = [dict(list(files.items())[start : start + JUDGED_AT]) for start in range(0, len(files), JUDGED_AT)]
     found: dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=JUDGES) as pool:
-        for answered in pool.map(lambda chunk: sandsql_asked(drive, chunk, read), chunks):
+        for answered in pool.map(lambda chunk: premerge_asked(drive, chunk, read), chunks):
             found |= {pr: verdict | {"rule": key} for pr, verdict in answered.items()}
     return found
 
 
-def sandsql_asked(drive: str, chunk: dict[str, tuple[str, list[str]]], read: dict[str, dict]) -> dict[str, dict]:
-    """One model request asking of each PR of chunk whether it is SandSQL work; none when the request fails, so those heads stay held."""
+def premerge_asked(drive: str, chunk: dict[str, tuple[str, list[str]]], read: dict[str, dict]) -> dict[str, dict]:
+    """One model request asking the drive config's premerge_question of each PR of chunk; none when the request fails, so those heads stay held."""
     told = [{"id": f"p{index}", "pr": key, "title": read[key].get("title") or "", "files": paths[:FILES_SHOWN], "more_files": max(0, len(paths) - FILES_SHOWN)} for index, (key, (_, paths)) in enumerate(chunk.items())]
-    questions = {item["id"]: Binary(f"By the rule, does {item['pr']} change SandSQL's code, a job or script it runs against its databases, its clusters' or nodes' settings, or the data it holds?", yes="any of its files does, or it is unclear", no="its files are only CI, tooling, docs or tests, or code outside SandSQL") for item in told}
+    questions = {item["id"]: Binary(f"By the rule, of {item['pr']}: {store.config(drive)['premerge_question']}", yes="any of its files does, or it is unclear", no="its files plainly do none of it, such as CI, tooling, docs or tests alone") for item in told}
     try:
         decision = decide_sync({"rule": rule(drive), "prs": told}, questions, provider=JEV, timeout=JUDGE_SECONDS)
     except (TimeoutError, ValueError, DecideError, DecideKeyMissing, httpx.HTTPError):
