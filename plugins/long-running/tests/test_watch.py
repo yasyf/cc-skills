@@ -2275,8 +2275,9 @@ def test_watch_metadata_reads_do_not_decode_unrelated_collections(demo: str, ope
     path = state.database_path(demo)
     cached = state.WHOLE_READS[(path, path.stat().st_ino)].shaped
     assert cached
-    original = dict(cached)
-    cached.update({key: b"" for key in cached if key not in fields})
+    original = dict(cached.fields), dict(cached.collections)
+    cached.fields.update({key: b"" for key in cached.fields if key not in fields})
+    cached.collections.update({key: {"unrequested": b""} for key in cached.collections if key not in fields})
     try:
         if operation == "digest":
             assert watch.digest_lines(watching, T0) == []
@@ -2298,7 +2299,7 @@ def test_watch_metadata_reads_do_not_decode_unrelated_collections(demo: str, ope
             monkeypatch.setattr(orca, "live_pid", lambda session: 123)
             assert watch.down_lines(watching, T0) == []
     finally:
-        cached.update(original)
+        cached.fields, cached.collections = original
 
 
 def test_a_held_resume_naming_no_stage_of_this_install_runs_the_whole_pass(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
