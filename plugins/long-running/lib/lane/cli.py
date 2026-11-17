@@ -73,7 +73,7 @@ def exclusive(path: Path) -> Iterator[bool]:
 
 
 def land(args: argparse.Namespace) -> None:
-    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, writes each unjudged head's verdict by rows.judge, prints what his Approve lands now in each lane, and in live mode queues each landing unit by merged() from one fresh worktree for the whole pass."""
+    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, writes each unjudged head's verdict by rows.judge, prints what his Approve lands now in each lane, and in live mode queues each landing unit by merged() from one fresh worktree for the whole pass, the units only his presence lets land first while he is present, since the others land at any time."""
     from drive import github, providers
     from drive import land as old_land
 
@@ -85,15 +85,18 @@ def land(args: argparse.Namespace) -> None:
         stager.start(args.drive)
         releases.write(args.drive)
         read = rows.view(args.drive)
+        rule = rows.rule_key(args.drive)
         rows.judge(args.drive, read)
         moment = store.now()
         units = []
-        for lane in [rows.seen(lane, read) for lane in store.load_all(args.drive).values()]:
+        for lane in [rows.seen(lane, read, rule) for lane in store.load_all(args.drive).values()]:
             by_key = {landing.key(row): row for row in lane["prs"]}
             for verdict in landing.verdicts(lane, heard(args.drive), moment):
                 print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
                 if verdict.lands and (stager.live(args.drive) or args.dry_run):
                     units.append((lane, list(verdict.keys), any(landing.guarded(by_key[key]) for key in verdict.keys)))
+        if landing.present(heard(args.drive), moment):
+            units.sort(key=lambda unit: not unit[2])
         if not units:
             return
         checkout_of = Path(store.config(args.drive)["checkout"])
@@ -113,7 +116,8 @@ def land(args: argparse.Namespace) -> None:
 
 def verdicts(args: argparse.Namespace) -> None:
     read = rows.view(args.drive)
-    for lane in [rows.seen(lane, read) for lane in store.load_all(args.drive).values()]:
+    rule = rows.rule_key(args.drive)
+    for lane in [rows.seen(lane, read, rule) for lane in store.load_all(args.drive).values()]:
         for verdict in landing.verdicts(lane, heard(args.drive), store.now()):
             print(f"{lane['id']}: {'LANDS' if verdict.lands else 'HOLDS'} {', '.join(verdict.keys)}; {verdict.why}")
 

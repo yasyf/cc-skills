@@ -38,11 +38,12 @@ def view(drive: str) -> dict[str, dict]:
     return found
 
 
-def seen(lane: dict, read: dict[str, dict]) -> dict:
-    """The lane with each prs row joined to its PR's state from view(), in memory, a PR GitHub did not answer keeping no head, so it never lands, and with `foreign`, the commits since his approved head that our lanes' account did not author, by foreign()."""
+def seen(lane: dict, read: dict[str, dict], rule: str) -> dict:
+    """The lane with each prs row joined to its PR's state from view(), in memory, a PR GitHub did not answer keeping no head, so it never lands, a verdict judged under a bar other than rule dropped, so a head stays unjudged and holds until judge() reads it against the bar in force, and with `foreign`, the commits since his approved head that our lanes' account did not author, by foreign()."""
     joined = []
     for row in lane["prs"]:
         kept = {field: value for field, value in row.items() if field not in PR_STATE} | read.get(landing.key(row), {"head": None})
+        kept |= {gate: kept[gate] if kept.get(gate) and kept[gate].get("rule") == rule else None for gate in ("dangerous", "guarded")}
         joined.append(kept | {"foreign": foreign(kept.get("commits") or [], kept["approved_head"], ours(), kept.get("whole", False))})
     return lane | {"prs": joined}
 
@@ -71,7 +72,7 @@ def unjudged(lanes: dict[str, dict], key: str) -> list[str]:
 def judge(drive: str, read: dict[str, dict]) -> int:
     """Write each unjudged head's verdict, {head, classes}: a model reads danger.md, the bar rule() reads, his list of what plainly needs a staging pass before merge, against each PR's title and changed files, JUDGED_AT a request, and a yes at DANGER_AT or more names the class `before merge` with its why; a no leaves classes empty, so his Approve merges it and the tester runs its test after the merge. A head whose files or answer could not be read stays unjudged and holds. The count written."""
     key = rule_key(drive)
-    if not (waiting := unjudged({lane_id: seen(lane, read) for lane_id, lane in store.load_all(drive).items()}, key)):
+    if not (waiting := unjudged({lane_id: seen(lane, read, key) for lane_id, lane in store.load_all(drive).items()}, key)):
         return 0
     files = readable(waiting)
     verdicts: dict[str, dict] = {}

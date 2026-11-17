@@ -51,10 +51,11 @@ def lane_candidates(drive: str) -> list[dict]:
     folder = lanes_dir(drive)
     order = json.loads((folder / RANK).read_text())["order"]
     read = rows.view(drive)
+    rule = rows.rule_key(drive)
     asked = wants(drive)
     found = []
     for rank, lane_id in enumerate(order):
-        lane = rows.seen(store.load(drive, lane_id), read)
+        lane = rows.seen(store.load(drive, lane_id), read, rule)
         for stack in landing.stacks(lane):
             open_rows = [row for row in stack if not row.get("merged")]
             if any(landing.judged(row) and landing.dangerous(row) for row in open_rows) and not landing.proven(open_rows):
@@ -71,7 +72,7 @@ def lane_candidates(drive: str) -> list[dict]:
                         "dangerous": {landing.key(row): row["dangerous"] for row in open_rows if landing.judged(row) and landing.dangerous(row)},
                     }
                 )
-    found += [{"rank": rank, "lane": lane_id, "stack": [landing.key(row)], "top_head": row["head"], "after_merge": True} for rank, lane_id in enumerate(order) for row in rows.seen(store.load(drive, lane_id), read)["prs"] if row.get("merged") and not row.get("staging") and row.get("approved_head")]
+    found += [{"rank": rank, "lane": lane_id, "stack": [landing.key(row)], "top_head": row["head"], "after_merge": True} for rank, lane_id in enumerate(order) for row in rows.seen(store.load(drive, lane_id), read, rule)["prs"] if row.get("merged") and not row.get("staging") and row.get("approved_head")]
     return found
 
 

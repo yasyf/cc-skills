@@ -94,3 +94,13 @@ def test_a_runtime_api_change_merges_with_no_staging_pass_while_he_is_present_an
 
 def test_a_head_the_presence_classes_have_not_read_never_lands() -> None:
     assert landing.verdicts(lane(row(1) | {"guarded": None}), NOW, NOW)[0].lands is False
+
+
+def test_a_verdict_judged_under_an_older_danger_page_is_dropped_so_the_head_holds_until_judged_again(monkeypatch) -> None:
+    monkeypatch.setattr(rows, "ours", lambda: "lane-bot")
+    current = row(1) | {"dangerous": {"head": "h", "classes": {}, "rule": "new"}, "guarded": {"head": "h", "classes": {}, "rule": "new"}}
+    older = row(2) | {"dangerous": {"head": "h", "classes": {}, "rule": "old"}, "guarded": {"head": "h", "classes": {}, "rule": "old"}}
+    read = {landing.key(pr): {"head": "h", "checks": "pass", "under": None} for pr in (current, older)}
+    seen = rows.seen(lane(current, older), read, "new")
+    assert [verdict.lands for verdict in landing.verdicts(seen, None, NOW)] == [True, False]
+    assert landing.verdicts(seen, None, NOW)[1].why == "Forge-AI/monorepo#2 waits: the dangerous reader has not judged its head"
