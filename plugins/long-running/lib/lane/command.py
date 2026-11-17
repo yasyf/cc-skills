@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,6 +12,9 @@ from lane import owner as owners
 from lane import page, queue, store, supervisor, verbs, voice
 
 STOP_BLOCKS = 3
+PUSH = re.compile(r"\b(git push|jj git push|ccx vcs ship|gt submit|ccx vcs stack (submit|rebase))\b")
+NO_PUSH = re.compile(r"--(no-push|dry-run)\b")
+NOT_QUEUED = ("open", "notSubmitted", "merged", "closed", "NOT_INDEXED", "failed", "cancelled")
 
 
 def where(args: argparse.Namespace) -> tuple[str, str]:
@@ -61,12 +65,36 @@ def stop_hook(drive: str, lane_id: str) -> int:
 
 
 def bash_hook() -> int:
-    """Refuse an owner's or its builders' shell command calling the old drive's `drive` verbs, which no lane uses: landing is lane-land, posting is lane say."""
-    command = (json.load(sys.stdin).get("tool_input") or {}).get("command") or ""
+    """Refuse an owner's or its builders' shell command calling the old drive's `drive` verbs, which no lane uses: landing is lane-land, posting is lane say; and a push to a branch whose PR the merge queue holds, by queued_push."""
+    payload = json.load(sys.stdin)
+    command = (payload.get("tool_input") or {}).get("command") or ""
     if re.search(owners.OLD_DRIVE_CALL, command):
         print("The old drive's `drive` verbs are gone and never used in a lane: land through lane-land, post through `lane say`, and write your plan with `lane next`.", file=sys.stderr)
         return 2
+    if refused := queued_push(command, Path(payload.get("cwd") or os.getcwd())):
+        print(refused, file=sys.stderr)
+        return 2
     return 0
+
+
+def queued_push(command: str, cwd: Path) -> str | None:
+    """Why a push from cwd must wait: its branch's PR sits in the merge queue, and a new head ejects it, as #57687's did; None for any other command or branch, and when the PR or its queue state cannot be read, since a gate that cannot read lets the push through."""
+    if not PUSH.search(command) or NO_PUSH.search(command):
+        return None
+    import subprocess
+
+    from drive import providers
+
+    branch = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=False, timeout=10).stdout.strip()
+    number = subprocess.run(["gh", "pr", "view", branch, "--json", "number", "-q", ".number"], cwd=cwd, capture_output=True, text=True, check=False, timeout=30).stdout.strip()
+    drive = os.environ.get("LANE_OWNER", "").partition("/")[0]
+    if not branch or branch == "HEAD" or not number.isdigit() or not drive or not (checkout := store.config(drive)["checkout"]):
+        return None
+    script = Path(checkout) / providers.at(Path(checkout)).repo.queue().script
+    status = subprocess.run([str(script), "--status", number], cwd=checkout, capture_output=True, text=True, check=False, timeout=60).stdout.split()
+    if len(status) < 2 or status[1] in NOT_QUEUED:
+        return None
+    return f"#{number} is in the merge queue (Trunk {status[1]}), and a push to {branch} gives it a new head, which ejects it. Wait for it to merge with `lane end-turn --on pr_merged:<owner/repo>#{number}`, or take it out of the queue first with `{script} --dequeue {number}` and then push."
 
 
 def note_hook(drive: str, lane_id: str) -> int:
