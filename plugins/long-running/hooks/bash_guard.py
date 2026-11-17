@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, gate, github, install, land, orca, providers, reads, reports, state
 from drive.orca import OrcaError
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, literal, runnable, simple_commands, spread
+from lane import store as lane_store
 
 AGENTS = "long-running:"
 DESIGNER = "long-running:designer"
@@ -886,6 +887,8 @@ def foreground(payload: dict) -> dict | None:
 def main() -> None:
     try:
         payload = agents.seen(json.load(sys.stdin))
+        if payload.get("session_id") in lane_store.owner_sessions():
+            return
         reason = deny_reason(payload)
         made = foreground(payload)
     except ValueError:

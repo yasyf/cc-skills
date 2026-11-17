@@ -29,6 +29,7 @@ from drive import (
 from drive.cli import sent_kept, tap_verdict
 from drive.github import repo_name
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, runnable
+from lane import store as lane_store
 
 ADMIN_REASON = "Admin merges bypass required review; never on a guarded owner's repos"
 TAP_HINT = (
@@ -901,6 +902,8 @@ def main() -> None:
 def verdict() -> dict | None:
     try:
         payload = agents.seen(json.load(sys.stdin))
+        if payload.get("session_id") in lane_store.owner_sessions():
+            return None
         unjudged = cli_posted(payload)
         judged = None if unjudged else judged_reason(payload)
         reason = unjudged or judged or guarded_reason(payload)

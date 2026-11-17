@@ -857,3 +857,10 @@ def test_his_terminal_words_make_him_present_only_moving_forward_and_touch_no_la
     assert store.load(DRIVE, "a") == before
     logged = [json.loads(line) for line in (store.drive_dir(DRIVE) / "events.jsonl").read_text().splitlines()]
     assert [row["words"] for row in logged if row.get("kind") == "present"] == ["merge it", "older words"]
+
+
+def test_the_old_drives_hooks_know_every_lane_owners_session(world: dict) -> None:
+    opened("a")
+    supervisor.run_pass(DRIVE)
+    (store.drive_dir(DRIVE) / "queue.json").write_text("{}")
+    assert store.owner_sessions() == {store.load(DRIVE, "a")["owner"]["session"]}

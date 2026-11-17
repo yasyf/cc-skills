@@ -163,6 +163,18 @@ def bound_sessions() -> frozenset[str]:
     return frozenset(bound)
 
 
+def lane_sessions() -> frozenset[str]:
+    """The sessions owning a lane of the lane drive, by each lane file's owner, read at each call: the old drive's checks never judge one, nor any of its subagents, since a lane session runs the lane's own hooks and the old drive is stood down."""
+    folder = state_root() / "lanes"
+    if not folder.is_dir():
+        return frozenset()
+    owners = set()
+    for lane in folder.glob("*/*.json"):
+        if isinstance(found := json.loads(lane.read_text()), dict) and isinstance(owner := found.get("owner"), dict) and owner.get("session"):
+            owners.add(owner["session"])
+    return frozenset(owners)
+
+
 def unquoted_command(payload: dict) -> str:
     """A Bash call's command without its quotes, each variable this process's environment sets expanded, as the drive's checks expand it."""
     if payload.get("tool_name") != "Bash":
@@ -193,8 +205,10 @@ UNBOUND_CHECKS: dict[str, Callable[[dict], bool]] = {
 
 
 def checks_due(evt: BaseHookEvent, script: str) -> tuple[str, ...]:
-    """The drive checks this hook event runs: on a PreToolUse call, this one and each other check matching its tool, else this one alone; a check runs for a drive agent or a session a drive binds, and for any other session only where it can act on one no drive binds."""
+    """The drive checks this hook event runs: on a PreToolUse call, this one and each other check matching its tool, else this one alone; a check runs for a drive agent or a session a drive binds, and for any other session only where it can act on one no drive binds; never for a lane drive's owner or its subagents."""
     payload = evt._raw
+    if (payload.get("session_id") or "") in lane_sessions():
+        return ()
     tool = payload.get("tool_name")
     pending = evt.event_name == Event.PreToolUse and payload.get("tool_use_id")
     matching = [check for check, tools in newest_checks()["pre_tool"].items() if check == script or tools is None or tool_name_matches(tool, "|".join(tools))] if pending else [script]
