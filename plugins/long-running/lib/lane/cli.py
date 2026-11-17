@@ -12,6 +12,7 @@ from pathlib import Path
 from lane import landing, releases, rows, stager, store
 
 LANDING = "landing"
+LANDINGS = "landings"
 GONE_BASE = re.compile(r"couldn't find remote ref refs/heads/(?P<branch>\S+)")
 
 
@@ -96,7 +97,7 @@ def land(args: argparse.Namespace) -> None:
         checkout_of = Path(store.config(args.drive)["checkout"])
         repo = github.repo_of(units[0][1][0])
         script = providers.at(checkout_of).repo.queue().script
-        with old_land.fresh(args.drive, checkout_of, repo, github.default_branch(repo)) as (checkout, sha):
+        with old_land.fresh(args.drive, checkout_of, repo, github.default_branch(repo), store.drive_dir(args.drive) / LANDINGS) as (checkout, sha):
             for lane, keys, guarded in units:
                 print(merged(args.drive, lane, keys, guarded, checkout, sha, script, args.dry_run or not stager.live(args.drive)))
 

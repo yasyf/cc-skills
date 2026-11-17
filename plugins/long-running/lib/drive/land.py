@@ -881,7 +881,7 @@ def unfinished(name: str, mode: str, keys: list[str], done: subprocess.Completed
 
 
 @contextmanager
-def fresh(name: str, coordinator: Path, repo: str, branch: str) -> Iterator[tuple[Path, str]]:
+def fresh(name: str, coordinator: Path, repo: str, branch: str, folder: Path | None = None) -> Iterator[tuple[Path, str]]:
     """A worktree of repo at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. It comes from the one clone of repo this Mac keeps for landings, which holds every object with no blob filter and checks out no files of its own, so neither its checkout nor the queue script's merge checks ask origin for an object by its id, as a checkout of a partial clone such as the coordinator's does and as origin may answer without the object: the first landing clones it from the origin the coordinator's checkout names, made whole before it takes the clone's place, and each fetches branch into its refs/remotes/origin/<branch>, which the queue's script reads as the default branch it knows, both under the clone's lock, since landings run at once and each moves that one ref. Its LFS files check out as their pointers, since no landing step reads one and smudging it would ask GitHub's LFS store by id. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched; enqueued() and dequeue() run them with MISE_TRUST naming the worktree, since a mise shim on the lander's PATH, such as the uv of the queue script's shebang, refuses the worktree's untrusted mise configs and this Mac's mise trusts no path under the drive's folder. Every core checks it out at once, with no hook, since a repository's post-checkout hook may warm dependencies that no landing step reads."""
     clone = state.root() / CLONES / repo
     git = ["git", "-C", str(clone)]
@@ -894,7 +894,7 @@ def fresh(name: str, coordinator: Path, repo: str, branch: str) -> Iterator[tupl
             making.rename(clone)
         github.run([*git, "fetch", "-q", "--no-tags", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}"], timeout=CHECKOUT_SECONDS)
         sha = github.run([*git, "rev-parse", f"refs/remotes/origin/{branch}"]).strip()
-    checkout = state.drive_dir(name) / LANDINGS / str(os.getpid())
+    checkout = (folder or state.drive_dir(name) / LANDINGS) / str(os.getpid())
     subprocess.run([*git, "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "worktree", "add", "-q", "--detach", str(checkout), sha], env=os.environ | {"GIT_LFS_SKIP_SMUDGE": "1"}, check=True, timeout=CHECKOUT_SECONDS)
     try:
         yield checkout, sha

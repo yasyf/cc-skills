@@ -6105,12 +6105,12 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
         return dict(zip(ours, pool.map(lambda key: pr_reach(key, found), ours), strict=True))
 
 
-def pr_reach(key: str, found: providers.Providers) -> dict:
-    """What one PR reaches, by release_reach."""
-    paths = github.files(key)
+def pr_reach(key: str, found: providers.Providers, read: tuple[str, list[str]] | None = None) -> dict:
+    """What one PR reaches, by release_reach, from its head and changed files when a batched GraphQL read already holds them, so a caller reading many spends no REST call per PR."""
+    head, paths = read if read else (None, github.files(key))
     if paths and all(served.TESTS.search(path) or found.repo.ci_config(path) for path in paths):
         return {"components": [], "touched": [], "dev": [], "releases": [], "staged": [], "tested": True}
-    return found.release.components(key.split("#")[1], paths, github.paths([key])[key][0] if CARGO_LOCK in paths else None)
+    return found.release.components(key.split("#")[1], paths, (head or github.paths([key])[key][0]) if CARGO_LOCK in paths else None)
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:
