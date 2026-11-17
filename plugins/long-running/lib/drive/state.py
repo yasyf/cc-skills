@@ -19,7 +19,7 @@ import traceback
 import uuid
 from calendar import monthrange
 from collections import Counter
-from collections.abc import Callable, Collection, Iterable, Iterator, MutableMapping
+from collections.abc import Callable, Collection, Iterable, Iterator, ItemsView, KeysView, MutableMapping, ValuesView
 from contextlib import AbstractContextManager, closing, contextmanager, suppress
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
@@ -1091,7 +1091,36 @@ def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
     return rows_read(path, fields)
 
 
-class Rows(MutableMapping):
+class RowKeys(KeysView):
+    def __reversed__(self):
+        return reversed(self._mapping)
+
+
+class RowValues(ValuesView):
+    def __reversed__(self):
+        return (self._mapping[key] for key in reversed(self._mapping))
+
+
+class RowItems(ItemsView):
+    def __reversed__(self):
+        return ((key, self._mapping[key]) for key in reversed(self._mapping))
+
+
+class RowMapping(MutableMapping):
+    def __reversed__(self):
+        return reversed(tuple(self))
+
+    def keys(self):
+        return RowKeys(self)
+
+    def values(self):
+        return RowValues(self)
+
+    def items(self):
+        return RowItems(self)
+
+
+class Rows(RowMapping):
     """Independent mutable records decoded on access, retaining their encoded baseline and tracking added or removed keys."""
 
     def __init__(self, encoded: dict[str, str]) -> None:
@@ -5433,7 +5462,7 @@ class Reads(set[Row]):
     pass
 
 
-class ReadCollection(MutableMapping):
+class ReadCollection(RowMapping):
     """Record the keys a write reads while preserving lazy record access."""
 
     def __init__(self, collection: str, records: MutableMapping, reads: Reads) -> None:
@@ -5819,7 +5848,7 @@ def record_at(data: dict, member: Row) -> dict | None:
             field, _, value = step.partition("=")
             held = next((entry for entry in held if isinstance(entry, dict) and str(entry.get(field)) == value), None)
         else:
-            held = held.get(step) if isinstance(held, dict) else None
+            held = held.get(step) if isinstance(held, MutableMapping) else None
     return held if isinstance(held, dict) else None
 
 

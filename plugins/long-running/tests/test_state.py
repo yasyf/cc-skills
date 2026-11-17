@@ -583,6 +583,31 @@ def test_normalized_load_and_tracked_write_leave_unaccessed_records_encoded(stat
     assert data["orders"]["o1"]["text"] == "only this caller"
 
 
+def test_install_normalization_is_atomic_and_runs_once(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = ordered("demo", 3)
+    with closing(state.connect(path)) as db:
+        db.execute("DELETE FROM meta WHERE key = 'normalization'")
+    with pytest.raises(DriveError, match="run drive install"):
+        state.load("demo")
+    shape = state.shaped
+
+    def interrupted(name: str, saved: dict) -> tuple[dict, bool]:
+        raise RuntimeError("interrupted normalization")
+
+    monkeypatch.setattr(state, "shaped", interrupted)
+    with pytest.raises(RuntimeError, match="interrupted normalization"):
+        state.normalize_store("demo")
+    with closing(state.connect(path)) as db:
+        assert db.execute("SELECT value FROM meta WHERE key = 'normalization'").fetchone() is None
+        assert db.execute("SELECT COUNT(*) FROM rows WHERE collection = 'orders'").fetchone()[0] == 3
+    monkeypatch.setattr(state, "shaped", shape)
+    state.normalize_store("demo")
+    assert len(state.load("demo")["orders"]) == 3
+    monkeypatch.setattr(state, "shaped", lambda *args: pytest.fail("normalized stores must not be normalized again"))
+    state.normalize_store("demo")
+    assert len(state.load("demo")["orders"]) == 3
+
+
 def test_selected_loads_observe_other_processes_saves_and_batch_writes(state_root: Path) -> None:
     ordered("demo", 3)
     fields = ("terminal", "orders")
