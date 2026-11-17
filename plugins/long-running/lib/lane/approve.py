@@ -51,6 +51,9 @@ def draw(drive: str) -> list[str]:
     seen = page.view(drive)["prs"]
     refused = []
     for lane_id, lane in store.load_all(drive).items():
+        if (lane.get("channel") or "").startswith(say.DIRECT):
+            refused.append(f"{lane_id}: no Approve card, since its home is his DM; move it with `lane home`")
+            continue
         waiting = stacks_waiting(lane, seen)
         ready = ready_stacks(lane, seen)
         live = [card for card in lane.get("cards", []) if not card.get("tapped") and any(heads in ready for heads in card["stacks"])]

@@ -1,6 +1,8 @@
 """say(next, by): a line to him from a lane's owner. A line that promises something writes the lane's time bound in the same write, so the promise is the lane's own wait, and the asks it answers are marked replied there too; the send itself is a SENDER registered behind this interface."""
 
+import re
 from collections.abc import Callable
+from datetime import datetime, timedelta
 
 from lane import store
 
@@ -22,7 +24,7 @@ def say(drive: str, lane_id: str, text: str, next_step: str | None = None, by: s
     if (lane.get("channel") or "").startswith(DIRECT):
         raise store.Refused(f"lane {lane_id}'s home is his DM, and drive work never posts there, by his words \"drive stuff leaves DMs entirely\": give it its project channel with `lane home {lane_id} --channel <id>`, then post")
     sent = SENDER(drive, store.load(drive, lane_id), text, re, options, edit, about, pictures) if store.config(drive)["posting"] else logged(drive, store.load(drive, lane_id), text, re, options, edit, about, pictures)
-    promise(drive, lane_id, text, sent, next_step, by, token, answers or ([re] if re else None))
+    promise(drive, lane_id, text, sent, next_step, by, token, answers or ([re] if re else None), re or "")
     if options:
         store.update(drive, lane_id, lambda lane: lane.__setitem__("asked_at", store.stamp()), leaving_unreplied=True)
     return sent
@@ -35,7 +37,23 @@ def checked(next_step: str | None, by: str | None) -> None:
         raise store.Refused(f"the promise's bound {by} has passed")
 
 
-def promise(drive: str, lane_id: str, text: str, sent: str, next_step: str | None = None, by: str | None = None, token: str | None = None, answers: list[str] | None = None) -> None:
+WITHIN = re.compile(r"\b(?:within|in)\s+(\d+)\s*(?:minutes|mins?)\b", re.I)
+
+
+def stated(text: str, moment: datetime) -> datetime | None:
+    """The bound a post states in its words, "by 3:45 PM", "next line by 5:40 AM tomorrow" or "within 45 minutes": the earliest, a clock time after "by" read in Pacific as its next one after the post; a time with no "by", such as when something happened, is no promise."""
+    from lane import verbs
+
+    found = [moment + timedelta(minutes=int(match[1])) for match in WITHIN.finditer(text)]
+    for match in verbs.CLOCK.finditer(text):
+        if not text[: match.start()].rstrip().lower().endswith("by"):
+            continue
+        at = verbs.clocked(match)
+        found.append(at + timedelta(days=1) if at <= moment or "tomorrow" in text[match.end() : match.end() + 14] else at)
+    return min(found) if found else None
+
+
+def promise(drive: str, lane_id: str, text: str, sent: str, next_step: str | None = None, by: str | None = None, token: str | None = None, answers: list[str] | None = None, thread: str = "") -> None:
     """The lane write a post makes, in one locked write, before or as it goes out: the promise and the wait's bound clamped to it, and each ask it answers marked replied with sent, the sender's queued id or permalink: every unanswered ask, or those whose ts answers names."""
     checked(next_step, by)
     moment = store.now()
@@ -53,6 +71,11 @@ def promise(drive: str, lane_id: str, text: str, sent: str, next_step: str | Non
         for ask in lane["asks"]:
             if not ask.get("replied") and (answers is None or ask.get("ts") in answers):
                 ask["replied"], ask["replied_at"] = sent, store.stamp()
+        for kept in lane.get("promises", []):
+            if kept["thread"] == thread and not kept.get("followed"):
+                kept["followed"] = store.stamp(moment)
+        if due := bound or stated(text, moment):
+            lane["promises"] = [*lane.get("promises", []), {"text": text, "due": store.stamp(due), "thread": thread, "at": store.stamp(moment), "sent": sent}][-50:]
         store.note(lane, f"said ({sent}): {text}")
 
     store.update(drive, lane_id, saying)

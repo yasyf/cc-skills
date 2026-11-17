@@ -1248,3 +1248,27 @@ def test_an_owner_whose_builders_write_but_whose_own_transcript_is_quiet_reads_a
     monkeypatch.setattr(owners, "transcript", lambda session: own)
     assert store.now() - owners.own_quiet_since({"session": "s1"}) > supervisor.QUIET_BEFORE_NUDGE
     assert store.now() - owners.active_at({"session": "s1"}) < supervisor.QUIET_BEFORE_NUDGE
+
+
+def test_replaying_the_ringo_thread_a_promised_pr_by_345_with_nothing_after_wakes_its_owner_and_files_a_defect(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import audit, verbs as lane_verbs
+
+    filed = []
+    monkeypatch.setattr(audit, "defect", lambda drive, what, evidence, mechanism, owner: filed.append((what, owner)))
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", channel="C0CJ378CNMP")
+    supervisor.run_pass(DRIVE)
+    answered("a")
+    due = (store.now() + timedelta(minutes=57)).astimezone(lane_verbs.PACIFIC).strftime("%-I:%M %p")
+    saying.say(DRIVE, "a", f"Ringo's fix goes up as a PR by {due}; it failed at 2:30 PM before.", token=token_of("a"))
+    [kept] = store.load(DRIVE, "a")["promises"]
+    assert kept["due"] > store.stamp()
+    ended("a", ["pr_merged:acme/app#7"], "2h")
+    later = store.now() + timedelta(hours=1)
+    monkeypatch.setattr(store, "now", lambda: later)
+    supervisor.run_pass(DRIVE)
+    lane = store.load(DRIVE, "a")
+    assert lane["promises"][0]["overdue"] and "overdue: its post" in (lane.get("wait") or {}).get("fired_why", "") + (lane.get("owner") or {}).get("woke", "")
+    assert len(filed) == 1 and filed[0][1] == "lane-core" and "broke a promise" in filed[0][0]
+    supervisor.run_pass(DRIVE)
+    assert len(filed) == 1

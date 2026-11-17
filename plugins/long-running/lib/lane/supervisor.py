@@ -209,6 +209,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
     alone(drive, errors, "no owner was nudged", lambda: nudge(drive, store.now()))
     if store.live(drive):
         alone(drive, errors, "no late ask was redelivered", lambda: redeliver(drive, store.now()))
+        alone(drive, errors, "no overdue promise was raised", lambda: overdue(drive, store.now()))
     if read_outside and store.live(drive):
         alone(drive, errors, "his words got no working line", lambda: ack.working(drive))
     with ThreadPoolExecutor(max_workers=READERS) as pool:
@@ -241,6 +242,32 @@ def alerted(drive: str, paged: set[str]) -> None:
                 verbs.woken(lane, why)
 
     store.transact(drive, waking)
+
+
+def overdue(drive: str, moment: datetime) -> None:
+    """Each promise a lane's post stated, past its bound with no newer post in its thread, once: the owner is told it is overdue, woken if it waits, and a defect is filed for lane-core, so a promise like "PR by 3:45 PM" never sits unkept and unseen."""
+    from lane import audit
+
+    for lane_id, lane in store.load_all(drive).items():
+        late = [kept for kept in lane.get("promises", []) if not kept.get("followed") and not kept.get("overdue") and store.parse(kept["due"]) <= moment]
+        if not late:
+            continue
+        stamps = {kept["at"] for kept in late}
+        why = "; ".join(f"its post at {kept['at']} promised \"{kept['text'][:160]}\" by {kept['due']}, and nothing newer went out in that thread" for kept in late)
+
+        def marking(lane: dict) -> None:
+            for kept in lane.get("promises", []):
+                if kept["at"] in stamps:
+                    kept["overdue"] = store.stamp(moment)
+            store.note(lane, f"overdue: {why}")
+            if lane["state"] == store.RUNNING:
+                with store.note_path(drive, lane_id).open("a") as note:
+                    note.write(f"Overdue: {why}. Keep it or tell him the new time now.\n\n")
+            elif lane["state"] == store.WAITING:
+                verbs.woken(lane, f"overdue: {why}")
+
+        store.update(drive, lane_id, marking, leaving_unreplied=True)
+        audit.defect(drive, f"lane {lane_id} broke a promise: {why}", lane.get("channel") or lane_id, "a stated bound with nothing tracking it until the overdue check", "lane-core")
 
 
 def redeliver(drive: str, moment: datetime) -> None:
