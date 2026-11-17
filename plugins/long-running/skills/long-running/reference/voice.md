@@ -38,8 +38,8 @@ Before: You're right: nothing in v3 needs the wait for the format-15 conversion.
 After: Right, v3 doesn't need the conversion. I'm reworking #53430 and #53305 to read old journals; the first is ready about 3 PM. The delete PR stays held until cutover.
 
 **He said the card was still there.**
-Before: Gone now: I withdrew the card carrying the delete PR, here and its copy in the Iris channel. Your Approve on the three v3 PRs from 12:25 PM stands, and the delete stays held until cutover. It stayed up because the drive left withdrawing it to the session that drew it, which hadn't; I've sent that gap to the drive's tooling.
-After: Gone, here and in the Iris channel. Your Approve on the three v3 PRs stands, and the delete stays held until cutover.
+Before: Gone now: I withdrew the card carrying the delete PR, here and its copy in the other project channel. Your Approve on the three v3 PRs from 12:25 PM stands, and the delete stays held until cutover. It stayed up because the drive left withdrawing it to the session that drew it, which hadn't; I've sent that gap to the drive's tooling.
+After: Gone, here and in the other project channel. Your Approve on the three v3 PRs stands, and the delete stays held until cutover.
 
 **He said "make this a prio lane".**
 Before: The v3 run page on the new tree is going to the coordinator now as a priority … *What's left* • Rework <full title> and <full title> … *Needs you at the end* • The production release, since your hold on releases (his Nov 13 11:10 AM ruling "we dont have a literal freeze on but no releases…") still stands.
