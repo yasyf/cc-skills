@@ -108,24 +108,25 @@ def reviewed(drive: str, key: str, head: str) -> None:
 
 
 def conflicted(drive: str, lane: dict, keys: list[str], said: Callable[[], str]) -> None:
-    """Wake the lane's owner on a unit that conflicts with the default branch, once per set of heads, with what conflicts in full, since only its owner can rebase."""
-    woken(drive, lane, keys, "conflicts", lambda: f"{', '.join(keys)} conflicts with the default branch: {said()}. Rebase it with `ccx vcs stack submit` from its worktree; his Approve carries across your own commits, and the next landing pass queues it.")
+    """Tell the lane's owner in one line, once per set of heads, that a unit conflicts with the default branch and a fix job rebases it, by fixes.start, so the owner does no rebase and waits on nothing for it."""
+    woken(drive, lane, keys, "conflicts", lambda: f"{', '.join(keys)} conflicts with the default branch {said()}; a fix job is rebasing it and the next landing pass queues it, so it needs nothing from you.", block=False)
 
 
 def ejected(drive: str, lane: dict, keys: list[str], row: dict) -> str:
     """Wake the lane's owner on a unit the merge queue failed at its current head, once per set of heads, and leave it out of the queue until a new head, since a resubmit of the same head fails the same way."""
-    woken(drive, lane, keys, "ejected", lambda: f"the merge queue failed {', '.join(keys)} at {row['sha'][:12]}: read its run at {row['htmlUrl']}, fix it with a push, and the next landing pass queues the new head.")
+    woken(drive, lane, keys, "ejected", lambda: f"the merge queue failed {', '.join(keys)} at {row['sha'][:12]}: read its run at {row['htmlUrl']}, fix it with a push, and the next landing pass queues the new head.", block=True)
     return f"{lane['id']}: the merge queue failed {', '.join(keys)} at {row['sha'][:12]}; it waits on a new head"
 
 
-def woken(drive: str, lane: dict, keys: list[str], kind: str, what: Callable[[], str]) -> None:
-    """Tell the lane's owner what holds a unit, once per set of heads: a blocker on the lane, which fires its wait at once, and a handover entry a running owner sees at its next call, since the lane log wakes no one."""
+def woken(drive: str, lane: dict, keys: list[str], kind: str, what: Callable[[], str], block: bool) -> None:
+    """Tell the lane's owner what holds a unit, once per set of heads: a handover entry a running owner sees at its next call and its next brief prints, and, with block, a blocker on the lane, which fires its wait at once, for a hold only the owner can clear."""
     heads = {landing.key(row): row["head"] for row in lane["prs"]}
     marker = store.drive_dir(drive) / LANDING / CONFLICTS / hashlib.sha256(json.dumps([kind, *[[key, heads.get(key)] for key in keys]]).encode()).hexdigest()[:16]
     if marker.exists():
         return
     said = what()
-    verbs.blocked(drive, lane["id"], said, "lane-land")
+    if block:
+        verbs.blocked(drive, lane["id"], said, "lane-land")
     verbs.handover(drive, lane["id"], f"- {said}", "lane-land")
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
@@ -196,7 +197,7 @@ def land(args: argparse.Namespace) -> None:
                     units.append((lane, list(verdict.keys)))
             if stager.live(args.drive) and not args.dry_run:
                 for row in lane["prs"]:
-                    if row.get("mergeable") == "CONFLICTING" and not row.get("merged"):
+                    if row.get("mergeable") == "CONFLICTING" and not row.get("merged") and fixes.landable(row, row["head"]):
                         conflicted(args.drive, lane, [landing.key(row)], lambda row=row: conflict_said(checkout, row))
         if stager.live(args.drive) and not args.dry_run:
             for said in dequeued(args.drive, checkout, list(unstaged)):

@@ -18,8 +18,13 @@ def kind(row: dict, pull: dict) -> str | None:
 
 
 def wanted(row: dict, pull: dict | None) -> bool:
-    """Whether the PR is his to land: open, not held, and approved by him or asked about at its head by a card."""
-    return bool(pull) and pull["state"] == "OPEN" and not row.get("held") and (bool(row.get("approved_head")) or (row.get("carded") or {}).get("head") == pull["head"])
+    """Whether the PR is open and his to land, by landable()."""
+    return bool(pull) and pull["state"] == "OPEN" and landable(row, pull["head"])
+
+
+def landable(row: dict, head: str) -> bool:
+    """Whether the PR at head is his to land: not held, and approved by him, asked about at that head by a card, or marked tooling, which lands on green with no Approve."""
+    return not row.get("held") and (bool(row.get("approved_head")) or (row.get("carded") or {}).get("head") == head or bool((row.get("guarded") or {}).get("tooling")))
 
 
 def brief(kind_of: str, repo: str, number: int, pull: dict) -> str:
