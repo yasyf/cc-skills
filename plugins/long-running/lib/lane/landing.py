@@ -20,6 +20,9 @@ def key(row: dict) -> str:
     return f"{row['repo']}#{row['number']}"
 
 
+HEAD_MOVED = "its head moved since his Approve, and a model has not yet judged the change compatible with what he approved"
+
+
 def judged(row: dict) -> bool:
     return all(bool(row.get(gate)) and row[gate]["head"] == row["head"] for gate in ("dangerous", "guarded"))
 
@@ -38,6 +41,11 @@ def proven(stack: list[dict]) -> bool:
     proof = stack[-1].get("staging")
     return bool(proof) and proof["result"] == "pass" and proof["head"] == stack[-1]["head"]
 
+def unapproved(row: dict) -> bool:
+    """Whether an open PR has lost his Approve at its head: none, held by him, or a head moved since his Approve that a model has not judged compatible, so neither it nor any PR of its stack may sit in the merge queue."""
+    return not row.get("merged") and (bool(row.get("held")) or unready(row) in ("no Approve of his", HEAD_MOVED))
+
+
 
 def unready(row: dict) -> str | None:
     """Why a PR cannot land on its own terms, None when it can."""
@@ -50,7 +58,7 @@ def unready(row: dict) -> str | None:
         return "no Approve of his"
     carried = row.get("carried") or {}
     if not tool and (row.get("tapped_head") or row["approved_head"]) != row["head"] and (carried.get("head") != row["head"] or not carried.get("compatible")):
-        return "its head moved since his Approve, and a model has not yet judged the change compatible with what he approved"
+        return HEAD_MOVED
     if row.get("checks") != "pass":
         return f"checks {row.get('checks') or 'unread'}"
     if row.get("mergeable") == "CONFLICTING":

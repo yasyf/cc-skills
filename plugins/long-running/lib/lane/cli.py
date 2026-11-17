@@ -58,15 +58,15 @@ def queued(drive: str, checkout: Path, numbers: list[str]) -> dict[str, dict]:
     return json.loads(done.stdout)
 
 
-def dequeued(drive: str, checkout: Path, keys: list[str]) -> list[str]:
-    """Take out of the merge queue each PR it holds that waits on a staging proof before merge, so a PR submitted before a ruling or a premerge_lanes entry named it never merges untested."""
+def dequeued(drive: str, checkout: Path, keys: dict[str, str]) -> list[str]:
+    """Take out of the merge queue each PR it holds that must not land now, each keyed to why: one that waits on a staging proof before merge, so a PR submitted before a ruling or a premerge_lanes entry named it never merges untested, and one in a stack whose PR has lost his Approve at its head, since the queue lands the whole native stack, as #57220 merged under #57275 after its carry was judged incompatible."""
     repo = queue_repo(checkout)
-    numbers = [key.rpartition("#")[2] for key in keys if key.rpartition("#")[0] == repo]
+    numbers = {key.rpartition("#")[2]: why for key, why in keys.items() if key.rpartition("#")[0] == repo}
     said = []
-    for number, row in queued(drive, checkout, numbers).items():
+    for number, row in queued(drive, checkout, list(numbers)).items():
         if row.get("isCurrentlySubmittedToQueue"):
             done = subprocess.run([*queue_cli(drive), "dequeue", number], cwd=checkout, capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
-            said.append(f"dequeued {repo}#{number}: it waits on a staging proof" if done.returncode == 0 else f"not dequeued {repo}#{number}: {' '.join((done.stdout + done.stderr).split())[:300]}")
+            said.append(f"dequeued {repo}#{number}: {numbers[number]}" if done.returncode == 0 else f"not dequeued {repo}#{number}: {' '.join((done.stdout + done.stderr).split())[:300]}")
     return said
 
 
@@ -292,7 +292,8 @@ def land(args: argparse.Namespace) -> None:
         unstaged: dict[str, str] = {}
         seen_lanes = [rows.seen(lane, read, rule, store.config(args.drive)["premerge_lanes"]) for lane in store.load_all(args.drive).values() if (not args.lane or lane["id"] in args.lane) and lane["state"] != store.PARKED]
         for lane in seen_lanes:
-            unstaged |= {landing.key(row): lane["id"] for stack in landing.stacks(lane) if not landing.proven(stack) for row in stack if not row.get("merged") and landing.judged(row) and landing.dangerous(row)}
+            unstaged |= {landing.key(row): "it waits on a staging proof" for stack in landing.stacks(lane) if not landing.proven(stack) for row in stack if not row.get("merged") and landing.judged(row) and landing.dangerous(row)}
+            unstaged |= {landing.key(row): f"it is or sits on {landing.key(stack[lost])}, which has no Approve of his at its head, and the queue would land it with them" for stack in landing.stacks(lane) if (lost := next((index for index, row in enumerate(stack) if landing.unapproved(row)), None)) is not None for row in stack[lost:] if not row.get("merged")}
             for verdict in landing.verdicts(lane):
                 print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
                 if verdict.lands and (stager.live(args.drive) or args.dry_run):
@@ -302,7 +303,7 @@ def land(args: argparse.Namespace) -> None:
                     if row.get("mergeable") == "CONFLICTING" and not row.get("merged") and fixes.landable(row, row["head"]):
                         conflicted(args.drive, lane, [landing.key(row)], lambda row=row: conflict_said(checkout, row))
         if stager.live(args.drive) and not args.dry_run:
-            for said in alone(args.drive, "taking unproven PRs out of the merge queue", lambda: dequeued(args.drive, checkout, list(unstaged))) or []:
+            for said in alone(args.drive, "taking unproven PRs out of the merge queue", lambda: dequeued(args.drive, checkout, unstaged)) or []:
                 print(said)
             if not args.lane:
                 print(f"staging items queued or kept: {len(alone(args.drive, "queueing staging tests", lambda: stager.queue(args.drive, seen_lanes)) or [])}")

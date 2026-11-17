@@ -234,7 +234,7 @@ def test_a_pass_takes_a_queued_pr_that_waits_on_a_staging_proof_out_of_the_merge
     monkeypatch.setattr(cli, "queue_cli", lambda drive: ["ci", "trunk"])
     monkeypatch.setattr(cli, "queued", lambda drive, checkout, numbers: {"57423": {"isCurrentlySubmittedToQueue": True}, "57931": {"isCurrentlySubmittedToQueue": False}})
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: ran.append(argv) or subprocess.CompletedProcess(argv, 0, "", ""))
-    said = cli.dequeued("durable-agents", tmp_path, ["Forge-AI/monorepo#57423", "Forge-AI/monorepo#57931", "yasyf/litestream#46"])
+    said = cli.dequeued("durable-agents", tmp_path, {"Forge-AI/monorepo#57423": "it waits on a staging proof", "Forge-AI/monorepo#57931": "it waits on a staging proof", "yasyf/litestream#46": "it waits on a staging proof"})
     assert ran == [["ci", "trunk", "dequeue", "57423"]]
     assert said == ["dequeued Forge-AI/monorepo#57423: it waits on a staging proof"]
 
@@ -525,3 +525,10 @@ def test_a_pr_opened_while_the_judge_ran_keeps_no_verdict_until_the_next_judge_a
     verdict = {"head": "h", "classes": {}, "rule": "r"}
     assert rows.written(lanes, {"Forge-AI/monorepo#1": {"head": "h"}}, {"dangerous": {"Forge-AI/monorepo#1": verdict}}, "r") == 1
     assert judged_row["dangerous"] == verdict and opened_after["dangerous"] is None
+
+
+def test_a_pr_that_lost_his_approve_takes_itself_and_the_prs_above_it_out_of_the_queue_and_leaves_the_approved_ones_below() -> None:
+    below = row(57275, merged=False)
+    lost = row(57220, under=57275, approved_head=None)
+    above = row(57221, under=57220)
+    assert [landing.unapproved(pr) for pr in (below, lost, above, row(1, held="his word"))] == [False, True, False, True]
