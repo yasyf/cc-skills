@@ -1465,6 +1465,17 @@ def test_a_carried_approve_is_judged_against_the_head_he_tapped_not_the_head_the
     assert store.load(DRIVE, "a")["prs"][0]["carried"]["from"] == "h1"
 
 
+def test_replaying_57364_a_head_that_moves_after_his_approve_was_revoked_queues_no_carry_item(world: dict) -> None:
+    from lane import work
+
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", prs=[("acme/app", 57364)], channel="C1")
+    store.update(DRIVE, "a", lambda lane: lane["prs"][0].update(approved_head=None, tapped_head="fe7c8c4a", carried={"head": "a2118e10", "compatible": False}))
+    world["prs"][("acme/app", 57364)] = pull(rollup="SUCCESS", head="3818b373", branch="b") | {"mergeable": "MERGEABLE", "commits": [], "commit_count": 0}
+    supervisor.run_pass(DRIVE)
+    assert [item for item in work.items(DRIVE) if item["kind"] == "carry"] == []
+
+
 def test_a_failed_item_is_queued_once_more_with_why_and_a_second_failure_tells_its_lane_to_re_plan(world: dict) -> None:
     from lane import work
 

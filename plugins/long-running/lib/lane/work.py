@@ -281,7 +281,7 @@ def adds(drive: str) -> list[str]:
             key = f"{row['repo']}#{row['number']}"
             pull_row = seen.get(key)
             tapped = row.get("tapped_head") or row.get("approved_head")
-            if pull_row and pull_row["state"] == "OPEN" and tapped and pull_row["head"] != tapped and (row.get("carried") or {}).get("head") != pull_row["head"] and key not in fixing:
+            if pull_row and pull_row["state"] == "OPEN" and row.get("approved_head") and pull_row["head"] != tapped and (row.get("carried") or {}).get("head") != pull_row["head"] and key not in fixing:
                 item = add(drive, "carry", lane_id, key, carry_brief(drive, key, tapped, pull_row), head=pull_row["head"], touches=[row["repo"]], by="supervisor")
                 added.append(f"{item['id']} carry {key} at {pull_row['head'][:7]}")
             if key in fixing or not fixes.wanted(row, pull_row) or not (kind_of := fixes.kind(row, pull_row)):
