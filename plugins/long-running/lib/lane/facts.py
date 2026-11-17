@@ -148,7 +148,7 @@ def unproduced(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], d
 
 def asking(lane: dict) -> bool:
     """Whether a card or question of the lane is open to him: an Approve card he has not tapped, or a question with buttons asked after his newest tap."""
-    if any(not card.get("tapped") for card in lane.get("cards", [])):
+    if any(not card.get("tapped") and not card.get("superseded") for card in lane.get("cards", [])):
         return True
     taps = [store.parse(ask["at"]) for ask in lane.get("asks", []) if ask["words"].startswith("tapped ")]
     return bool(lane.get("asked_at")) and (not taps or store.parse(lane["asked_at"]) > max(taps))
@@ -182,10 +182,17 @@ def view(drive: str) -> dict[str, dict]:
 
 
 @cache
-@cache
 def owner_user() -> dict:
+    """His Slack identity, read from `cc-slack whoami` once and kept in the lanes' owner-user file, so a failing whoami never costs a pass once it has answered."""
+    kept = store.root() / "owner-user.json"
+    if kept.is_file():
+        return json.loads(kept.read_text())
     done = subprocess.run(["cc-slack", "whoami"], capture_output=True, text=True, check=True, timeout=30)
-    return json.loads(done.stdout)
+    who = json.loads(done.stdout)
+    fresh = kept.with_name(f".owner-user.{os.getpid()}.tmp")
+    fresh.write_text(json.dumps({"user_id": who["user_id"]}))
+    fresh.replace(kept)
+    return who
 
 
 def said_at(link: str) -> str:

@@ -56,7 +56,7 @@ def draw(drive: str) -> list[str]:
             continue
         waiting = stacks_waiting(lane, seen)
         ready = ready_stacks(lane, seen)
-        live = [card for card in lane.get("cards", []) if not card.get("tapped") and any(heads in ready for heads in card["stacks"])]
+        live = [card for card in lane.get("cards", []) if not card.get("tapped") and not card.get("superseded") and any(heads in ready for heads in card["stacks"])]
         if not waiting or live and lane.get("card_mode") == ONE:
             continue
         card = secrets.token_hex(3)
@@ -72,6 +72,10 @@ def draw(drive: str) -> list[str]:
             continue
 
         def keeping(lane: dict, card: str = card, stacks: list[dict[str, str]] = stacks, sent: str = sent) -> None:
+            asked = {key for heads in stacks for key in heads}
+            for older in lane.get("cards", []):
+                if not older.get("tapped") and not older.get("superseded") and {key for heads in older["stacks"] for key in heads} <= asked:
+                    older["superseded"] = card
             lane["cards"] = [*lane.get("cards", []), {"id": card, "stacks": stacks, "at": store.stamp(), "sent": sent}][-50:]
             for row in lane["prs"]:
                 for heads in stacks:
