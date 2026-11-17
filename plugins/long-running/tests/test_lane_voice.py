@@ -359,3 +359,10 @@ def test_a_post_and_its_edit_follow_as_one_post_naming_what_the_edit_names_from_
     edited = {"ts": "1794882646.782079", "at": "2026-11-16T19:40:00-08:00", "prs": [{"repo": "Forge-AI/monorepo", "number": 57649}, {"repo": "Forge-AI/monorepo", "number": 57730}]}
     other = {"ts": "1794883498.537539", "at": "2026-11-16T18:44:58-08:00", "prs": []}
     assert voice.current([posted, other, edited]) == [edited | {"at": posted["at"]}, other]
+
+
+def test_an_answer_to_his_ask_made_outside_the_lanes_channel_goes_to_his_own_thread() -> None:
+    lane = {"id": "iris-chat-incidents", "channel": "C0CJ30EG2GJ", "asks": [{"ts": "1794890000.000100", "link": "https://x.slack.com/archives/D0C4HQWPLCC/p1794890000000100"}, {"ts": "1794890100.000200", "link": "https://x.slack.com/archives/C0CHZM7A478/p1794890100000200?thread_ts=1794870764.063919&cid=C0CHZM7A478"}]}
+    assert voice.asked_place(lane, "1794890000.000100") == ("D0C4HQWPLCC", "1794890000.000100")
+    assert voice.asked_place(lane, "1794890100.000200") == ("C0CHZM7A478", "1794870764.063919")
+    assert voice.asked_place(lane, None) == ("C0CJ30EG2GJ", "")

@@ -26,6 +26,7 @@ ENQUEUE_SECONDS = 2
 ROLE_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "voice.md"
 PR_REF = re.compile(r"\{pr:(?:([\w.-]+/[\w.-]+)#)?#?(\d+)(?:\|([^{}]*))?\}")
 THREAD_OF = re.compile(r"[?&]thread_ts=(\d+\.\d+)")
+CHANNEL_OF = re.compile(r"/archives/([A-Z0-9]+)/p")
 SEGMENTS = re.compile(r"(<[^<>]*>)")
 BARE_PR_LINK = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|#\2>")
 BARE_NUMBER = re.compile(r"(?<![\w&/#])#(\d{3,})\b")
@@ -83,8 +84,8 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
     body = {
         "lane": lane["id"],
         "drive": drive,
-        "channel_id": lane["channel"],
-        "thread_ts": asked_thread(lane, about_ts),
+        "channel_id": (place := asked_place(lane, about_ts))[0],
+        "thread_ts": place[1],
         "text": drawn,
         "words": text,
         "prs": named_prs(drawn, seen, lane.get("prs") or []),
@@ -134,6 +135,14 @@ def subjects(lane: dict, text: str, about_ts: str | None, about: list[str]) -> l
             raise store.Refused(f"--about {named!r} names release:<ref> or card:<ts>")
         found.append({"kind": kind, "ts" if kind == "card" else "ref": ref})
     return found
+
+
+def asked_place(lane: dict, about_ts: str | None) -> tuple[str, str]:
+    """The channel and thread a post goes in: his message's own thread when --re names an ask he made outside the lane's channel, such as a reply to his DM, so the answer reaches him where he asked rather than the lane channel's root (defect 9a66); else the lane's channel and asked_thread."""
+    named = next((ask for ask in lane.get("asks") or [] if about_ts and ask.get("ts") == about_ts), None)
+    if named and (found := CHANNEL_OF.search(named.get("link") or "")) and found[1] != lane["channel"]:
+        return found[1], thread[1] if (thread := THREAD_OF.search(named["link"])) else named["ts"]
+    return lane["channel"], asked_thread(lane, about_ts)
 
 
 def asked_thread(lane: dict, about_ts: str | None) -> str:

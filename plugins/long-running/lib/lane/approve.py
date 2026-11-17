@@ -76,8 +76,8 @@ def drawn(drive: str, lane: dict, stacks: list[dict[str, str]]) -> str:
     return slack.cc_slack(*argv, timeout=DRAW_SECONDS).get("card_permalink") or "drawn"
 
 
-def asked(drive: str, lane_id: str, lane: dict, stacks: list[dict[str, str]], ready: list[dict[str, str]]) -> str | None:
-    """Draw one lane's cards for its waiting stacks and keep one card on the lane per stack, as cc-slack posts them, each older card whose open PRs they all ask about again marked superseded by the one asking about its PRs, and each PR row carded at the head asked; why the draw failed, or None."""
+def asked(drive: str, lane_id: str, lane: dict, stacks: list[dict[str, str]], open_keys: set[str]) -> str | None:
+    """Draw one lane's cards for its waiting stacks and keep one card on the lane per stack, as cc-slack posts them, each older card whose every still-open PR they ask about again marked superseded by the one asking about its PRs, so a card is never superseded by one asking about only its ready PRs (defects 8af9 and 39dd: a 13-PR card superseded by a 1-PR card), and each PR row carded at the head asked; why the draw failed, or None."""
     from drive import slack
 
     try:
@@ -86,7 +86,6 @@ def asked(drive: str, lane_id: str, lane: dict, stacks: list[dict[str, str]], re
         return f"{lane_id}: its Approve cards were not drawn: {failed}"
     drawn_cards = [{"id": secrets.token_hex(3), "stacks": [heads], "at": store.stamp(), "sent": sent} for heads in stacks]
     keys = {key for heads in stacks for key in heads}
-    open_keys = {key for heads in ready for key in heads}
 
     def keeping(lane: dict) -> None:
         for older in lane.get("cards", []):
@@ -120,7 +119,7 @@ def draw(drive: str) -> list[str]:
             if not named(stack_name(lane, heads)):
                 ask_name(drive, lane_id, lane, heads)
         if waiting := stacks_waiting(lane, seen):
-            asking.append((lane_id, lane, waiting, ready))
+            asking.append((lane_id, lane, waiting, {key for key, pull in seen.items() if pull["state"] == "OPEN"}))
     if not asking:
         return refused
     with ThreadPoolExecutor(max_workers=DRAWERS) as pool:

@@ -1391,7 +1391,7 @@ def test_a_new_head_under_a_live_card_draws_that_stack_again_and_supersedes_only
     stacks = [{"acme/app#1": "h1"}, {"acme/app#2": "h2"}]
     monkeypatch.setattr(approve, "ready_stacks", lambda lane, seen: stacks)
     monkeypatch.setattr(approve, "stacks_waiting", lambda lane, seen: [heads for heads in stacks if not any(heads == old for card in lane.get("cards", []) for old in card["stacks"])])
-    monkeypatch.setattr(page, "view", lambda drive: {"prs": {}})
+    monkeypatch.setattr(page, "view", lambda drive: {"prs": {"acme/app#1": {"state": "OPEN"}, "acme/app#2": {"state": "OPEN"}}})
     approve.draw(DRIVE)
     stacks[1] = {"acme/app#2": "h3"}
     approve.draw(DRIVE)
@@ -1841,3 +1841,16 @@ def test_a_lane_land_block_comes_off_with_a_note_once_its_prs_merge_and_check_st
     assert verbs.unblocked(DRIVE, "a", {"acme/app#56226", "acme/app#56293"}, "they merged", "lane-land") == 1
     assert [block["by"] for block in store.load(DRIVE, "a")["blocks"]] == ["owner"]
     assert "unblocked, from lane-land" in store.note_path(DRIVE, "a").read_text()
+
+
+def test_a_card_is_superseded_only_when_a_newer_card_asks_again_about_every_pr_of_it_still_open(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import approve
+
+    (store.drive_dir(DRIVE) / "config.json").write_text(json.dumps({"active": 3, "slots": 2, "posting": True}))
+    monkeypatch.setattr(approve, "drawn", lambda drive, lane, stacks: "https://x.slack.com/archives/C1/p2")
+    opened("a", prs=[("acme/app", 1), ("acme/app", 2)])
+    store.update(DRIVE, "a", lambda lane: lane.update({"cards": [{"id": "c84edc", "stacks": [{"acme/app#1": "h1", "acme/app#2": "h2"}], "at": store.stamp(), "sent": "log"}]}))
+    approve.asked(DRIVE, "a", store.load(DRIVE, "a"), [{"acme/app#1": "h1"}], {"acme/app#1", "acme/app#2"})
+    assert not store.load(DRIVE, "a")["cards"][0].get("superseded")
+    approve.asked(DRIVE, "a", store.load(DRIVE, "a"), [{"acme/app#1": "h1"}], {"acme/app#1"})
+    assert store.load(DRIVE, "a")["cards"][0]["superseded"]
