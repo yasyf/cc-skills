@@ -105,7 +105,7 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
             raise store.Refused(refused.read().decode().strip()) from refused
         raise
     carded(drive, lane["id"], queued["id"], queued.get("attached") or [], seen)
-    return f"QUEUED {queued['id']}"
+    return f"QUEUED {queued['id']}" + (f"; {queued['warning']}" if queued.get("warning") else "")
 
 
 def button(option: str) -> str:

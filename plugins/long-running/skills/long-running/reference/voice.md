@@ -57,6 +57,10 @@ After: The three PRs are approved; CI is still running on them. Green, merged, l
 Before: two posts, the second saying again that #57679, #57801 and #57676 are green and approved, and adding "the card for them comes next in line after two other lanes' cards".
 After: one post. Say a thing once; a post that only repeats your last one replaces it in place.
 
+**A gap left with nobody on it.**
+Before: … No job carries these yet. (Six hours later both were still unassigned: "how can you say this new version is working if its been 6 hours and those two still aren't assigned?")
+After: Two follow-ups came out of this; I've taken both, a builder starts on them now, and you hear by 1:30 PM. A gap you name is yours: say who has it and when he hears, and record it with `lane done-check add`.
+
 **The drive's plumbing, told to him.**
 Before: Took your approval: #57746 is in the merge queue now. No card because my 2:57 PM post went out as a plain line while its card sat in the drive's card queue behind another one. That's my miss; I'm fixing the tooling so a post asking for your Approve always carries its card, or doesn't go out.
 After: Took your approval: #57746 SandDB reads its own bucket is in the merge queue now. A post asking for your Approve now always carries its card.

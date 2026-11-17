@@ -241,3 +241,8 @@ def test_buttons_are_short_enough_for_slack_and_a_shortened_one_is_listed_in_ful
     text, shown = voice.buttoned("Pick one:", options)
     assert shown == labels and all(len(label) <= voice.BUTTON_CHARS and len(label.split()) <= voice.BUTTON_WORDS for label in shown)
     assert (f"1. *{labels[0]}*: {options[0]}" in text) is listed
+
+
+def test_the_sender_hands_the_owner_the_voices_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(voice.urllib.request, "urlopen", lambda request, timeout: io.StringIO(json.dumps({"id": "g1", "warning": "warning, posted: it names work nobody is doing yet"})))
+    assert voice.send("demo", {"id": "cloud", "channel": "C1", "prs": []}, "No job carries these yet.") == "QUEUED g1; warning, posted: it names work nobody is doing yet"
