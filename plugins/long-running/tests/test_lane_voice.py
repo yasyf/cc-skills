@@ -25,6 +25,7 @@ def test_the_sender_queues_at_the_lane_channel_root_never_its_old_home_thread_an
                 "channel_id": "C0RUNPAGE",
                 "thread_ts": "",
                 "text": "Right, v3 doesn't need the conversion.",
+                "words": "Right, v3 doesn't need the conversion.",
                 "prs": [],
                 "about": [],
                 "rules": str(voice.ROLE_PAGE),
@@ -89,7 +90,7 @@ def test_importing_voice_makes_it_lane_say_s_sender() -> None:
 
 
 def test_his_message_reaches_its_lane_by_thread_and_every_lane_in_the_channel_when_unclear(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lane import store, verbs
+    from lane import events, store
 
     root = tmp_path / "lanes"
     (root / "demo").mkdir(parents=True)
@@ -97,7 +98,7 @@ def test_his_message_reaches_its_lane_by_thread_and_every_lane_in_the_channel_wh
     monkeypatch.setattr(store, "root", lambda: root)
     monkeypatch.setattr(store, "load_all", lambda drive: lanes)
     heard = []
-    monkeypatch.setattr(verbs, "message", lambda drive, lane_id, words, link, ts: heard.append((lane_id, ts)) or 1)
+    monkeypatch.setattr(events, "message", lambda drive, lane_id, words, link, ts: heard.append((lane_id, ts)) or f"{lane_id}: 1 new")
     assert voice.heard("C0RUN", None, "make this a prio lane", None, "9.9") == "run-page: 1 new"
     assert voice.heard("C0SHARED", "2.2", 'tapped "Approve"', None, "9.8") == "v3-b: 1 new"
     assert voice.heard("C0SHARED", None, "both of these", None, "9.7") == "v3-a: 1 new; v3-b: 1 new"
@@ -171,7 +172,7 @@ POSTED = {"at": "2026-11-16T15:16:30.177-08:00", "options": [], "prs": [{"repo":
         (POSTED, {"prs": []}, {"state": "MERGED", "merged": True, "merged_at": "2026-11-16T23:18:05Z", "head": "a" * 40}, ["✅ #57894 merged 3:18 PM"], []),
         (POSTED, {"prs": []}, {"state": "MERGED", "merged": True, "merged_at": "2026-11-16T23:10:00Z", "head": "a" * 40}, [], []),
         (POSTED | {"prs": [POSTED["prs"][0] | {"state": "OPEN", "head": "b" * 40}]}, {"prs": []}, {"state": "OPEN", "merged": False, "head": "a" * 40}, [], ["#57894 has a new head, aaaaaaa, since it read bbbbbbb"]),
-        (POSTED | {"options": ["Approve #57894", "Hold #57894"]}, {"prs": [{"repo": "Forge-AI/monorepo", "number": 57894, "approved_head": "a" * 40}]}, {"state": "OPEN", "merged": False, "head": "a" * 40}, ["✅ #57894 approved"], []),
+        (POSTED | {"options": ["Approve #57894", "Hold #57894"]}, {"prs": [{"repo": "Forge-AI/monorepo", "number": 57894, "approved_head": "a" * 40}]}, {"state": "OPEN", "merged": False, "head": "a" * 40}, [voice.RETIRED], []),
         (POSTED | {"options": ["Approve #57894", "Hold #57894"]}, {"prs": [{"repo": "Forge-AI/monorepo", "number": 57894, "held": "his Hold"}]}, {"state": "OPEN", "merged": False, "head": "a" * 40}, ["⏸️ #57894 held"], []),
     ],
 )
