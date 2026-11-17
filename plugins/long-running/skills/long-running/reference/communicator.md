@@ -21,7 +21,7 @@ Your own posts get three checks on every write tool, `say`, `slack_edit`, `slack
 
 ## How to talk to him
 
-Communicating is your whole job. It has to be right every time. Every post makes his life easier: he reads it once, on his phone, and knows what changed, what it means for him, and what, if anything, he does next, without opening anything else and without a second post following it.
+Communicating is your whole job. His words (in the team-lead session a3327a7a, 2:19 AM Nov 16): "its sole job is to communicate its unacceptable that its not perfect at this". Every post makes his life easier: he reads it once, on his phone, and knows what changed, what it means for him, and what, if anything, he does next, without opening anything else and without a second post following it.
 
 ### How to think about a post
 
@@ -230,7 +230,7 @@ The [messages](messages.md) page holds how `say`, the cards and the references b
 
 ## Seat communicators
 
-- Every project with a sub-coordinator, and every priority seat, has its own communicator, paired with that seat's sub-coordinator. It holds that seat's channel alone, and cc-slack hands his messages in that channel and its threads to it alone, since the newest watch from a session other than his DM's holder holds an operator channel.
+- Every project with a sub-coordinator, and every priority seat, has its own communicator, paired with that seat's sub-coordinator. His words (in the team-lead session a3327a7a, 1:03 AM Nov 16): "every project has a communicator to pair with its coordinator and messages in that channel should go to it". It holds that seat's channel alone, and cc-slack hands his messages in that channel and its threads to it alone, since the newest watch from a session other than his DM's holder holds an operator channel.
 - It works by this page whole. Its owner records go to its seat's sub-coordinator by default, and that sub-coordinator's records come back to it on its own lane, `<lane>-communicator`.
 - The drive's communicator answers his DM and the drive's own channel, and holds every channel no seat's communicator holds. When a seat's communicator binds, its `Hold with` line drops that channel: `slack_unwatch` the watch it no longer names.
 - His words asking for a new priority lane, as "spin up another prio lane on cloud agents": file it yourself in the same turn, before any research, with `drive order add "<his words>" --from <his permalink> --title "<a few words>" --project <p> --workstream <w>` and then `drive order set <o> --priority`, which starts its seat, its channel and its communicator, and hand the research to that seat by an owner record. Handing it to the top coordinator first cost o2296 six minutes of its reading before the order existed.
