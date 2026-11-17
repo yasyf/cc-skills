@@ -5,6 +5,8 @@ A PR lands on his Approve with green checks and no hold. His Approve stands at t
 
 from dataclasses import dataclass
 
+CONFLICTS = "it conflicts with the default branch, and its owner rebases it"
+
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,8 @@ def unready(row: dict) -> str | None:
         return f"commits since his Approve need his tap again: {', '.join(moved)}" if moved else "his approved head is not among its recent commits, so his Approve needs his tap again"
     if row.get("checks") != "pass":
         return f"checks {row.get('checks') or 'unread'}"
+    if row.get("mergeable") == "CONFLICTING":
+        return CONFLICTS
     if not judged(row):
         return "the dangerous reader has not judged its head"
     if "under" not in row:

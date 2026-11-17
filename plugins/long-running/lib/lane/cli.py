@@ -6,7 +6,7 @@ import os
 import re
 import signal
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from datetime import timedelta
@@ -75,7 +75,7 @@ def merged(drive: str, lane: dict, keys: list[str], checkout: Path, held: dict[s
     if done.returncode == 0:
         return hold(drive, lane["id"], f"queued for merge: {', '.join(keys)} through #{top}")
     if CONFLICT.search(said):
-        conflicted(drive, lane, keys, said)
+        conflicted(drive, lane, keys, lambda: said)
     return hold(drive, lane["id"], f"not landed: the merge queue refused #{top}: {said}")
 
 
@@ -93,18 +93,38 @@ def reviewed(drive: str, key: str, head: str) -> None:
         marker.touch()
 
 
-def conflicted(drive: str, lane: dict, keys: list[str], said: str) -> None:
-    """Hand the lane's owner a note that the unit conflicts with the default branch, once per set of heads, since the lane log wakes no one and only its owner can rebase."""
+def conflicted(drive: str, lane: dict, keys: list[str], said: Callable[[], str]) -> None:
+    """Wake the lane's owner on a unit that conflicts with the default branch, once per set of heads, with what conflicts in full: a blocker on the lane, which fires its wait at once, and a handover entry a running owner sees at its next call, since the lane log wakes no one and only its owner can rebase."""
     heads = {landing.key(row): row["head"] for row in lane["prs"]}
     marker = store.drive_dir(drive) / LANDING / CONFLICTS / hashlib.sha256(json.dumps([[key, heads.get(key)] for key in keys]).encode()).hexdigest()[:16]
     if marker.exists():
         return
-    verbs.handover(drive, lane["id"], f"- lane-land could not queue {', '.join(keys)}: it conflicts with the default branch: {said}. Rebase it with `ccx vcs stack submit` from its worktree; his Approve carries across your own commits, and the next landing pass queues it.", "lane-land")
+    what = f"{', '.join(keys)} conflicts with the default branch: {said()}. Rebase it with `ccx vcs stack submit` from its worktree; his Approve carries across your own commits, and the next landing pass queues it."
+    verbs.blocked(drive, lane["id"], what, "lane-land")
+    verbs.handover(drive, lane["id"], f"- {what}", "lane-land")
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
 
 
-@contextmanager
+def conflict_said(checkout: Path, row: dict) -> str:
+    """What a conflicting PR conflicts in, as its owner reads it: the paths by conflicts(), or GitHub's word alone when the read could not be made."""
+    from drive import github
+
+    repo = row["repo"]
+    try:
+        paths = conflicts(checkout, github.default_branch(repo), str(row["number"]))
+    except subprocess.SubprocessError as error:
+        return f"GitHub reads it CONFLICTING, and the files could not be read: {error}"
+    return f"in {', '.join(paths)}" if paths else "GitHub reads it CONFLICTING"
+
+
+def conflicts(checkout: Path, default: str, number: str) -> list[str]:
+    """The paths a PR conflicts in with the default branch, by git merge-tree in the drive's checkout after fetching both; empty when it merges cleanly."""
+    subprocess.run(["git", "-C", str(checkout), "fetch", "-q", "--no-tags", "origin", f"+refs/heads/{default}:refs/remotes/origin/{default}", f"+refs/pull/{number}/head:refs/lane-land/{number}"], capture_output=True, text=True, check=True, timeout=UNIT_SECONDS)
+    done = subprocess.run(["git", "-C", str(checkout), "merge-tree", "--write-tree", "--name-only", "--no-messages", f"origin/{default}", f"refs/lane-land/{number}"], capture_output=True, text=True, check=False, timeout=UNIT_SECONDS)
+    return [path for path in done.stdout.splitlines()[1:] if path] if done.returncode == 1 else []
+
+
 def exclusive(path: Path) -> Iterator[bool]:
     """Hold a non-blocking lock for this process's life; whether it holds it."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,18 +150,22 @@ def land(args: argparse.Namespace) -> None:
         releases.write(args.drive)
         read = rows.view(args.drive)
         rule = rows.rule_key(args.drive)
+        checkout = Path(store.config(args.drive)["checkout"])
         units = []
         for lane in [rows.seen(lane, read, rule) for lane in store.load_all(args.drive).values() if not args.lane or lane["id"] in args.lane]:
             for verdict in landing.verdicts(lane):
                 print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
                 if verdict.lands and (stager.live(args.drive) or args.dry_run):
                     units.append((lane, list(verdict.keys)))
+            if stager.live(args.drive) and not args.dry_run:
+                for row in lane["prs"]:
+                    if row.get("mergeable") == "CONFLICTING" and not row.get("merged"):
+                        conflicted(args.drive, lane, [landing.key(row)], lambda row=row: conflict_said(checkout, row))
         if not units:
             return
         if supervisor.newest_install() != here:
             print(f"a newer install than {here.name} landed; this pass ends and the next pass, on the new code, lands its units")
             return
-        checkout = Path(store.config(args.drive)["checkout"])
         held = queued(args.drive, checkout, [keys[-1].rpartition("#")[2] for _, keys in units if keys[-1].rpartition("#")[0] == queue_repo(checkout)])
 
         def one(unit: tuple[dict, list[str]]) -> str:

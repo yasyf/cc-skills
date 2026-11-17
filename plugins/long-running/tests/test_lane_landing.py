@@ -152,3 +152,20 @@ def test_a_head_that_moved_since_its_verdict_under_the_same_danger_page_is_judge
     judged = {gate: {landing.key(pr): verdict for pr in (moved, still)} for gate in ("dangerous", "guarded")}
     assert rows.written(lanes, read, judged, "r") == 2
     assert moved["dangerous"]["head"] == moved["guarded"]["head"] == "h"
+
+
+def test_53810s_conflict_holds_it_and_wakes_run_page_v3_once_naming_stepnames_test(monkeypatch, tmp_path) -> None:
+    from lane import cli, store, verbs
+
+    conflicting = row(53810) | {"mergeable": "CONFLICTING"}
+    assert landing.verdicts(lane(conflicting))[0].why == f"Forge-AI/monorepo#53810 waits: {landing.CONFLICTS}"
+    woken, noted = [], []
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(verbs, "blocked", lambda drive, lane_id, what, by: woken.append((lane_id, what, by)))
+    monkeypatch.setattr(verbs, "handover", lambda drive, lane_id, text, by: noted.append(lane_id))
+    v3 = lane(conflicting) | {"id": "run-page-v3"}
+    said = "in go/sand/next/internal/runtime-api/runs/stepnames_test.go"
+    cli.conflicted("durable-agents", v3, ["Forge-AI/monorepo#53810"], lambda: said)
+    cli.conflicted("durable-agents", v3, ["Forge-AI/monorepo#53810"], lambda: said)
+    assert [(lane_id, by) for lane_id, _, by in woken] == [("run-page-v3", "lane-land")]
+    assert "stepnames_test.go" in woken[0][1] and noted == ["run-page-v3"]
