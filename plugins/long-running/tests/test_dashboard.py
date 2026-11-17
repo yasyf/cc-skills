@@ -440,7 +440,8 @@ def test_a_tap_on_a_pr_is_kept_at_once_through_the_one_tap_recorder_unless_its_h
     assert moved == (409, {"error": dashboard.MOVED})
     assert (stranger[0], elsewhere[0]) == (409, 403)
     assert (sent[0], sent[1]["label"], took < 1) == (200, "Hold", True)
-    assert tapped == [{"repo": "yasyf/cc-skills", "number": 7, "label": "Hold", "heads": {key: "abc1234"}, "source": "dashboard", "action_ts": None, "waits": ""}]
+    assert tapped == [{"repo": "yasyf/cc-skills", "number": 7, "label": "Hold", "heads": {key: "abc1234"}, "source": "dashboard", "action_ts": tapped[0]["action_ts"], "waits": ""}]
+    assert float(tapped[0]["action_ts"]) > 0
     assert list(state.read_events("demo")) == []
 
 
