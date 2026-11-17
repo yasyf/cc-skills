@@ -1521,6 +1521,8 @@ def test_an_alerting_monitor_no_lane_holds_opens_an_incident_lane_past_the_cap_w
     monkeypatch.setattr(incidents, "page", lambda drive, lane_id, why: paged.append((lane_id, why)) or "paged")
     for lane_id in ("a", "b", "c"):
         opened(lane_id)
+    shape = store.drive_dir(DRIVE) / "config.json"
+    shape.write_text(json.dumps(json.loads(shape.read_text()) | {"incident_worktree": "/checkout", "incident_channel": "C9"}))
     opened_now = incidents.intake(DRIVE)
     assert opened_now == ["incident-345323874"] and store.load(DRIVE, "incident-345323874")["incident"]["monitor"] == "345323874"
     assert [item["subject"] for item in work.items(DRIVE)] == ["diagnose monitor 345323874"]
