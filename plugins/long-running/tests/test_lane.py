@@ -1522,15 +1522,17 @@ def test_an_alerting_monitor_no_lane_holds_opens_an_incident_lane_past_the_cap_w
     from lane import incidents, work
 
     paged = []
-    monkeypatch.setattr(incidents, "alerting", lambda drive: [{"id": 345323874, "name": "next-app errors", "status": "Alert"}])
+    monkeypatch.setattr(incidents, "alerting", lambda drive: [{"id": 345323874, "name": "next-app errors", "status": "Alert", "tags": ["service:runtime-api"]}, {"id": 99, "name": "runtime-api 5xx", "status": "Alert", "tags": ["service:runtime-api"]}])
+    monkeypatch.setattr(incidents, "settings", lambda drive: {"query": "tag:team:platform", "channel": "C9", "away_minutes": 30})
     monkeypatch.setattr(incidents, "page", lambda drive, lane_id, why: paged.append((lane_id, why)) or "paged")
+    monkeypatch.setattr(incidents, "away", lambda drive: True)
     for lane_id in ("a", "b", "c"):
         opened(lane_id)
     shape = store.drive_dir(DRIVE) / "config.json"
-    shape.write_text(json.dumps(json.loads(shape.read_text()) | {"incident_worktree": "/checkout", "incident_channel": "C9"}))
+    shape.write_text(json.dumps(json.loads(shape.read_text()) | {"incident_worktree": "/checkout"}))
     opened_now = incidents.intake(DRIVE)
     assert opened_now == ["incident-345323874"] and store.load(DRIVE, "incident-345323874")["incident"]["monitor"] == "345323874"
-    assert [item["subject"] for item in work.items(DRIVE)] == ["diagnose monitor 345323874"]
+    assert [item["subject"] for item in work.items(DRIVE)] == ["diagnose monitor 345323874"] and store.load(DRIVE, "incident-345323874")["incident"]["joined"] == ["99"]
     assert paged and paged[0][0] == "incident-345323874"
     assert incidents.intake(DRIVE) == []
 
