@@ -152,7 +152,7 @@
       "name": "long-running",
       "source": {
         "source": "git-subdir",
-        "url": "https://github.com/yasyf/cc-skills.git",
+        "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/long-running",
         "ref": "long-running--v1.0.1692"
       },
