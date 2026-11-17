@@ -51,7 +51,7 @@ def send(drive: str, lane: dict, text: str) -> str:
         "lane": lane["id"],
         "drive": drive,
         "channel_id": lane["channel"],
-        "thread_ts": lane.get("thread") or asked_thread(lane),
+        "thread_ts": asked_thread(lane),
         "text": linked(text, titled(lane.get("prs") or [], page.view(drive)["prs"])),
         "rules": str(ROLE_PAGE),
         "asked": "",

@@ -5,7 +5,7 @@ import pytest
 from lane import voice
 
 
-def test_the_sender_queues_in_the_lane_channel_and_thread_and_returns_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_sender_queues_at_the_lane_channel_root_never_its_old_home_thread_and_returns_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
     lane = {"id": "run-page", "channel": "C0RUNPAGE", "thread": "1794863488.099589", "prs": []}
     sent = []
 
@@ -22,7 +22,7 @@ def test_the_sender_queues_in_the_lane_channel_and_thread_and_returns_at_once(mo
                 "lane": "run-page",
                 "drive": "demo",
                 "channel_id": "C0RUNPAGE",
-                "thread_ts": "1794863488.099589",
+                "thread_ts": "",
                 "text": "Right, v3 doesn't need the conversion.",
                 "rules": str(voice.ROLE_PAGE),
                 "asked": "",
