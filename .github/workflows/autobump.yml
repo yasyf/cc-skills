@@ -15,6 +15,9 @@ on:
       strict:
         type: boolean
         default: false
+      p0:
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,6 +33,6 @@ jobs:
       dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
       strict: ${{ github.event.schedule == '23 10 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.strict) || false }}
       strict-on-schedule: false
-      batch-seconds: 600
+      batch-seconds: ${{ fromJSON(((github.event_name == 'workflow_dispatch' && inputs.p0) || contains(toJSON(github.event.commits.*.message), '[p0]')) && '0' || '600') }}
       guard-plugins: "codex slop-cop"
       release-check: "plugins/long-running plugins/long-running/tools/release-check"
