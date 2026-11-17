@@ -24,6 +24,8 @@ SEGMENTS = re.compile(r"(<[^<>]*>)")
 BARE_PR_LINK = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|#\2>")
 BARE_NUMBER = re.compile(r"(?<![\w&/#])#(\d{3,})\b")
 BARE_PR_URL = re.compile(r"\s*\(?(?<![<|])(https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)\b\)?")
+LINKED_PR = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|")
+TAPPED_PR = re.compile(r'^tapped "(Approve|Hold) #(\d+)"')
 
 
 def own_lane() -> tuple[str, str] | None:
@@ -47,12 +49,15 @@ def owner_say(drive: str, lane_id: str, arguments: dict) -> str:
 
 def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options: list[str] | None = None) -> str:
     """lane.say's SENDER: queue one post in the lane's channel, in the thread of the ask it is about, with the role page beside it and a button for each option, and return QUEUED and its id."""
+    seen = page.view(drive)["prs"]
+    drawn = linked(text, titled(lane.get("prs") or [], seen))
     body = {
         "lane": lane["id"],
         "drive": drive,
         "channel_id": lane["channel"],
         "thread_ts": asked_thread(lane, about_ts),
-        "text": linked(text, titled(lane.get("prs") or [], page.view(drive)["prs"])),
+        "text": drawn,
+        "prs": named_prs(drawn, seen),
         "rules": str(ROLE_PAGE),
         "asked": "",
         **({"options": options} if options else {}),
@@ -65,6 +70,12 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         if refused.code == 422:
             raise store.Refused(refused.read().decode().strip()) from refused
         raise
+
+
+def named_prs(text: str, seen: dict[str, dict]) -> list[dict]:
+    """Each PR the post links, once, with its GitHub state as view.json read it, so the voice can give an ask for his Approve its buttons and refuse one about a PR already merged or closed."""
+    keys = dict.fromkeys(f"{repo}#{number}" for repo, number in LINKED_PR.findall(text))
+    return [{"repo": key.partition("#")[0], "number": int(key.partition("#")[2]), "state": (seen.get(key) or {}).get("state") or ""} for key in keys]
 
 
 def asked_thread(lane: dict, about_ts: str | None) -> str:
@@ -138,4 +149,17 @@ def heard(channel: str, thread: str | None, words: str, link: str | None, ts: st
         for drive in drives:
             store.heard(drive, [{"ts": ts, "link": link}])
         return f"no lane holds {channel}; his presence is kept"
+    for drive, lane_id, lane in chosen:
+        tapped_pr(drive, lane, words, link, ts)
     return "; ".join(f"{lane_id}: {verbs.message(drive, lane_id, words, link, ts)} new" for drive, lane_id, _ in chosen)
+
+
+def tapped_pr(drive: str, lane: dict, words: str, link: str | None, ts: str) -> None:
+    """His tap on an Approve #N or Hold #N button the voice attached, written as his Approve or Hold on that lane PR at the head view.json read, with the tap's ts as his presence, as a card tap is; his words still reach the lane beside it."""
+    if not (found := TAPPED_PR.match(words)):
+        return
+    label, number = found[1], int(found[2])
+    rows = [row for row in lane.get("prs") or [] if row["number"] == number]
+    if len(rows) != 1 or not (head := (page.view(drive)["prs"].get(f"{rows[0]['repo']}#{number}") or {}).get("head")):
+        return
+    verbs.tapped(drive, rows[0]["repo"], number, label, head, link or "his tap on the voice's buttons", ts, named=True)

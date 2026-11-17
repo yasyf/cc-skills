@@ -24,6 +24,7 @@ def test_the_sender_queues_at_the_lane_channel_root_never_its_old_home_thread_an
                 "channel_id": "C0RUNPAGE",
                 "thread_ts": "",
                 "text": "Right, v3 doesn't need the conversion.",
+                "prs": [],
                 "rules": str(voice.ROLE_PAGE),
                 "asked": "",
             },
@@ -71,6 +72,12 @@ def test_a_question_carries_its_options_to_the_sender(monkeypatch: pytest.Monkey
     monkeypatch.setattr(voice.urllib.request, "urlopen", lambda request, timeout: sent.append(json.loads(request.data)) or io.StringIO(json.dumps({"id": "q1"})))
     assert voice.send("demo", {"id": "iris", "channel": "C1", "prs": []}, "Hotfix #57810 now, or wait?", None, ["Hotfix", "Wait"]) == "QUEUED q1"
     assert sent[0]["options"] == ["Hotfix", "Wait"]
+
+
+def test_the_sender_names_each_linked_pr_once_with_its_state() -> None:
+    text = "<https://github.com/Forge-AI/monorepo/pull/57894|#57894 docs> needs your Approve; <https://github.com/Forge-AI/monorepo/pull/57894|#57894 docs> again, <https://github.com/Forge-AI/monorepo/pull/57908|#57908 release tool>."
+    seen = {"Forge-AI/monorepo#57894": {"state": "OPEN"}, "Forge-AI/monorepo#57908": {"state": "MERGED"}}
+    assert voice.named_prs(text, seen) == [{"repo": "Forge-AI/monorepo", "number": 57894, "state": "OPEN"}, {"repo": "Forge-AI/monorepo", "number": 57908, "state": "MERGED"}]
 
 
 def test_importing_voice_makes_it_lane_say_s_sender() -> None:
