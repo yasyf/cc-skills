@@ -577,6 +577,14 @@ def hold_install(drive: str, sha: str, why: str | None, by: str | None) -> str:
     else:
         holds.pop(full)
     path.write_text(json.dumps(holds, indent=1) + "\n")
+    marks = store.drive_dir(drive) / "parses"
+    marks.mkdir(exist_ok=True)
+    for install in Path(__file__).resolve().parents[3].iterdir():
+        mark = marks / install.name
+        if mark.is_file() and mark.read_text().startswith(f"broken\nheld: {full[:9]}"):
+            mark.unlink()
+        if why and (install / "bin" / "lane").is_file() and held_by(drive, install.name):
+            mark.write_text(f"broken\nheld: {full[:9]} ({why}), so no process points the drive's link at it\n")
     (store.drive_dir(drive) / "kick").touch()
     return f"{full[:9]}: {'held: ' + why if why else 'lifted'}"
 
