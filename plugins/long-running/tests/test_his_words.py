@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = [ROOT / "lib/lane" / f"{name}.md" for name in ("owner", "work", "audit", "rank", "danger")] + [ROOT / "skills/long-running/reference/voice.md", ROOT / "lane-rules/CLAUDE.md"]
-QUOTED = re.compile(r'(?:[Hh]is (?:words|ruling)[^"\n]{0,80}?:|[Hh]e (?:asked|said|wrote)[^"\n]{0,80}?: |\()"([^"\n]{12,})"')
+QUOTED = re.compile(r'(?:[Hh]is (?:words|ruling)[^"\n]{0,80}?: |[Hh]e (?:asked|said|wrote)[^"\n]{0,80}?: |\()"([^"\n]{12,})"')
 SOURCED = re.compile(r"slack\.com/archives/|\bsession [0-9a-f]{8}\b")
 WINDOW = 160
 

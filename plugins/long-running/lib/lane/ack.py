@@ -11,11 +11,12 @@ from lane import store
 REACT_URL = "http://127.0.0.1:7378/voice/react"
 SECONDS = 5
 CHANNEL = re.compile(r"/archives/([A-Z0-9]+)/p")
+THREAD = re.compile(r"[?&]thread_ts=([0-9.]+)")
 
 
 def react(lane: dict, ask: dict, add: str, remove: list[str]) -> None:
     channel = found[1] if (found := CHANNEL.search(ask.get("link") or "")) else lane["channel"]
-    request = urllib.request.Request(REACT_URL, json.dumps({"channel_id": channel, "ts": ask["ts"], "add": add, "remove": remove}).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())})
+    request = urllib.request.Request(REACT_URL, json.dumps({"channel_id": channel, "ts": ask["ts"], "thread_ts": found[1] if (found := THREAD.search(ask.get("link") or "")) else "", "add": add, "remove": remove}).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())})
     try:
         with urllib.request.urlopen(request, timeout=SECONDS):
             return
