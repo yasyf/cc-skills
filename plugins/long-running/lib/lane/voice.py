@@ -13,7 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from lane import page, say, store, verbs
-from lane.words import pr_words
+from lane.words import label, pr_words
 
 LANE_ENV = "LONG_RUNNING_LANE"
 TOKEN_ENV = "LANE_TOKEN"
@@ -183,7 +183,7 @@ def linked(text: str, prs: list[dict]) -> str:
         if len(held) != 1:
             return match[0]
         words = (match[3] or held[0].get("words") or "").strip()
-        return f"<https://github.com/{held[0]['repo']}/pull/{number}|{' '.join(filter(None, [f'#{number}', words]))}>"
+        return f"<https://github.com/{held[0]['repo']}/pull/{number}|{label(int(number), words)}>"
 
     return once("".join(worded(piece, prs) for piece in SEGMENTS.split(PR_REF.sub(drawn, text))))
 
@@ -198,13 +198,13 @@ def worded(piece: str, prs: list[dict]) -> str:
     """One piece of a post as linked draws it: a link to a lane PR labelled with its bare number gains the row's words, and a bare #N the lane holds outside any link becomes that link, so every PR reads as `#N words`."""
     if bare := BARE_PR_LINK.fullmatch(piece):
         row = next((row for row in prs if row["repo"].casefold() == bare[1].casefold() and row["number"] == int(bare[2])), None)
-        return f"<https://github.com/{bare[1]}/pull/{bare[2]}|#{bare[2]} {row['words']}>" if row and row.get("words") else piece
+        return f"<https://github.com/{bare[1]}/pull/{bare[2]}|{label(int(bare[2]), row['words'])}>" if row and row.get("words") else piece
     if piece.startswith("<"):
         return piece
 
     def named(match: re.Match[str]) -> str:
         held = [row for row in prs if row["number"] == int(match[1])]
-        return f"<https://github.com/{held[0]['repo']}/pull/{match[1]}|{' '.join(filter(None, [f'#{match[1]}', held[0].get('words')]))}>" if len(held) == 1 else match[0]
+        return f"<https://github.com/{held[0]['repo']}/pull/{match[1]}|{label(int(match[1]), held[0].get('words') or '')}>" if len(held) == 1 else match[0]
 
     return BARE_NUMBER.sub(named, piece)
 

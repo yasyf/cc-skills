@@ -318,3 +318,10 @@ def test_at_the_cap_the_intake_parks_the_least_urgent_lane_and_his_undo_unparks_
     assert opened[0]["parks"] == "c" and replied == [("Billing export has its lane in #billing. Parked c, the least urgent lane by the queue.", ["Undo"])]
     assert voice.heard("D0DM", "9.1", 'tapped "Undo"', None, "9.2") == "intake of 9.2: unparked c, parked b"
     assert (lanes["c"]["state"], lanes["b"]["state"], intake.pending("demo")) == (store.WAITING, store.PARKED, [])
+
+
+def test_a_pr_label_with_angle_brackets_or_a_link_in_its_words_reads_whole_and_never_breaks_its_link() -> None:
+    rows = [{"repo": "Forge-AI/monorepo", "number": 57535, "words": "<https://github.com/Forge-AI/monorepo/pull/57535|#57535 tools/ci mac-box prove <box>>"}, {"repo": "Forge-AI/monorepo", "number": 56808, "words": "[#56570](https://github.com/Forge-AI/monorepo/pull/56570) port & fix"}]
+    assert voice.linked("Merged #57535 and #56808.", rows) == (
+        "Merged <https://github.com/Forge-AI/monorepo/pull/57535|#57535 tools/ci mac-box prove &lt;box&gt;> and <https://github.com/Forge-AI/monorepo/pull/56808|#56808 #56570 port &amp; fix>."
+    )
