@@ -2092,7 +2092,7 @@ def test_every_line_naming_a_carded_pr_links_its_card_whether_or_not_it_asks_his
     card = {"url": "https://acme.slack.com/archives/D1/p1794300000000200", "prs": [pr["url"]], "card": {"prs": [{"url": pr["url"], "head": "abc1234"}]}}
     prs = {"yasyf/cc-skills#7": pr}
     found = {"{pr:7}": refs.pr(prs, "7", "", [card])}
-    assert refs.slack("Tap Approve on {pr:7}\nAlso merged: {pr:7}", found, None) == f"Tap Approve on <{card['url']}|#7>\nAlso merged: <{card['url']}|#7>"
+    assert refs.slack("Tap Approve on {pr:7}\nAlso merged: {pr:7}", found, None) == f"Tap Approve on <{card['url']}|#7 the run page shows its history>\nAlso merged: <{card['url']}|#7 the run page shows its history>"
     assert refs.pr(prs, "7", "", [card | {"card": {"prs": [{"url": pr["url"], "head": "old0000"}]}}])["card"] is None
 
 
