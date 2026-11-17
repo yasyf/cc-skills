@@ -46,7 +46,7 @@ def stack_text(heads: dict[str, str], card: str) -> str:
 
 def draw(drive: str) -> list[str]:
     """Post each lane's card the pass its stacks turn ready, for the stacks no card or post asked about at their heads yet: one listing them all, or, once he chose One at a time, one for its first stack while no card of its own is live. Why each card that did not post failed, which never stops the pass."""
-    if not store.live(drive):
+    if not store.live(drive) or not store.config(drive).get("approve_cards", True):
         return []
     seen = page.view(drive)["prs"]
     refused = []
