@@ -18,6 +18,7 @@ VOICE_URL = "http://127.0.0.1:7378/voice"
 ENQUEUE_SECONDS = 2
 ROLE_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "voice.md"
 PR_REF = re.compile(r"\{pr:(?:([\w.-]+/[\w.-]+)#)?#?(\d+)(?:\|([^{}]*))?\}")
+LEAD_EMOJI = re.compile(r"^(?:[^\w\s(\[\x27\x22`]+\s*|:[a-z0-9_+-]+:\s*)+")
 KIND = re.compile(r"^(?:[\w-]+(?:\([^)]*\))?!?:\s*)+")
 CLAUSE = re.compile(r"[,;:](?=\s)| - | — ")
 TITLE_WORDS = 8
@@ -93,8 +94,8 @@ def titled(prs: list[dict], seen: dict[str, dict]) -> list[dict]:
 
 
 def short(title: str) -> str:
-    """A PR title as a link's few words: its kind prefix, such as `Fix:` or `feat(cc-slack):`, dropped, cut at its first clause, at most TITLE_WORDS words."""
-    words = CLAUSE.split(KIND.sub("", title).strip(), maxsplit=1)[0].split()
+    """A PR title as a link's few words: its leading emoji, such as a gitmoji ✨, and its kind prefix, such as `Fix:` or `feat(cc-slack):`, dropped, cut at its first clause, at most TITLE_WORDS words."""
+    words = CLAUSE.split(KIND.sub("", LEAD_EMOJI.sub("", title)).strip(), maxsplit=1)[0].split()
     return " ".join(words[:TITLE_WORDS]) + ("…" if len(words) > TITLE_WORDS else "")
 
 

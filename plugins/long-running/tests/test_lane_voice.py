@@ -133,6 +133,9 @@ def test_a_post_naming_an_ask_the_lane_never_heard_is_refused_before_it_goes_out
     [
         ("Fix: litestream-next takes no snapshot of a forked child at its base TXID, now on ssql-litestream", "litestream-next takes no snapshot of a forked child…"),
         ("feat(cc-slack): SandDB reads its own bucket", "SandDB reads its own bucket"),
+        ("✨ New: migration gates as four simple rules", "migration gates as four simple rules"),
+        ("⚡️ run_tallies reads each step's kept page row", "run_tallies reads each step's kept page row"),
+        (":fire: delete today's run page", "delete today's run page"),
         ("New: a sync ends each LTX file", "a sync ends each LTX file"),
     ],
 )
