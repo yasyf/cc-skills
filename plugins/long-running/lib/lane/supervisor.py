@@ -4,7 +4,9 @@ import json
 import os
 import plistlib
 import runpy
+import shutil
 import subprocess
+import tempfile
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -25,6 +27,10 @@ UNPRODUCED = "nothing is producing what it waits on"
 READERS = 6
 BOOTOUT_SECONDS = 30
 BOOTSTRAP_TRIES = 10
+PREFLIGHT = "preflight"
+PREFLIGHT_SECONDS = 300
+REPLAY = timedelta(hours=1)
+PREFLIGHTS: dict[str, tuple[subprocess.Popen, float]] = {}
 
 
 def heartbeat(drive: str, moment: datetime, errors: list[str]) -> None:
@@ -406,9 +412,90 @@ def check(drive: str) -> tuple[bool, list[str]]:
     return good, lines
 
 
+def preflighted(drive: str, install: Path) -> bool:
+    """Whether the install rendered every card and post it would send now through the voice in dry run with none refused or held. The first time a pass sees the install, its preflight starts beside the supervisor, which keeps passing on its own code; a later pass reads the verdict. The supervisor and every owner's `lane` move to an install only once it passed, so a refusal keeps the drive on the code it runs."""
+    folder = store.drive_dir(drive) / PREFLIGHT
+    folder.mkdir(exist_ok=True)
+    passed, refused, output = folder / f"{install.name}.passed", folder / f"{install.name}.refused", folder / f"{install.name}.out"
+    if passed.exists() or refused.exists():
+        return passed.exists()
+    running = PREFLIGHTS.get(install.name)
+    if running is None:
+        with output.open("w") as out:
+            PREFLIGHTS[install.name] = (subprocess.Popen([str(install / "bin" / "lane"), "--drive", drive, "preflight"], stdout=out, stderr=subprocess.STDOUT), time.monotonic())
+        return False
+    process, started = running
+    if process.poll() is None and time.monotonic() - started < PREFLIGHT_SECONDS:
+        return False
+    if process.poll() is None:
+        process.kill()
+        process.wait()
+    verdict = passed if process.returncode == 0 else refused
+    verdict.write_text(output.read_text() if process.returncode >= 0 else f"preflight ran past {PREFLIGHT_SECONDS}s\n" + output.read_text())
+    del PREFLIGHTS[install.name]
+    if verdict is refused:
+        with (store.drive_dir(drive) / ALERTS).open("a") as out:
+            out.write(json.dumps({"at": store.stamp(), "step": f"install {install.name} refused by its preflight", "error": refused.read_text().strip()[-2000:]}) + "\n")
+    return verdict is passed
+
+
+def preflight(drive: str) -> tuple[bool, list[str]]:
+    """Render, on a copy of the drive's lanes, each settle edit and ruling of the posts it follows and the last hour of owner posts, through the voice in dry run: good only when the voice took every one, with each refusal or hold named."""
+    source = store.drive_dir(drive)
+    kept = {key: os.environ.get(key) for key in ("LONG_RUNNING_STATE", voice.DRY_RUN)}
+    with tempfile.TemporaryDirectory(prefix="lane-preflight-") as scratch:
+        shutil.copytree(source, Path(scratch) / "lanes" / drive, symlinks=True, ignore=shutil.ignore_patterns("*.log", "*.jsonl", PREFLIGHT))
+        os.environ["LONG_RUNNING_STATE"], os.environ[voice.DRY_RUN] = scratch, "1"
+        try:
+            failed = rendered(drive)
+        finally:
+            for key, value in kept.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+    bad = [*failed, *(f"{each['lane']} {each['kind']}: {each.get('verdict')}: {each.get('reason') or each.get('warning') or ''} | {each['text'][:200]}" for each in voice.RENDERED if each.get("verdict") != "ok")]
+    return not bad, [f"preflight: {len(voice.RENDERED)} rendered, {len(bad)} refused or held", *bad]
+
+
+def rendered(drive: str) -> list[str]:
+    posts = voice.followed(drive, store.now())
+    if posts:
+        voice.settle(drive, posts, facts.read_prs(voice.subject_keys(posts), commits=1))
+    return replayed(drive, store.load_all(drive))
+
+
+def replayed(drive: str, lanes: dict[str, dict]) -> list[str]:
+    """Each owner post the voice sent in the last REPLAY window, sent again in dry run as its owner wrote it: what the new code refuses or holds that went out, and what Jev scores worse than when it went out."""
+    since = store.now() - REPLAY
+    worse = []
+    for sent in voice.sent_since(since):
+        if sent["lane"] not in lanes:
+            continue
+        lane = lanes[sent["lane"]]
+        try:
+            voice.send(drive, lane, sent["before"], None, sent.get("options") or None)
+        except store.Refused as refused:
+            worse.append(f"{sent['lane']} post {sent['permalink']}: went out, now refused: {refused}")
+            continue
+        now = voice.RENDERED[-1]
+        if now.get("verdict") == "ok" and "score" in sent and now.get("score", sent["score"]) < sent["score"]:
+            worse.append(f"{sent['lane']} post {sent['permalink']}: Jev scores it {now['score']}, worse than {sent['score']} when it went out")
+    return worse
+
+
 def settled(drive: str, seconds: int) -> tuple[bool, list[str]]:
-    """Read the supervisor for seconds after an install: crash-looping when its log gains two tracebacks or no pass finishes, otherwise `lane check` and the last pass's errors at the end."""
+    """Wait for the supervisor's preflight of this install, failing on its refusal, then read the supervisor for seconds: crash-looping when its log gains two tracebacks or no pass finishes, otherwise `lane check` and the last pass's errors at the end."""
     folder = store.drive_dir(drive)
+    install = Path(__file__).resolve().parents[2]
+    verdict = folder / PREFLIGHT / f"{install.name}.passed", folder / PREFLIGHT / f"{install.name}.refused"
+    deadline = time.monotonic() + PREFLIGHT_SECONDS + 3 * store.config(drive)["pass_seconds"]
+    while time.monotonic() < deadline and not any(path.exists() for path in verdict):
+        time.sleep(2)
+    if verdict[1].exists():
+        return False, [f"supervisor stays on its code: {install.name}'s preflight refused it", *verdict[1].read_text().splitlines()]
+    if not verdict[0].exists():
+        return False, [f"supervisor ran no preflight of {install.name} in {PREFLIGHT_SECONDS}s"]
     log, checks = folder / "supervisor.log", folder / "checks.jsonl"
     logged, passes = log.stat().st_size, checks.stat().st_size
     time.sleep(seconds)
@@ -460,7 +547,7 @@ def supervise(drive: str) -> None:
             print(f"his dashboard was not reloaded: {failed}", flush=True)
     while code_stamp() == loaded:
         run_pass(drive, read_outside=False)
-        if (newest := newest_install()) != here:
+        if (newest := newest_install()) != here and preflighted(drive, newest):
             link = store.drive_dir(drive) / "lane"
             fresh = link.with_name(f".lane.{os.getpid()}")
             fresh.unlink(missing_ok=True)

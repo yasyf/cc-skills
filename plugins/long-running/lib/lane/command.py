@@ -303,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     verbs_parser.add_parser("pass")
     verbs_parser.add_parser("supervise")
     verbs_parser.add_parser("install", help="keep the drive's supervisor running under launchd")
+    verbs_parser.add_parser("preflight", help="render every card and post the installed code would send now, on a copy of the lanes, through the voice in dry run; fail on any refusal or hold")
     verbs_parser.add_parser("settle", help="after an install, read the supervisor for two minutes and fail when it crash-loops").add_argument("--seconds", type=int, default=120)
     paging = verbs_parser.add_parser("page", help="serve his page of the lanes, or with --install keep it served under launchd")
     paging.add_argument("--port", type=int, required=True)
@@ -465,6 +466,10 @@ def run(args: argparse.Namespace) -> int:
                 page.serve(args.drive, args.port)
         case "install":
             print(supervisor.install(args.drive))
+        case "preflight":
+            good, lines = supervisor.preflight(args.drive)
+            print("\n".join(lines))
+            return 0 if good else 1
         case "settle":
             good, lines = supervisor.settled(args.drive, args.seconds)
             print("\n".join(lines))

@@ -65,6 +65,7 @@ FLOOR = re.compile(r">=(\d+\.\d+\.\d+)")
 HOOKS = "captain-hook"
 LONG_RUNNING = "long-running"
 SETTLE_SECONDS = 120
+PREFLIGHT_SECONDS = 300
 HELPER = "capt-hook"
 HELPER_REPO = "yasyf/captain-hook"
 APP_PLIST = Path.home() / "Applications" / "Captain Hook.app" / "Contents" / "Info.plist"
@@ -721,7 +722,7 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
         if binary := HOMEBREW.get(plugin):
             await_homebrew(clone, binary, sha, deadline, timeout)
     if plugin == LONG_RUNNING and drive and (lanes := lane_store.drive_dir(drive)).is_dir():
-        settle = ran([str(Path(entry["installPath"]) / "bin" / "lane"), "--drive", drive, "settle"], clock() + SETTLE_SECONDS + 60)
+        settle = ran([str(Path(entry["installPath"]) / "bin" / "lane"), "--drive", drive, "settle"], clock() + SETTLE_SECONDS + PREFLIGHT_SECONDS + 120)
         print(settle.stdout.strip())
         if settle.returncode:
             raise InstallError(f"{entry['version']} installed, but the lane supervisor in {lanes} is not settled: {settle.stdout.strip() or settle.stderr.strip()}")

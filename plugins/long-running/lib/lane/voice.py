@@ -18,6 +18,9 @@ from lane.words import pr_words
 LANE_ENV = "LONG_RUNNING_LANE"
 TOKEN_ENV = "LANE_TOKEN"
 VOICE_URL = "http://127.0.0.1:7378/voice"
+DRY_RUN = "LANE_VOICE_DRY_RUN"
+VOICE_LOG = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-slack" / "voice.jsonl"
+RENDERED: list[dict] = []
 ENQUEUE_SECONDS = 2
 ROLE_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "voice.md"
 PR_REF = re.compile(r"\{pr:(?:([\w.-]+/[\w.-]+)#)?#?(\d+)(?:\|([^{}]*))?\}")
@@ -91,6 +94,7 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         **({"edit_ts": edit} if edit else {}),
         **({"rulings": rulings_of(drive, lane)} if options else {}),
         **({"files": [str(Path(picture).expanduser().resolve()) for picture in pictures]} if pictures else {}),
+        **({"dry_run": True} if os.environ.get(DRY_RUN) else {}),
     }
     request = urllib.request.Request(VOICE_URL, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())})
     try:
@@ -100,6 +104,9 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         if refused.code == 422:
             raise store.Refused(refused.read().decode().strip()) from refused
         raise
+    if os.environ.get(DRY_RUN):
+        RENDERED.append({"lane": lane["id"], "kind": "post", "text": drawn, **queued})
+        return f"RENDERED {queued.get('verdict')}"
     carded(drive, lane["id"], queued["id"], queued.get("attached") or [], seen)
     return f"QUEUED {queued['id']}" + (f"; {queued['warning']}" if queued.get("warning") else "")
 
@@ -267,6 +274,18 @@ def unsent(drive: str, lanes: dict[str, dict], rows: list[dict]) -> None:
     path.write_text(json.dumps(done))
 
 
+def sent_since(since: datetime) -> list[dict]:
+    """The lane posts the voice posted since then, from its log: each a lane's own words that went out, never a dry run, an edit, a settle line or one it dropped."""
+    if not VOICE_LOG.is_file():
+        return []
+    kept = []
+    for line in VOICE_LOG.read_text().splitlines():
+        sent = json.loads(line)
+        if sent.get("lane") and sent.get("permalink") and sent.get("before") and not (sent.get("dry_run") or sent.get("edited") or sent.get("dropped") or sent.get("error")) and datetime.fromisoformat(sent["at"]) >= since:
+            kept.append(sent)
+    return kept
+
+
 def subject_keys(posts: list[dict]) -> set[tuple[str, int]]:
     """Every PR a followed post names, read in the supervisor's one batched GitHub request with the lanes' own."""
     return {(pr["repo"], pr["number"]) for post in posts for pr in post["prs"]}
@@ -284,17 +303,23 @@ def settle(drive: str, posts: list[dict], prs: dict[tuple[str, int], dict]) -> l
         lines, stale = changes(post, lane, prs, releases)
         kept = done.setdefault(post["ts"], {})
         if post.get("question") and not post.get("answer") and "ruled" not in kept:
-            body = json.dumps({"channel_id": post["channel_id"], "ts": post["ts"], "thread_ts": post.get("thread_ts") or "", "question": post.get("after") or "", "options": post.get("options") or [], "rulings": rulings_of(drive, lane)}).encode()
+            body = json.dumps({"channel_id": post["channel_id"], "ts": post["ts"], "thread_ts": post.get("thread_ts") or "", "question": post.get("after") or "", "options": post.get("options") or [], "rulings": rulings_of(drive, lane), **({"dry_run": True} if os.environ.get(DRY_RUN) else {})}).encode()
             with urllib.request.urlopen(urllib.request.Request(RULED_URL, body, {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())}), timeout=ENQUEUE_SECONDS * 10) as answer:
-                kept["ruled"] = json.load(answer).get("line") or "none"
+                ruled = json.load(answer)
+                kept["ruled"] = ruled.get("line") or "none"
+            if os.environ.get(DRY_RUN):
+                RENDERED.append({"lane": post["lane"], "kind": "ruled", "text": kept["ruled"], **ruled})
             if kept["ruled"] != "none":
                 changed.append(post["permalink"])
                 continue
         if lines and (line := " · ".join(lines)) != kept.get("line"):
-            body = json.dumps({"channel_id": post["channel_id"], "ts": post["ts"], "thread_ts": post.get("thread_ts") or "", "line": line, "only_if_buttons": line == RETIRED}).encode()
+            body = json.dumps({"channel_id": post["channel_id"], "ts": post["ts"], "thread_ts": post.get("thread_ts") or "", "line": line, "only_if_buttons": line == RETIRED, **({"dry_run": True} if os.environ.get(DRY_RUN) else {})}).encode()
             with urllib.request.urlopen(urllib.request.Request(SETTLE_URL, body, {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())}), timeout=ENQUEUE_SECONDS * 5) as answer:
-                if permalink := json.load(answer).get("permalink"):
+                settled = json.load(answer)
+                if permalink := settled.get("permalink"):
                     changed.append(permalink)
+            if os.environ.get(DRY_RUN):
+                RENDERED.append({"lane": post["lane"], "kind": "settle", "text": line, **settled})
             kept["line"] = line
         if stale and (why := "; ".join(stale)) != kept.get("stale"):
             told = f"Your post {post['permalink']} is stale because {why}. If what it says no longer holds, edit it: `lane say --edit {post['ts']} \"<the post as it should read now>\"`."
