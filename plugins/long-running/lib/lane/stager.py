@@ -224,3 +224,26 @@ def start(drive: str) -> str | None:
             written(lanes_dir(drive) / WANTS / f"{lane}.json", ask)
         raise store.Refused(f"stager start: claude --bg exited {done.returncode}: {(done.stderr or done.stdout).strip()[:300]}")
     return done.stdout.strip()
+
+
+def missing(drive: str, target: str) -> str | None:
+    """Why a staging target, `<env>` or `<env> <SandSQL generation>`, does not exist on the repository's default branch: its env has no infra/envs/<env>.yaml, or that file names no such generation; None when it exists."""
+    from drive import providers
+
+    env, _, generation = target.partition(" ")
+    checkout = Path(store.config(drive)["checkout"])
+    if not (spec := providers.blob(checkout, providers.at(checkout).sha, f"infra/envs/{env}.yaml")):
+        return f"{env} has no infra/envs/{env}.yaml on the default branch"
+    if generation and generation not in spec:
+        return f"infra/envs/{env}.yaml on the default branch names no {generation}"
+    return None
+
+
+def targets(drive: str, named: list[str]) -> list[str]:
+    """Write the drive's staging_targets, refusing the whole set when any target does not exist, as sandsql-nodes-4, read from his words about "the 3rd and 4th clusters", exists nowhere."""
+    if refused := [f"{target}: {why}" for target in named if (why := missing(drive, target))]:
+        raise store.Refused(f"no such staging target: {'; '.join(refused)}")
+    path = store.drive_dir(drive) / "config.json"
+    kept = json.loads(path.read_text()) if path.is_file() else {}
+    written(path, kept | {"staging_targets": named})
+    return named

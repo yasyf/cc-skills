@@ -125,3 +125,19 @@ def test_a_staging_ask_from_a_lane_with_no_premerge_pr_returns_after_merge_and_c
     assert stager.want("durable-agents", "run-page-v3") == stager.AFTER_MERGE
     assert not (tmp_path / stager.WANTS / "run-page-v3.json").exists()
     assert stager.want("durable-agents", "sandsql-ha-release-3").startswith("sandsql-ha-release-3-")
+
+
+def test_writing_a_staging_target_that_exists_nowhere_is_refused_and_one_that_exists_is_kept(monkeypatch, tmp_path) -> None:
+    import pytest
+
+    from drive import providers
+    from lane import stager, store
+
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path)})
+    monkeypatch.setattr(providers, "at", lambda checkout: type("Found", (), {"sha": "dev"})())
+    monkeypatch.setattr(providers, "blob", lambda checkout, sha, path: "sandsql:\n  primaryGeneration: sandsql-nodes-3\n" if path == "infra/envs/plat-usw2-staging.yaml" else None)
+    with pytest.raises(store.Refused, match="names no sandsql-nodes-4"):
+        stager.targets("durable-agents", ["plat-usw2-staging sandsql-nodes-4"])
+    assert stager.targets("durable-agents", ["plat-usw2-staging sandsql-nodes-3"]) == ["plat-usw2-staging sandsql-nodes-3"]
+    assert stager.missing("durable-agents", "plat-usw2-staging-2") == "plat-usw2-staging-2 has no infra/envs/plat-usw2-staging-2.yaml on the default branch"

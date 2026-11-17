@@ -232,6 +232,10 @@ def decide(args: argparse.Namespace) -> None:
     print(stager.decide(args.drive, args.cut, json.loads(Path(args.file).read_text() if args.file != "-" else input())))
 
 
+def targets(args: argparse.Namespace) -> None:
+    print(json.dumps(stager.targets(args.drive, args.target)))
+
+
 def block(args: argparse.Namespace) -> None:
     print(stager.block(args.drive, args.lane, args.why))
 
@@ -263,6 +267,9 @@ def main() -> int:
     verb.add_argument("--cut", required=True)
     verb.add_argument("file")
     verb.set_defaults(run=decide)
+    verb = verbs.add_parser("targets", help="set the drive's staging targets, each '<env>' or '<env> <SandSQL generation>', refused when one does not exist on the default branch")
+    verb.add_argument("target", nargs="+")
+    verb.set_defaults(run=targets)
     verb = verbs.add_parser("block", help="end a lane's staging ask the stager will not run, with its why in full, which wakes the lane")
     verb.add_argument("--lane", required=True)
     verb.add_argument("--why", required=True)
