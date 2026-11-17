@@ -816,3 +816,20 @@ def test_an_owner_started_before_the_asks_hook_gets_his_word_in_its_note(world: 
     answered("b")
     verbs.message(DRIVE, "b", "and this one", None, "1794872633.408300")
     assert not store.note_path(DRIVE, "b").exists()
+
+
+def test_an_owner_whose_session_and_builders_wrote_nothing_for_half_an_hour_is_stalled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import os
+
+    main = tmp_path / "project" / "s1.jsonl"
+    (main.with_suffix("") / "subagents").mkdir(parents=True)
+    main.write_text("{}\n")
+    builder = main.with_suffix("") / "subagents" / "agent-b.jsonl"
+    builder.write_text("{}\n")
+    old = store.now().timestamp() - 3600
+    os.utime(main, (old, old))
+    os.utime(builder, (old, old))
+    monkeypatch.setattr(owners, "transcript", lambda session: main)
+    assert store.now() - owners.active_at({"session": "s1"}) > owners.STALLED_AFTER
+    builder.write_text("{}\n{}\n")
+    assert store.now() - owners.active_at({"session": "s1"}) < owners.STALLED_AFTER

@@ -13,6 +13,8 @@ from lane import store
 BRIEF = Path(__file__).with_name("owner.md")
 SHADOW = Path(__file__).with_name("shadow.md")
 ENDED = ("stopped", "done", "failed")
+TOOL_SECONDS = 600
+STALLED_AFTER = timedelta(minutes=30)
 OLD_DRIVE_DENY = ["Bash(drive:*)", "Bash(drive *)", "mcp__plugin_long-running_drive"]
 OLD_DRIVE_CALL = r"(^|[\s;&|(/])drive\s"
 SHADOW_DENY = [
@@ -89,7 +91,18 @@ def lease(owner: dict, moment: datetime, grace_seconds: int) -> str:
     if kept.get("status") != "idle":
         return "held"
     flight = job.get("inFlight") or {}
-    return "held" if flight.get("tasks") or flight.get("queued") else "lapsed"
+    if not (flight.get("tasks") or flight.get("queued")):
+        return "lapsed"
+    return "held" if (last := active_at(owner)) and moment - last < STALLED_AFTER else "lapsed"
+
+
+def active_at(owner: dict) -> datetime | None:
+    """When the owner's session last moved: the newest write to its transcript, its builders' transcripts or its background tasks' output, so an idle owner whose builders or tasks have written nothing for STALLED_AFTER holds a hung call, not work, and its lease lapses."""
+    if not (found := transcript(owner["session"])):
+        return None
+    tasks = Path("/tmp") / f"claude-{os.getuid()}" / found.parent.name / owner["session"] / "tasks"
+    paths = [found, *found.with_suffix("").glob("subagents/*.jsonl"), *(tasks.glob("*") if tasks.is_dir() else [])]
+    return datetime.fromtimestamp(max(path.stat().st_mtime for path in paths), UTC)
 
 
 def in_flight(owner: dict) -> int:
@@ -136,7 +149,7 @@ def brief(drive: str, lane: dict, woke: str) -> str:
 
 def settings(drive: str, lane_id: str, token: str) -> dict:
     token_file = store.token_path(drive, lane_id)
-    env = {"LANE_OWNER": f"{drive}/{lane_id}", "LONG_RUNNING_LANE": f"{drive}/{lane_id}", "LANE_TOKEN": token, "LANE_TOKEN_FILE": str(token_file), "LANE_NOTE_FILE": str(store.note_path(drive, lane_id)), "LANE_ASKS_FILE": str(store.asks_path(drive, lane_id))}
+    env = {"LANE_OWNER": f"{drive}/{lane_id}", "LONG_RUNNING_LANE": f"{drive}/{lane_id}", "LANE_TOKEN": token, "LANE_TOKEN_FILE": str(token_file), "LANE_NOTE_FILE": str(store.note_path(drive, lane_id)), "LANE_ASKS_FILE": str(store.asks_path(drive, lane_id)), "BASH_MAX_TIMEOUT_MS": str(TOOL_SECONDS * 1000), "MCP_TOOL_TIMEOUT": str(TOOL_SECONDS * 1000)}
     if explicit := os.environ.get("LONG_RUNNING_STATE"):
         env["LONG_RUNNING_STATE"] = explicit
     fence = '[ -z "$LANE_TOKEN_FILE" ] || { read -r held < "$LANE_TOKEN_FILE" 2>/dev/null; [ "$held" = "$LANE_TOKEN" ] || { echo "This lane has a new owner or none; you are fenced off. End your turn now." >&2; exit 2; }; }'
