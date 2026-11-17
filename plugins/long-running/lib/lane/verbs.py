@@ -230,13 +230,16 @@ def ruling(drive: str, lane_id: str | None, words: str | None, link: str | None,
 
 
 def rejudge(drive: str, row: dict) -> None:
-    """Have a model read his shared ruling against each waiting lane's wait and wake only the lanes whose wait it could end, detached so the ruling verb returns at once; every other lane keeps waiting and reads the ruling in its next brief."""
+    """Have a model read his shared ruling against each waiting lane's wait and each queued staging test before merge, waking only the lanes whose wait it could end and closing each staging test it no longer requires, detached so the ruling verb returns at once; every other lane keeps waiting and reads the ruling in its next brief."""
     import subprocess
 
     from lane import session
 
+    from lane import work
+
     waiting = {lane_id: {"title": lane["title"], "waits_on": lane["wait"]["on"], "why": lane["wait"].get("why"), "next": lane.get("next")} for lane_id, lane in store.load_all(drive).items() if lane["state"] == store.WAITING}
-    if not waiting:
+    staging = [{"id": item["id"], "lane": item["lane"], "subject": item["subject"], "touches": item.get("touches")} for item in work.items(drive) if item["kind"] == "staging-before" and item["state"] == work.QUEUED]
+    if not waiting and not staging:
         return
     lane = store.launcher(drive)
     prompt = (
@@ -244,7 +247,8 @@ def rejudge(drive: str, row: dict) -> None:
         f"Each lane waiting now, with what it waits on and why: {json.dumps(waiting, ensure_ascii=False)}\n\n"
         "For each lane whose wait this ruling could end or change, because the ruling decides what the lane is waiting to learn, removes the reason it waits, or forbids what it waits for, run once: "
         f"`{lane} --drive {drive} wake <lane id> --why \"his ruling: <one line on how it changes this lane's wait>\"`. "
-        "Wake no other lane: a lane the ruling does not touch keeps waiting and reads the ruling in its next brief. Run nothing else, and end with one line naming the lanes you woke."
+        f"Each staging test still queued to run before its PRs merge: {json.dumps(staging, ensure_ascii=False)}. For each one this ruling no longer requires before merge, run once: `{lane} --drive {drive} work done <id> --result \"not needed before merge: his ruling <one line>\"`, which wakes its lane. "
+        "Wake no other lane and close no other item: a lane the ruling does not touch keeps waiting and reads the ruling in its next brief. Run nothing else, and end with one line naming the lanes you woke and the items you closed."
     )
     folder = store.drive_dir(drive) / "rejudged"
     folder.mkdir(exist_ok=True)
