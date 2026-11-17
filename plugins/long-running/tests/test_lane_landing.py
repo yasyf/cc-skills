@@ -115,7 +115,7 @@ def test_a_staging_ask_queues_a_staging_before_item_for_a_sandsql_stack_and_afte
     monkeypatch.setattr(store, "config", lambda drive: {"premerge_lanes": [], "staging_targets": ["staging nodes-3"], "staging_alerts": "#alerts-staging", "promotion_env": None})
     monkeypatch.setattr(rows, "view", lambda drive, lane_ids=None: {landing.key(pr): {"head": "h", "checks": "pass", "under": None} for pr in (journal, sandsql)})
     monkeypatch.setattr(rows, "rule_key", lambda drive: "r")
-    monkeypatch.setattr(work, "add", lambda drive, kind, lane_id, subject, words, head=None, touches=None, by="owner": added.append((kind, lane_id, subject, head, touches, words)) or {"id": work.item_id(kind, subject)})
+    monkeypatch.setattr(work, "add", lambda drive, kind, lane_id, subject, words, serves=None, head=None, touches=None, by="owner": added.append((kind, lane_id, subject, head, touches, words)) or {"id": work.item_id(kind, subject)})
     monkeypatch.setattr(work, "load", lambda drive, found: {"kind": "staging-before"})
     assert stager.want("durable-agents", "run-page-v3") == stager.AFTER_MERGE
     assert stager.want("durable-agents", "sandsql-ha-release-3") == f"work:{work.item_id('staging-before', 'Forge-AI/monorepo#56597')}"
@@ -136,7 +136,7 @@ def test_each_pass_queues_one_staging_after_item_per_merged_pr_and_moves_an_old_
     monkeypatch.setattr(stager, "live", lambda drive: True)
     monkeypatch.setattr(store, "config", lambda drive: {"staging_targets": ["staging"], "staging_alerts": "#alerts-staging"})
     monkeypatch.setattr(stager, "promoted", lambda drive: {"commit": "b255b6b8f93d", "at": "2026-11-16T23:58:15Z", "build": "release build 18734"})
-    monkeypatch.setattr(work, "add", lambda drive, kind, lane_id, subject, words, head=None, touches=None, by="owner": added.append((kind, subject)) or {"id": work.item_id(kind, subject)})
+    monkeypatch.setattr(work, "add", lambda drive, kind, lane_id, subject, words, serves=None, head=None, touches=None, by="owner": added.append((kind, subject)) or {"id": work.item_id(kind, subject)})
     stager.written(tmp_path / stager.WANTS / "run-page.json", {"lane": "run-page", "cut": "v3-1", "at": "2026-11-17T01:25:03Z"})
     stager.queue("durable-agents", [lane(merged, untested, promoted)])
     assert added == [("staging-after", "Forge-AI/monorepo#56967")]
