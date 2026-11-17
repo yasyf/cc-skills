@@ -364,7 +364,7 @@ def test_a_met_done_check_naming_staging_is_reopened_by_a_later_untested_merge_a
     served = []
     monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
     monkeypatch.setattr(stager, "live", lambda drive: True)
-    monkeypatch.setattr(stager, "promoted", lambda drive: None)
+    monkeypatch.setattr(stager, "promoted", lambda drive: {"commit": "b255b6b8f93d", "at": "2026-11-17T04:00:00Z", "build": "release build 18826"})
     monkeypatch.setattr(store, "config", lambda drive: {"staging_targets": ["staging"], "staging_alerts": "#alerts-staging"})
     monkeypatch.setattr(store, "update", lambda drive, lane_id, change: None)
     monkeypatch.setattr(work, "add", lambda drive, kind, lane_id, subject, words, serves=None, head=None, touches=None, by="owner": served.append(serves) or {"id": "w"})
@@ -480,3 +480,17 @@ def test_a_live_production_release_marks_each_merged_pr_it_carried_live_and_queu
     assert releases.lived("durable-agents", body) == ["w"]
     assert added == [("e2e", "Forge-AI/monorepo#56967", "m1")] and marks["run-page"]["prs"][0]["live"]["release"] == "18900"
     assert releases.lived("durable-agents", body | {"words": ["runtime-api-next", "--env", "plat-usw2-staging"]}) == []
+
+
+def test_with_no_promotion_known_no_merge_is_queued_for_the_after_merge_batch(monkeypatch, tmp_path) -> None:
+    from lane import stager, work
+
+    added = []
+    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(stager, "live", lambda drive: True)
+    monkeypatch.setattr(stager, "promoted", lambda drive: None)
+    monkeypatch.setattr(store, "config", lambda drive: {"staging_targets": ["staging"], "staging_alerts": "#alerts-staging"})
+    monkeypatch.setattr(work, "add", lambda *args, **kwargs: added.append(args))
+    stager.queue("durable-agents", [lane(row(56967, merged=True, merged_at="2026-11-17T00:30:00Z"))])
+    stager.queue("durable-agents", [lane(row(56967, merged=True, merged_at="2026-11-17T00:30:00Z"))])
+    assert added == [] and (tmp_path / stager.NO_PROMOTION).exists()

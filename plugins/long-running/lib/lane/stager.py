@@ -14,6 +14,7 @@ WANTS = "staging-wants"
 AFTER_MERGE = "after_merge: no PR of this lane needs a staging test before merge, so its stacks merge on his Approve and are tested after; wait on nothing for staging"
 PAGE = Path(__file__).resolve().parents[2] / "agents" / "stager.md"
 CUTS = "cuts"
+NO_PROMOTION = "no-promotion"
 DECISIONS = "decisions"
 RANK = "rank.json"
 REACH_READS = 12
@@ -187,6 +188,12 @@ def queue(drive: str, lanes: list[dict]) -> list[str]:
         return []
     targets = store.config(drive)["staging_targets"]
     since = promoted(drive)
+    unknown = lanes_dir(drive) / NO_PROMOTION
+    if not since and not unknown.exists():
+        unknown.touch()
+        print("no green promotion of the drive config's promotion_env is known, so no staging-after item is queued until one is")
+    elif since:
+        unknown.unlink(missing_ok=True)
     added = []
     for lane in lanes:
         for stack in landing.stacks(lane):
@@ -195,7 +202,7 @@ def queue(drive: str, lanes: list[dict]) -> list[str]:
                 keys = [landing.key(row) for row in open_rows]
                 added.append(work.add(drive, "staging-before", lane["id"], keys[0], before_words(drive, keys, open_rows[-1]["head"]), head=open_rows[-1]["head"], touches=targets, by="lane-land")["id"])
         for row in lane["prs"]:
-            if row.get("merged") and not row.get("staging") and row.get("approved_head") and (not since or row["merged_at"] > since["at"]):
+            if row.get("merged") and not row.get("staging") and row.get("approved_head") and since and row["merged_at"] > since["at"]:
                 serves = reopened(drive, lane, row)
                 added.append(work.add(drive, "staging-after", lane["id"], landing.key(row), after_words(drive, landing.key(row), since), serves=serves, head=row["head"], touches=targets, by="lane-land")["id"])
     for lane_id, asked in wants(drive).items():
@@ -224,7 +231,7 @@ def reopened(drive: str, lane: dict, row: dict) -> int | None:
 
 
 def promoted(drive: str) -> dict | None:
-    """The newest green promotion of the drive config's promotion_env, read from the repository's release provider each pass: a PR merged before the commit it promoted rode that promotion's staging run, so only later merges join the after-merge batch; None with no promotion_env, so every untested merge does."""
+    """The newest green promotion of the drive config's promotion_env, read from the repository's release provider each pass: a PR merged before the commit it promoted rode that promotion's staging run, so only later merges join the after-merge batch; None with no promotion_env or none the provider knows, so no merge joins the batch until one is known."""
     from drive import providers
 
     if not (env := store.config(drive)["promotion_env"]):
@@ -237,8 +244,8 @@ def before_words(drive: str, keys: list[str], head: str) -> str:
     return f"Test {', '.join(keys)} on staging before merge, at its top head {head[:12]}, by {PAGE}: read that page first and follow its steps, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}. Take every other staging item pull shows beside this one into the same cut. Read the staging alerts channel {store.config(drive)["staging_alerts"]} through the cut into each stack's result. `lane-land result` finishes each item it writes a stack for."
 
 
-def after_words(drive: str, key: str, since: dict | None) -> str:
-    cutoff = f" It merged after {since['at']}, when {since['commit'][:12]} was the last commit staging's newest green promotion carried, {since['build']}, so no promotion has tested it." if since else ""
+def after_words(drive: str, key: str, since: dict) -> str:
+    cutoff = f" It merged after {since['at']}, when {since['commit'][:12]} was the last commit staging's newest green promotion carried, {since['build']}, so no promotion has tested it."
     return f"Test {key}, merged on his Approve, on staging after merge.{cutoff} Test it in one batch with every other staging-after item pull shows, as one cut of the default branch's head, by {PAGE}: read that page first and follow its steps, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}. Read the staging alerts channel {store.config(drive)["staging_alerts"]} through the cut into each stack's result. `lane-land result` finishes each item it writes a stack for."
 
 
