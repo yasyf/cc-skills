@@ -304,6 +304,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
             alone(drive, errors, "the queue kept no item for what GitHub shows", lambda: work.adds(drive))
         alone(drive, errors, "no item of a gone worker went back to the queue", lambda: work.expire(drive))
         alone(drive, errors, "no worker started for the queue", lambda: work.staff(drive))
+        alone(drive, errors, "no lane heard its work item sat untaken", lambda: work.untaken(drive))
         beside(drive, "no audit started", lambda: audit.start(drive) and None)
         beside(drive, "no alert opened an incident lane", lambda: incidents.intake(drive) and None)
         heartbeat(drive, store.now(), errors + beside_errors(drive))

@@ -1854,3 +1854,18 @@ def test_a_card_is_superseded_only_when_a_newer_card_asks_again_about_every_pr_o
     assert not store.load(DRIVE, "a")["cards"][0].get("superseded")
     approve.asked(DRIVE, "a", store.load(DRIVE, "a"), [{"acme/app#1": "h1"}], {"acme/app#1"})
     assert store.load(DRIVE, "a")["cards"][0]["superseded"]
+
+
+def test_an_outage_item_is_pulled_first_holds_the_kinds_it_names_and_its_waiting_lane_hears_when_it_sits_untaken(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import work
+
+    opened("a")
+    opened("b")
+    work.add(DRIVE, "staging-after", "a", "acme/app#1", "test it on staging", by="supervisor")
+    fix = work.add(DRIVE, "red", "b", "staging promotion runs green", "give the fleets a writer", outage="staging sandsql has no writer: release 18862", holds=["staging-after"])
+    assert work.pull(DRIVE)["top"]["id"] == fix["id"] and work.held_kinds(DRIVE) == {"staging-after"}
+    ended("b", [f"work:{fix['id']}"])
+    later = store.now() + timedelta(minutes=6)
+    monkeypatch.setattr(store, "now", lambda: later)
+    assert work.untaken(DRIVE) == [f"b: {fix['id']} untaken"] and work.untaken(DRIVE) == []
+    assert "no worker is on it yet" in store.load(DRIVE, "b")["wait"]["fired_why"]

@@ -23,6 +23,7 @@ URGENCY = ("red", "ask", "carry", "staging-before", "review", "rebase", "e2e", "
 FIX_KINDS = {"conflict": "rebase", "red": "red", "review": "review"}
 QUEUED, TAKEN, DONE, FAILED = "queued", "taken", "done", "failed"
 QUIET = timedelta(minutes=30)
+UNTAKEN = timedelta(minutes=5)
 WORKERS_DEFAULT = 8
 RETRIES = 1
 RULES = Path(__file__).with_name("work.md")
@@ -75,10 +76,12 @@ def items(drive: str) -> list[dict]:
     return [json.loads(found.read_text()) for found in sorted(folder(drive).glob("w-*.json"))]
 
 
-def add(drive: str, kind: str, lane_id: str, subject: str, words: str, serves: int | None = None, head: str | None = None, touches: list[str] | None = None, runs_on: str = "local", by: str = "owner", again: bool = False) -> dict:
+def add(drive: str, kind: str, lane_id: str, subject: str, words: str, serves: int | None = None, head: str | None = None, touches: list[str] | None = None, runs_on: str = "local", by: str = "owner", again: bool = False, outage: str | None = None, holds: list[str] | None = None) -> dict:
     """Queue one item, or update the one this kind and subject already has: its words and head while it is queued, queued again at a new head once done or failed, or at the same head with again when what failed it is fixed, and never touched while a worker holds it, since that worker's own push moves the head. A worker is started at once when none is free."""
     if kind not in KINDS:
         raise store.Refused(f"a work item's kind is one of {', '.join(KINDS)}, not {kind!r}")
+    if unknown := set(holds or []) - set(KINDS):
+        raise store.Refused(f"--holds names kinds of item, one of {', '.join(KINDS)}, not {', '.join(sorted(unknown))}")
     if kind == "staging-before" and lane_id not in store.config(drive)["premerge_lanes"]:
         raise store.Refused(f"{lane_id} is not one of the drive config's premerge_lanes, so {subject} merges on his Approve and is tested on staging after the merge: queue staging-after once it merges, never staging-before")
     store.load(drive, lane_id)
@@ -91,7 +94,7 @@ def add(drive: str, kind: str, lane_id: str, subject: str, words: str, serves: i
             return kept
         if kept and kept["state"] in (DONE, FAILED) and not again and (head is None or kept.get("head") == head):
             return kept
-        fresh = {"id": found, "kind": kind, "lane": lane_id, "subject": subject, "words": words, "serves": serves, "head": head, "touches": touches or [], "runs_on": runs_on, "state": QUEUED, "added": (kept or {}).get("added") or moment, "queued": moment, "by": by, "rounds": (kept or {}).get("rounds", 0) + (1 if kept else 0), "history": (kept or {}).get("history", [])[-10:]}
+        fresh = {"id": found, "kind": kind, "lane": lane_id, "subject": subject, "words": words, "serves": serves, "head": head, "touches": touches or [], "outage": outage, "holds": holds or [], "runs_on": runs_on, "state": QUEUED, "added": (kept or {}).get("added") or moment, "queued": moment, "by": by, "rounds": (kept or {}).get("rounds", 0) + (1 if kept else 0), "history": (kept or {}).get("history", [])[-10:]}
         if kept and kept["state"] in (DONE, FAILED):
             fresh["history"].append({k: kept.get(k) for k in ("state", "head", "result", "why", "ended", "worker")})
         written(drive, fresh)
@@ -109,6 +112,11 @@ def related(item: dict, other: dict) -> bool:
     return other["lane"] == item["lane"] or bool(set(item.get("touches") or []) & set(other.get("touches") or []))
 
 
+def held_kinds(drive: str) -> set[str]:
+    """The kinds no worker pulls now: each open outage item names the kinds that cannot run while what it fixes is down, such as staging tests while staging has no writer."""
+    return {kind for item in items(drive) if item.get("outage") and item["state"] in (QUEUED, TAKEN) for kind in item.get("holds") or []}
+
+
 def parked_lanes(drive: str) -> set[str]:
     """The lanes he parked, whose items wait in the queue untouched until he unparks them: parked means nothing runs for it."""
     return {lane_id for lane_id, lane in store.load_all(drive).items() if lane["state"] == store.PARKED}
@@ -118,8 +126,8 @@ def pull(drive: str) -> dict | None:
     """The top queued item: an incident lane's first, then by URGENCY of its kind, so a red staging promotion never waits behind rebases and after-merge tests, then by its lane's place in the priority queue and when it was queued, with every other queued item a worker could finish beside it; None when nothing is queued."""
     order = {lane: index for index, lane in enumerate(rank.last(drive).get("order", []))}
     lanes = store.load_all(drive)
-    parked = parked_lanes(drive)
-    queued = sorted((item for item in items(drive) if item["state"] == QUEUED and item["lane"] not in parked), key=lambda item: (not (lanes.get(item["lane"]) or {}).get("incident"), URGENCY.index(item["kind"]), order.get(item["lane"], len(order)), item["queued"]))
+    parked, held = parked_lanes(drive), held_kinds(drive)
+    queued = sorted((item for item in items(drive) if item["state"] == QUEUED and item["lane"] not in parked and item["kind"] not in held), key=lambda item: (not item.get("outage"), not (lanes.get(item["lane"]) or {}).get("incident"), URGENCY.index(item["kind"]), order.get(item["lane"], len(order)), item["queued"]))
     if not queued:
         return None
     top = queued[0]
@@ -256,14 +264,14 @@ def launch(drive: str, cwd: Path) -> dict:
 
 
 def staff(drive: str) -> list[str]:
-    """Start a worker for each queued item no free worker can take, up to the drive's `workers` count; what started."""
+    """Start a worker for each queued item no free worker can take, up to the drive's `workers` count, and past it for an outage item, so a fix for something down never waits for a slot; what started."""
     if not store.live(drive):
         return []
-    parked = parked_lanes(drive)
-    queued = [item for item in items(drive) if item["state"] == QUEUED and item["lane"] not in parked]
+    parked, held = parked_lanes(drive), held_kinds(drive)
+    queued = sorted((item for item in items(drive) if item["state"] == QUEUED and item["lane"] not in parked and item["kind"] not in held), key=lambda item: not item.get("outage"))
     running = [worker for worker in workers(drive) if alive(worker)]
-    idle = len(running) - len({item.get("worker") for item in items(drive) if item["state"] == TAKEN})
-    room = min(len(queued) - max(idle, 0), store.config(drive).get("workers", WORKERS_DEFAULT) - len(running))
+    idle = max(len(running) - len({item.get("worker") for item in items(drive) if item["state"] == TAKEN}), 0)
+    room = max(min(len(queued) - idle, store.config(drive).get("workers", WORKERS_DEFAULT) - len(running)), sum(1 for item in queued if item.get("outage")) - idle)
     started = []
     for item in queued[: max(room, 0)]:
         row = launch(drive, owners.cwd(drive, store.load(drive, item["lane"])))
@@ -309,3 +317,26 @@ def listed(drive: str) -> list[dict]:
     """Every item not finished more than a day ago, for his page and `lane work list`."""
     cut = store.now() - timedelta(days=1)
     return [{k: item.get(k) for k in ("id", "kind", "lane", "subject", "state", "worker", "queued", "taken", "ended", "result", "why", "serves")} for item in items(drive) if item["state"] in (QUEUED, TAKEN) or store.parse(item.get("ended") or item["queued"]) > cut]
+
+
+def untaken(drive: str) -> list[str]:
+    """Each item a lane waits on that has sat queued with no worker for UNTAKEN, told to its lane once per queueing, so its owner never tells him a worker is on it while none is; what it told."""
+    from lane import verbs
+
+    moment, told = store.now(), []
+    for lane_id, lane in store.load_all(drive).items():
+        for event in (lane.get("wait") or {}).get("on", []):
+            if event["kind"] != "work" or not (item := load(drive, event["ref"])) or item["state"] != QUEUED or item.get("untaken_told") == item["queued"]:
+                continue
+            if (waited := moment - store.parse(item["queued"])) < UNTAKEN:
+                continue
+            ahead = sum(1 for other in items(drive) if other["state"] == QUEUED and other["queued"] < item["queued"])
+            words = f"work item {item['id']} has sat {int(waited.total_seconds() // 60)} minutes with no worker, {ahead} queued items ahead of it: no worker is on it yet, so never tell him one is. If it fixes something down, queue it again as an outage, `lane work add {item['kind']} \"{item['subject']}\" \"<words>\" --outage \"<what is down, with its evidence>\" --holds <kinds that cannot run meanwhile>`, which a worker takes next, past the slot cap."
+            if lane["state"] == store.RUNNING:
+                with store.note_path(drive, lane_id).open("a") as note:
+                    note.write(words + "\n\n")
+            else:
+                store.update(drive, lane_id, lambda kept: verbs.woken(kept, words))
+            written(drive, item | {"untaken_told": item["queued"]})
+            told.append(f"{lane_id}: {item['id']} untaken")
+    return told
