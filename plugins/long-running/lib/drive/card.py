@@ -911,7 +911,7 @@ def lane_cards(held: dict[str, tuple[str, str, dict]], redraw: bool = False) -> 
             if not approve.named(name := approve.stack_name(lane, dict.fromkeys(members))):
                 skipped += [skip(key, LANE_UNNAMED) for key in stack if key in keys]
                 continue
-            card = drawn_card([(reads[key], lane_entry(key, rows[key], reads[key], tappable), (), ()) for key in members], False) | {"title": name}
+            card = titled(drawn_card([(reads[key], lane_entry(key, rows[key], reads[key], tappable), (), ()) for key in members], False) | {"title": name}, reads[members[0]]["title"])
             repo, number = members[0].split("#")
             found.append({"repo": repo, "number": int(number), "card": card})
     return {"cards": found, "skipped": skipped}
