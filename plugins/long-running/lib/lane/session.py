@@ -9,6 +9,7 @@ ADVISED = ("owner", "builder", "stager")
 ADVISOR = "opus"
 CEILING = ("xhigh", "max")
 CEILED = "high"
+BUDGETS = {"auditor": "2", "acker": "0.25"}
 
 
 def model(config: dict, role: str) -> tuple[str, str | None]:
@@ -37,11 +38,12 @@ def settings(role: str, checkout: Path, own: dict) -> dict:
 
 
 def flags(config: dict, role: str) -> list[str]:
-    """The flags that go before any other, as the lane rules' file flag must: the lane rules, strict MCP with the Datadog servers, the model, the effort and the advisor."""
+    """The flags that go before any other, as the lane rules' file flag must: the lane rules, strict MCP with the Datadog servers, the model, the effort, the advisor, and for a headless role, the auditor that also rejudges rulings and the acker, a dollar cap per session, as the old watchdog had, from the drive config's `budgets` over BUDGETS."""
     from drive import agents
 
     picked, effort = model(config, role)
-    return [*agents.LANE_RULES_ARGS, *agents.STRICT_MCP, "--mcp-config", json.dumps(agents.datadog_servers()), "--model", picked, *(["--effort", effort] if effort else []), *([agents.ADVISOR_FLAG, ADVISOR] if role in ADVISED else [])]
+    budget = (config.get("budgets") or {}).get(role) or BUDGETS.get(role)
+    return [*agents.LANE_RULES_ARGS, *agents.STRICT_MCP, "--mcp-config", json.dumps(agents.datadog_servers()), "--model", picked, *(["--effort", effort] if effort else []), *([agents.ADVISOR_FLAG, ADVISOR] if role in ADVISED else []), *(["--max-budget-usd", str(budget)] if budget else [])]
 
 
 def argv(config: dict, role: str, checkout: Path, own: dict, head: list[str], tail: list[str]) -> list[str]:

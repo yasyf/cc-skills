@@ -102,6 +102,8 @@ def draw(drive: str) -> list[str]:
     seen = page.view(drive)["prs"]
     refused, asking = [], []
     for lane_id, lane in store.load_all(drive).items():
+        if lane["state"] == store.PARKED:
+            continue
         if (lane.get("channel") or "").startswith(say.DIRECT):
             refused.append(f"{lane_id}: no Approve card, since its home is his DM; move it with `lane home`")
             continue

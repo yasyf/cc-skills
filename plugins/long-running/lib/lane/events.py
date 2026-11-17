@@ -43,7 +43,7 @@ def landing(drive: str, keys: list[str]) -> list[str]:
     from lane import cli as lane_land
 
     lanes = store.load_all(drive)
-    return [f"{key}: {lane_land.land_stack(drive, lane_id, key)}" for key in keys for lane_id, lane in lanes.items() if any(f"{row['repo']}#{row['number']}" == key for row in lane["prs"])]
+    return [f"{key}: {lane_land.land_stack(drive, lane_id, key)}" for key in keys for lane_id, lane in lanes.items() if lane["state"] != store.PARKED and any(f"{row['repo']}#{row['number']}" == key for row in lane["prs"])]
 
 
 def tapped(drive: str, keys: list[str]) -> str:

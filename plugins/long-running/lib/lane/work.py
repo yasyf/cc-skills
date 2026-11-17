@@ -105,10 +105,16 @@ def related(item: dict, other: dict) -> bool:
     return other["lane"] == item["lane"] or bool(set(item.get("touches") or []) & set(other.get("touches") or []))
 
 
+def parked_lanes(drive: str) -> set[str]:
+    """The lanes he parked, whose items wait in the queue untouched until he unparks them: parked means nothing runs for it."""
+    return {lane_id for lane_id, lane in store.load_all(drive).items() if lane["state"] == store.PARKED}
+
+
 def pull(drive: str) -> dict | None:
     """The top queued item, ranked by its lane's place in the priority queue and then by when it was queued, with every other queued item a worker could finish beside it; None when nothing is queued."""
     order = {lane: index for index, lane in enumerate(rank.last(drive).get("order", []))}
-    queued = sorted((item for item in items(drive) if item["state"] == QUEUED), key=lambda item: (order.get(item["lane"], len(order)), item["queued"]))
+    parked = parked_lanes(drive)
+    queued = sorted((item for item in items(drive) if item["state"] == QUEUED and item["lane"] not in parked), key=lambda item: (order.get(item["lane"], len(order)), item["queued"]))
     if not queued:
         return None
     top = queued[0]
@@ -247,7 +253,8 @@ def staff(drive: str) -> list[str]:
     """Start a worker for each queued item no free worker can take, up to the drive's `workers` count; what started."""
     if not store.live(drive):
         return []
-    queued = [item for item in items(drive) if item["state"] == QUEUED]
+    parked = parked_lanes(drive)
+    queued = [item for item in items(drive) if item["state"] == QUEUED and item["lane"] not in parked]
     running = [worker for worker in workers(drive) if alive(worker)]
     idle = len(running) - len({item.get("worker") for item in items(drive) if item["state"] == TAKEN})
     room = min(len(queued) - max(idle, 0), store.config(drive).get("workers", WORKERS_DEFAULT) - len(running))
@@ -265,6 +272,8 @@ def adds(drive: str) -> list[str]:
     seen = page.view(drive)["prs"]
     added = []
     for lane_id, lane in store.load_all(drive).items():
+        if lane["state"] == store.PARKED:
+            continue
         fixing = {fix["key"] for fix in fixes.running(lane)}
         for row in lane["prs"]:
             key = f"{row['repo']}#{row['number']}"

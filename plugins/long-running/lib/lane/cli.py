@@ -204,7 +204,7 @@ def land(args: argparse.Namespace) -> None:
         checkout = Path(store.config(args.drive)["checkout"])
         units = []
         unstaged: dict[str, str] = {}
-        seen_lanes = [rows.seen(lane, read, rule, store.config(args.drive)["premerge_lanes"]) for lane in store.load_all(args.drive).values() if not args.lane or lane["id"] in args.lane]
+        seen_lanes = [rows.seen(lane, read, rule, store.config(args.drive)["premerge_lanes"]) for lane in store.load_all(args.drive).values() if (not args.lane or lane["id"] in args.lane) and lane["state"] != store.PARKED]
         for lane in seen_lanes:
             unstaged |= {landing.key(row): lane["id"] for stack in landing.stacks(lane) if not landing.proven(stack) for row in stack if not row.get("merged") and landing.judged(row) and landing.dangerous(row)}
             for verdict in landing.verdicts(lane):

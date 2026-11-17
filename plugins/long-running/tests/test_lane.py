@@ -1479,3 +1479,25 @@ def test_a_pass_step_that_runs_past_its_bound_lets_the_pass_move_on_and_is_not_s
     release.set()
     supervisor.RUNNING_STEPS[f"{DRIVE}:slow step"].join(1)
     assert supervisor.alone(DRIVE, errors, "slow step", lambda: 2, 1) == 2
+
+
+def test_a_parked_lane_gets_no_queue_item_no_worker_and_no_card(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import approve, work
+
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", prs=[("acme/app", 1)], channel="C1")
+    store.update(DRIVE, "a", lambda lane: lane["prs"][0].__setitem__("approved_head", "h1"))
+    item = work.add(DRIVE, "red", "a", "acme/app#9", "fix it")
+    store.update(DRIVE, "a", lambda lane: lane.update(state=store.PARKED, owner=None, parked={"words": "park it"}), leaving_unreplied=True)
+    world["prs"][("acme/app", 1)] = pull(rollup="SUCCESS", head="h1", branch="b1") | {"mergeable": "CONFLICTING", "commits": [], "commit_count": 0}
+    supervisor.run_pass(DRIVE)
+    assert [it["id"] for it in work.items(DRIVE)] == [item["id"]] and work.pull(DRIVE) is None and work.staff(DRIVE) == []
+    monkeypatch.setattr(store, "config", lambda drive: store.DEFAULTS | {"approve_cards": True, "posting": False})
+    assert approve.draw(DRIVE) == [] and not store.load(DRIVE, "a").get("cards")
+
+
+def test_headless_roles_carry_a_dollar_cap_and_working_roles_none() -> None:
+    from lane import session
+
+    assert session.flags({}, "auditor")[-2:] == ["--max-budget-usd", "2"] and session.flags({"budgets": {"acker": "0.1"}}, "acker")[-2:] == ["--max-budget-usd", "0.1"]
+    assert "--max-budget-usd" not in session.flags({}, "owner")
