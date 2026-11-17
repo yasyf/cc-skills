@@ -21,7 +21,8 @@ KINDS = ("rebase", "red", "review", "carry", "ask", "e2e", "staging-before", "st
 FIX_KINDS = {"conflict": "rebase", "red": "red", "review": "review"}
 QUEUED, TAKEN, DONE, FAILED = "queued", "taken", "done", "failed"
 QUIET = timedelta(minutes=30)
-WORKERS_DEFAULT = 3
+WORKERS_DEFAULT = 8
+RETRIES = 1
 RULES = Path(__file__).with_name("work.md")
 LANE = Path(__file__).resolve().parents[2] / "bin" / "lane"
 
@@ -145,10 +146,17 @@ def done(drive: str, found: str, result: str, failed: bool = False) -> dict:
         if item["state"] in (DONE, FAILED):
             raise store.Refused(f"work item {found} is already {item['state']}: {item.get('result') or item.get('why')}")
         item.update(state=FAILED if failed else DONE, ended=store.stamp(), **({"why": result} if failed else {"result": result}))
+        if failed and item.get("retries", 0) < RETRIES:
+            item["history"] = [*item.get("history", []), {"state": FAILED, "why": result, "worker": item.get("worker"), "at": item["ended"]}][-10:]
+            item.update(state=QUEUED, queued=store.stamp(), worker=None, session=None, taken=None, retries=item.get("retries", 0) + 1, words=f"{item['words']}\n\nAn earlier worker failed this item: {result}. Take a different approach to what stopped it, or fail it with why it cannot be done.")
         return dict(item)
 
     item = changed(drive, found, finishing)
-    told(drive, item, f"Work item {found} ({item['kind']} {item['subject']}) {'failed' if failed else 'is done'}: {result}")
+    if item["state"] == QUEUED:
+        told(drive, item, f"Work item {found} ({item['kind']} {item['subject']}) failed once and is queued again with why: {result}")
+        staff(drive)
+    else:
+        told(drive, item, f"Work item {found} ({item['kind']} {item['subject']}) {'failed twice; re-plan it, with `lane work add` for a different approach or `lane block` naming what stops it' if failed else 'is done'}: {result}")
     return item
 
 

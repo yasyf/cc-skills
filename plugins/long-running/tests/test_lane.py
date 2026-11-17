@@ -248,8 +248,10 @@ def test_his_ruling_lands_on_the_lane_and_wakes_its_owner(world: dict, monkeypat
     assert store.shared_rulings(DRIVE)[0] | {"at": None} == {"words": "12 active lanes", "link": None, "at": None, "binds": "the cap", "relayed_by": "team-lead"}
 
 
-def test_replaying_his_229_pm_ruling_stores_his_words_refuses_the_252_paraphrase_and_rejudges_every_wait(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_replaying_his_229_pm_ruling_stores_his_words_refuses_the_252_paraphrase_and_has_a_model_judge_each_wait(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(facts, "said_at", lambda link: HIS_229)
+    judged = []
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kwargs: judged.append(argv[-1]))
     opened("a")
     opened("b")
     supervisor.run_pass(DRIVE)
@@ -263,7 +265,8 @@ def test_replaying_his_229_pm_ruling_stores_his_words_refuses_the_252_paraphrase
     verbs.ruling(DRIVE, None, None, LINK_229, "pre-merge staging", reading="staging before merge is a suggestion, for SandSQL handoff and the run journal schema")
     [kept] = store.shared_rulings(DRIVE)
     assert "a suggestion not a requirement" in kept["words"] and "while he is present" not in kept["words"] and kept["reading"].startswith("staging before merge")
-    assert all(store.load(DRIVE, lane_id)["wait"]["fired_why"].startswith("his ruling, which may end this wait") for lane_id in ("a", "b"))
+    assert [store.load(DRIVE, lane_id)["state"] for lane_id in ("a", "b")] == [store.WAITING, store.WAITING]
+    assert len(judged) == 1 and '"a"' in judged[0] and '"b"' in judged[0] and "Wake no other lane" in judged[0]
     assert "A reading, not his words: staging before merge" in owners.brief(DRIVE, store.load(DRIVE, "a"), "test")
 
 
@@ -1447,3 +1450,16 @@ def test_a_carried_approve_is_judged_against_the_head_he_tapped_not_the_head_the
     assert "his tap at h1" in item["words"]
     verbs.carry(DRIVE, "acme/app", 5, "h2", True, "a clean rebase")
     assert store.load(DRIVE, "a")["prs"][0]["carried"]["from"] == "h1"
+
+
+def test_a_failed_item_is_queued_once_more_with_why_and_a_second_failure_tells_its_lane_to_re_plan(world: dict) -> None:
+    from lane import work
+
+    opened("a")
+    item = work.add(DRIVE, "red", "a", "acme/app#3", "fix lint")
+    work.take(DRIVE, "worker-1", [item["id"]])
+    again = work.done(DRIVE, item["id"], "the lint step needs a token", failed=True)
+    assert again["state"] == work.QUEUED and "the lint step needs a token" in again["words"]
+    work.take(DRIVE, "worker-2", [item["id"]])
+    assert work.done(DRIVE, item["id"], "still no token", failed=True)["state"] == work.FAILED
+    assert "re-plan it" in store.note_path(DRIVE, "a").read_text()

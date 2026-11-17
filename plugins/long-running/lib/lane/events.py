@@ -111,8 +111,7 @@ def github(drive: str) -> list[str]:
             verbs.wake(drive, lane_id, f"GitHub just said {', '.join(event['kind'] + ' ' + event['ref'] for event in held)}")
             said.append(f"woke {lane_id}")
     said += work.adds(drive)
-    rows = {f"{row['repo']}#{row['number']}": row for lane in store.load_all(drive).values() for row in lane["prs"]}
-    said += landing(drive, [f"{repo}#{number}" for (repo, number), pull in prs.items() if pull["state"] == "OPEN" and pull.get("rollup") == "SUCCESS" and (row := rows.get(f"{repo}#{number}")) and row.get("approved_head")])
+    said += landing(drive, [f"{repo}#{number}" for (repo, number), pull in prs.items() if pull["state"] == "OPEN" and pull.get("rollup") == "SUCCESS"])
     return said
 
 

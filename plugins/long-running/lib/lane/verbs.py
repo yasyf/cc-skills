@@ -214,14 +214,7 @@ def ruling(drive: str, lane_id: str | None, words: str | None, link: str | None,
             fresh.write_text(json.dumps({"shared": [*kept, row]}, indent=1, ensure_ascii=False) + "\n")
             fresh.replace(path)
 
-        def rejudging(lanes: dict[str, dict]) -> None:
-            for lane in lanes.values():
-                if lane["state"] == store.WAITING:
-                    woken(lane, f"his ruling, which may end this wait: {words}")
-                    store.note(lane, f"woken by his ruling: {words}")
-
-        store.transact(drive, rejudging)
-        store.kick(drive)
+        rejudge(drive, row)
         return
 
     def recording(lane: dict) -> None:
@@ -234,6 +227,29 @@ def ruling(drive: str, lane_id: str | None, words: str | None, link: str | None,
     from lane import supervisor
 
     supervisor.run_pass(drive, only={lane_id}, read_outside=False)
+
+
+def rejudge(drive: str, row: dict) -> None:
+    """Have a model read his shared ruling against each waiting lane's wait and wake only the lanes whose wait it could end, detached so the ruling verb returns at once; every other lane keeps waiting and reads the ruling in its next brief."""
+    import subprocess
+
+    from lane import session
+
+    waiting = {lane_id: {"title": lane["title"], "waits_on": lane["wait"]["on"], "why": lane["wait"].get("why"), "next": lane.get("next")} for lane_id, lane in store.load_all(drive).items() if lane["state"] == store.WAITING}
+    if not waiting:
+        return
+    lane = store.launcher(drive)
+    prompt = (
+        f"His ruling, just stored for every lane of drive {drive}: {json.dumps(row, ensure_ascii=False)}\n\n"
+        f"Each lane waiting now, with what it waits on and why: {json.dumps(waiting, ensure_ascii=False)}\n\n"
+        "For each lane whose wait this ruling could end or change, because the ruling decides what the lane is waiting to learn, removes the reason it waits, or forbids what it waits for, run once: "
+        f"`{lane} --drive {drive} wake <lane id> --why \"his ruling: <one line on how it changes this lane's wait>\"`. "
+        "Wake no other lane: a lane the ruling does not touch keeps waiting and reads the ruling in its next brief. Run nothing else, and end with one line naming the lanes you woke."
+    )
+    folder = store.drive_dir(drive) / "rejudged"
+    folder.mkdir(exist_ok=True)
+    with (folder / f"{store.stamp()}.log").open("w") as out:
+        subprocess.Popen(session.argv(store.config(drive), "auditor", store.drive_dir(drive), {}, ["-p"], ["--permission-mode", "bypassPermissions", "--", prompt]), cwd=store.drive_dir(drive), stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
 
 
 def parse_event(text: str) -> dict:
