@@ -123,6 +123,11 @@ def main(argv: list[str] | None = None) -> int:
     hearing.add_argument("--words", required=True)
     hearing.add_argument("--link")
 
+    presenting = verbs_parser.add_parser("present", help="his words outside a lane's channel, as his terminal, which make him present for dangerous lands and change no lane")
+    presenting.add_argument("--words", required=True)
+    presenting.add_argument("--at", required=True, help="when he said them, an ISO time")
+    presenting.add_argument("--source", required=True)
+
     parking = verbs_parser.add_parser("park")
     parking.add_argument("lane")
     parking.add_argument("--words", required=True)
@@ -234,6 +239,10 @@ def run(args: argparse.Namespace) -> int:
             print(f"{verbs.message(drive, lane_id, args.words, args.link, args.ts)} new")
         case "heard":
             print(voice.heard(args.channel, args.thread, args.words, args.link, args.ts))
+        case "present":
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            moved = store.present(drive, args.words, store.parse(args.at), args.source)
+            print(f"present at {store.stamp(store.parse(args.at))}" if moved else f"presence kept: {json.loads((store.drive_dir(drive) / store.PRESENCE).read_text())['at']} is newer")
         case "park":
             verbs.park(*where(args), args.words, args.link)
         case "ruling":

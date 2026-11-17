@@ -295,6 +295,18 @@ def heard(drive: str, asks: list[dict]) -> None:
     fresh.replace(path)
 
 
+def present(drive: str, words: str, at: datetime, source: str) -> bool:
+    """Keep his words outside a lane's channel, his terminal included, as his presence: presence.json moves to at when it is newer, with no ask and no lane, and the words go to the event log either way. True when presence moved."""
+    event(drive, {"kind": "present", "source": source, "said_at": stamp(at), "words": words})
+    path = drive_dir(drive) / PRESENCE
+    if path.is_file() and parse(json.loads(path.read_text())["at"]) >= at:
+        return False
+    fresh = path.with_name(f".presence.{os.getpid()}.tmp")
+    fresh.write_text(json.dumps({"at": stamp(at), "ts": f"{at.timestamp():.6f}", "link": None, "source": source}) + "\n")
+    fresh.replace(path)
+    return True
+
+
 def event(drive: str, row: dict) -> None:
     with (drive_dir(drive) / "events.jsonl").open("a") as out:
         out.write(json.dumps({"at": stamp(), **row}, ensure_ascii=False) + "\n")

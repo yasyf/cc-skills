@@ -845,3 +845,15 @@ def test_his_word_to_an_owner_between_turns_is_put_before_it_as_a_message_once_i
     supervisor.run_pass(DRIVE)
     supervisor.run_pass(DRIVE)
     assert len(sent) == 1 and "where does #57961 stand?" in sent[0]
+
+
+def test_his_terminal_words_make_him_present_only_moving_forward_and_touch_no_lane(world: dict) -> None:
+    opened("a")
+    before = store.load(DRIVE, "a")
+    said = store.now() - timedelta(minutes=2)
+    assert store.present(DRIVE, "merge it", said, "terminal") is True
+    assert store.parse(json.loads((store.drive_dir(DRIVE) / store.PRESENCE).read_text())["at"]) == said.replace(microsecond=0)
+    assert store.present(DRIVE, "older words", said - timedelta(minutes=5), "terminal") is False
+    assert store.load(DRIVE, "a") == before
+    logged = [json.loads(line) for line in (store.drive_dir(DRIVE) / "events.jsonl").read_text().splitlines()]
+    assert [row["words"] for row in logged if row["kind"] == "present"] == ["merge it", "older words"]
