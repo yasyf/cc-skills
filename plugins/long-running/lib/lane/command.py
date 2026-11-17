@@ -71,10 +71,39 @@ def bash_hook() -> int:
     if re.search(owners.OLD_DRIVE_CALL, command):
         print("The old drive's `drive` verbs are gone and never used in a lane: land through lane-land, post through `lane say`, and write your plan with `lane next`.", file=sys.stderr)
         return 2
-    if refused := queued_push(command, Path(payload.get("cwd") or os.getcwd())):
+    if refused := queued_push(command, Path(payload.get("cwd") or os.getcwd())) or read_only_push(command, Path(payload.get("cwd") or os.getcwd())):
         print(refused, file=sys.stderr)
         return 2
+    if DATA_REACH.search(command) or DESTRUCTIVE_HINT.search(command):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hooks"))
+        import bash_guard
+
+        if refused := bash_guard.lane_reason(payload):
+            print(str(refused), file=sys.stderr)
+            return 2
     return 0
+
+
+DATA_REACH = re.compile(r"\b(kubectl|gsutil|gcloud\s+storage|aws\s+s3|az\s+storage|bq|psql|duckdb)\b|\b(gs|s3|az)://")
+DESTRUCTIVE_HINT = re.compile(r"\b(delete|destroy|drop|rm\s+-rf|terminate|scale\s+--replicas=0|truncate)\b", re.I)
+
+
+def read_only_push(command: str, cwd: Path) -> str | None:
+    """Why a push from cwd is refused: its repository is one the drive checkout's .claude/long-running.toml lists in `read_only_repos`, customer and forward-deployed engineers' repositories that are clone-and-read only, by reference/landing.md "Read-only repositories"; a change that belongs there comes back as an ask with the patch."""
+    import fnmatch
+    import tomllib
+
+    if not PUSH.search(command) or NO_PUSH.search(command):
+        return None
+    drive = os.environ.get("LANE_OWNER", "").partition("/")[0] or os.environ.get("LANE_DRIVE", "")
+    if not drive or not (checkout := store.config(drive)["checkout"]) or not (rules := Path(checkout) / ".claude" / "long-running.toml").is_file():
+        return None
+    listed = tomllib.loads(rules.read_text()).get("read_only_repos") or []
+    remote = subprocess.run(["git", "-C", str(cwd), "remote", "get-url", "origin"], capture_output=True, text=True, check=False, timeout=10).stdout.strip()
+    repo = re.sub(r"^.*github\.com[:/]|\.git$", "", remote)
+    if not any(fnmatch.fnmatchcase(repo, pattern) for pattern in listed):
+        return None
+    return f"{repo} is read only for the drive: clone and read it, never push. Write the change as a patch and ask its owner with `lane say`, the patch attached."
 
 
 def queued_push(command: str, cwd: Path) -> str | None:

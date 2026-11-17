@@ -871,7 +871,7 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def lane_reason(payload: dict) -> str | agents.Unjudged | None:
-    """The old drive's hard guards, kept for a lane's owner, worker or builder, whose drive calls the lane hook judges instead: a call reading or writing a team's data or reaching a team's namespace through `kubectl`, by team_data, and a destructive command a `[[destructive]]` table of the repository's .claude/long-running.toml matches while his words to the lane wait unanswered, refused until it answers them."""
+    """The old drive's hard guards, run by the lane's own Bash hook (lane/command.py bash_hook) for a lane's owner, worker or builder, since the plugin carrying this hook is off in lane sessions: a call reading or writing a team's data or reaching a team's namespace through `kubectl`, by team_data, and a destructive command a `[[destructive]]` table of the repository's .claude/long-running.toml matches while his words to the lane wait unanswered, refused until it answers them."""
     if payload.get("hook_event_name") == "PermissionRequest" or payload["tool_name"] != "Bash":
         return None
     command, cwd = payload["tool_input"]["command"], payload.get("cwd") or os.getcwd()
@@ -904,10 +904,9 @@ def main() -> None:
     try:
         payload = agents.seen(json.load(sys.stdin))
         if payload.get("session_id") in lane_store.owner_sessions():
-            reason, made = lane_reason(payload), None
-        else:
-            reason = deny_reason(payload)
-            made = foreground(payload)
+            return
+        reason = deny_reason(payload)
+        made = foreground(payload)
     except ValueError:
         return
     if reason and payload.get("hook_event_name") == "PermissionRequest":

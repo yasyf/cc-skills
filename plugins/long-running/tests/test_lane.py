@@ -1568,3 +1568,22 @@ def test_an_answer_that_left_nothing_running_takes_a_check_and_construction_come
     ack.working(DRIVE)
     ack.working(DRIVE)
     assert world["slack"] == [("200.0", "construction", ["eyes"]), ("200.0", "white_check_mark", ["construction", "eyes"])]
+
+
+def test_the_lanes_own_bash_hook_runs_the_team_data_guard_and_refuses_a_push_to_a_read_only_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    import io
+
+    from lane import command
+
+    sys.path.insert(0, str(Path(command.__file__).resolve().parents[2] / "hooks"))
+    import bash_guard
+
+    monkeypatch.setattr(bash_guard, "team_data", lambda command_text, cwd, drives: "refused: a team's data" if "kubectl" in command_text else None)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": "kubectl get secret -n team-a"}, "cwd": str(tmp_path)})))
+    assert command.bash_hook() == 2 and "a team's data" in capsys.readouterr().err
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "long-running.toml").write_text('read_only_repos = ["Forge-FDE/*"]\n')
+    monkeypatch.setenv("LANE_DRIVE", "d")
+    monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path)})
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "git@github.com:Forge-FDE/acme.git\n", ""))
+    assert "read only for the drive" in command.read_only_push("git push origin HEAD", tmp_path)

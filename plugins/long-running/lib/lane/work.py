@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import secrets
+import shlex
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -237,7 +238,7 @@ def launch(drive: str, cwd: Path) -> dict:
     worker = f"worker-{secrets.token_hex(3)}"
     from lane import fixes
 
-    own = {"env": {"BASH_MAX_TIMEOUT_MS": str(owners.TOOL_SECONDS * 1000), "MCP_TOOL_TIMEOUT": str(owners.TOOL_SECONDS * 1000), "LANE_WORKER": worker}, "permissions": {"deny": fixes.DENY}, "enabledPlugins": {name: False for name in owners.old_drive_plugins()}}
+    own = {"env": {"BASH_MAX_TIMEOUT_MS": str(owners.TOOL_SECONDS * 1000), "MCP_TOOL_TIMEOUT": str(owners.TOOL_SECONDS * 1000), "LANE_WORKER": worker, "LANE_DRIVE": drive}, "permissions": {"deny": fixes.DENY}, "enabledPlugins": {name: False for name in owners.old_drive_plugins()}, "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": f"{shlex.quote(str(store.launcher(drive)))} hook bash"}]}]}}
     argv = shapes.argv(store.config(drive), "builder", cwd, own, ["--bg"], ["--permission-mode", "bypassPermissions", "-n", worker, brief(drive, worker)])
     env = {name: value for name, value in os.environ.items() if name not in ("CLAUDE_CODE_SESSION_ID", "LANE_OWNER", "LONG_RUNNING_LANE", "LANE_TOKEN", "LANE_TOKEN_FILE", "LONG_RUNNING_JOB", "CLAUDE_LONG_RUNNING_LANE")}
     started = subprocess.run(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)
