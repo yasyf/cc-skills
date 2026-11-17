@@ -164,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     said.add_argument("--next")
     said.add_argument("--by")
     said.add_argument("--answers", action="append", help="the ts of an ask this line answers; every unanswered ask when left out")
+    said.add_argument("--options", action="append", help="a button label, one per option, recommended first, at most 5 of up to 75 characters: the line goes out as his question and his tap comes back as his words")
     said.add_argument("--re", help="the ts of the ask of his this line is about, so it goes in that ask's thread; the one open ask when only one is, else the channel's root")
 
     logging = verbs_parser.add_parser("log")
@@ -259,7 +260,7 @@ def run(args: argparse.Namespace) -> int:
             print(f"waiting until {lane['wait']['until']}; end your turn now")
         case "say":
             drive, lane_id = where(args)
-            print(voice.owner_say(drive, lane_id, {"text": args.text, "next": args.next, "by": args.by, "answers": args.answers, "re": args.re}))
+            print(voice.owner_say(drive, lane_id, {"text": args.text, "next": args.next, "by": args.by, "answers": args.answers, "re": args.re, "options": args.options}))
         case "log":
             verbs.log(*where(args), token(), args.text)
         case "next":

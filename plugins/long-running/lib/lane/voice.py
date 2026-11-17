@@ -39,15 +39,15 @@ def owner_say(drive: str, lane_id: str, arguments: dict) -> str:
     """The MCP say of a lane's owner: lane.say with its promise, and when the promise's shape is refused, the post alone, since the owner never sees a post refused."""
     token = os.environ.get(TOKEN_ENV) or None
     try:
-        return say.say(drive, lane_id, arguments["text"], arguments.get("next"), arguments.get("by"), token, arguments.get("answers"), arguments.get("re"))
+        return say.say(drive, lane_id, arguments["text"], arguments.get("next"), arguments.get("by"), token, arguments.get("answers"), arguments.get("re"), arguments.get("options"))
     except store.Refused as refused:
         if not (arguments.get("next") or arguments.get("by")):
             raise
-        return f"{say.say(drive, lane_id, arguments['text'], token=token, answers=arguments.get('answers'), re=arguments.get('re'))}; its promise was not kept: {refused}"
+        return f"{say.say(drive, lane_id, arguments['text'], token=token, answers=arguments.get('answers'), re=arguments.get('re'), options=arguments.get('options'))}; its promise was not kept: {refused}"
 
 
-def send(drive: str, lane: dict, text: str, about_ts: str | None = None) -> str:
-    """lane.say's SENDER: queue one post in the lane's channel, in the thread of the ask it is about, with the role page beside it, and return QUEUED and its id."""
+def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options: list[str] | None = None) -> str:
+    """lane.say's SENDER: queue one post in the lane's channel, in the thread of the ask it is about, with the role page beside it and a button for each option, and return QUEUED and its id."""
     body = {
         "lane": lane["id"],
         "drive": drive,
@@ -56,6 +56,7 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None) -> str:
         "text": linked(text, titled(lane.get("prs") or [], page.view(drive)["prs"])),
         "rules": str(ROLE_PAGE),
         "asked": "",
+        **({"options": options} if options else {}),
     }
     request = urllib.request.Request(VOICE_URL, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getppid())})
     with urllib.request.urlopen(request, timeout=ENQUEUE_SECONDS) as answer:

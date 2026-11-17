@@ -66,6 +66,13 @@ def test_a_pr_the_lane_holds_draws_as_its_number_and_words(typed: str, drawn: st
     assert voice.linked(typed, PRS) == drawn
 
 
+def test_a_question_carries_its_options_to_the_sender(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = []
+    monkeypatch.setattr(voice.urllib.request, "urlopen", lambda request, timeout: sent.append(json.loads(request.data)) or io.StringIO(json.dumps({"id": "q1"})))
+    assert voice.send("demo", {"id": "iris", "channel": "C1", "prs": []}, "Hotfix #57810 now, or wait?", None, ["Hotfix", "Wait"]) == "QUEUED q1"
+    assert sent[0]["options"] == ["Hotfix", "Wait"]
+
+
 def test_importing_voice_makes_it_lane_say_s_sender() -> None:
     from lane import say
 

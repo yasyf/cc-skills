@@ -175,6 +175,11 @@ SAY = {
                     " since nothing is left running"
                 ),
             },
+            "options": {
+                "type": "array",
+                "items": TEXT,
+                "description": "A lane owner's question: one button label per option, recommended first, at most 5 of up to 75 characters; his tap comes back to the lane as his words",
+            },
             "re": {
                 "type": "string",
                 "description": "A lane owner's post: the ts of the ask of his it is about, so it goes in that ask's thread; with none, the one open ask when only one is, else the lane channel's root",
