@@ -353,6 +353,9 @@ def main(argv: list[str] | None = None) -> int:
     taking = verbs_parser.add_parser("take", help="let the supervisor take an install while main CI is red, for a fix of live harm; its preflight still runs")
     taking.add_argument("version")
     taking.add_argument("--p0", required=True, help="the live harm it fixes")
+    marking = verbs_parser.add_parser("known-red", help="mark a failing test known-red with the lane that owns its fix, so it holds back no install; with no --lane, clear it")
+    marking.add_argument("test")
+    marking.add_argument("--lane")
     verbs_parser.add_parser("preflight", help="render every card and post the installed code would send now, on a copy of the lanes, through the voice in dry run; fail on any refusal or hold")
     verbs_parser.add_parser("settle", help="after an install, read the supervisor for two minutes and fail when it crash-loops").add_argument("--seconds", type=int, default=120)
     paging = verbs_parser.add_parser("page", help="serve his page of the lanes, or with --install keep it served under launchd")
@@ -547,6 +550,8 @@ def run(args: argparse.Namespace) -> int:
             print(supervisor.install(args.drive))
         case "take":
             print(supervisor.take(args.drive, args.version, args.p0))
+        case "known-red":
+            print(supervisor.mark_red(args.drive, args.test, args.lane))
         case "preflight":
             good, lines = supervisor.preflight(args.drive)
             print("\n".join(lines))

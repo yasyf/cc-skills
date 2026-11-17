@@ -3,6 +3,7 @@
 import json
 import os
 import plistlib
+import re
 import runpy
 import shutil
 import subprocess
@@ -39,6 +40,10 @@ REPLAY = timedelta(hours=1)
 PREFLIGHTS: dict[str, tuple[subprocess.Popen, float]] = {}
 HOME_REPO = "yasyf/cc-skills"
 HOME_CI = "long-running CI"
+CI_ANCESTORS = 5
+KNOWN_RED = "known-red.json"
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+FAILED_TEST = re.compile(r"FAILED (plugins/\S+?\.py::\w+)")
 
 
 def heartbeat(drive: str, moment: datetime, errors: list[str]) -> None:
@@ -448,7 +453,7 @@ def check(drive: str) -> tuple[bool, list[str]]:
 
 
 def preflighted(drive: str, install: Path) -> bool:
-    """Whether the install rendered every card and post it would send now through the voice in dry run with none refused or held. While the plugin's main CI is red no preflight starts, so no install is taken, unless `lane take --p0` named it a fix for live harm. The first time a pass sees the install with main green, its preflight starts beside the supervisor, which keeps passing on its own code; a later pass reads the verdict. The supervisor and every owner's `lane` move to an install only once it passed, so a refusal keeps the drive on the code it runs."""
+    """Whether the install rendered every card and post it would send now through the voice in dry run with none refused or held. While the install would bring a red test the running one does not carry, not marked known-red, no preflight starts, so it is not taken, unless `lane take --p0` named it a fix for live harm. The first time a pass sees the install with main green, its preflight starts beside the supervisor, which keeps passing on its own code; a later pass reads the verdict. The supervisor and every owner's `lane` move to an install only once it passed, so a refusal keeps the drive on the code it runs."""
     folder = store.drive_dir(drive) / PREFLIGHT
     folder.mkdir(exist_ok=True)
     passed, refused, output = folder / f"{install.name}.passed", folder / f"{install.name}.refused", folder / f"{install.name}.out"
@@ -456,8 +461,8 @@ def preflighted(drive: str, install: Path) -> bool:
         return passed.exists()
     running = PREFLIGHTS.get(install.name)
     if running is None:
-        if not (folder / f"{install.name}.p0").exists() and (red := main_red()):
-            output.write_text(f"waiting: {red}; a fix for live harm is taken anyway with `lane --drive {drive} take {install.name} --p0 \"<why>\"`\n")
+        if not (folder / f"{install.name}.p0").exists() and (red := regressed(drive, install)):
+            output.write_text(f"waiting: {red}; mark one known-red with `lane --drive {drive} known-red <test> --lane <owner>`, or take a fix for live harm is taken anyway with `lane --drive {drive} take {install.name} --p0 \"<why>\"`\n")
             return False
         with output.open("w") as out:
             PREFLIGHTS[install.name] = (subprocess.Popen([str(install / "bin" / "lane"), "--drive", drive, "preflight"], stdout=out, stderr=subprocess.STDOUT), time.monotonic())
@@ -484,7 +489,7 @@ def copied(source: str, target: str) -> None:
 
 
 def take(drive: str, version: str, why: str) -> str:
-    """Let the supervisor take one install while the plugin's main CI is red, for a fix of live harm: its preflight still runs and still refuses what it would refuse."""
+    """Let the supervisor take one install that brings new red tests, for a fix of live harm: its preflight still runs and still refuses what it would refuse."""
     if not (Path(__file__).resolve().parents[3] / version / "bin" / "lane").exists():
         raise store.Refused(f"no install {version} beside this one")
     folder = store.drive_dir(drive) / PREFLIGHT
@@ -492,14 +497,69 @@ def take(drive: str, version: str, why: str) -> str:
     (folder / f"{version}.p0").write_text(json.dumps({"at": store.stamp(), "why": why}) + "\n")
     (folder / f"{version}.out").unlink(missing_ok=True)
     (store.drive_dir(drive) / "kick").touch()
-    return f"{version} is taken past a red main for: {why}"
+    return f"{version} is taken past its new red tests for: {why}"
 
 
-def main_red() -> str | None:
-    """Why the plugin's own main CI is red now, by its newest finished run, or None when it is green: no install is taken while it is red, whoever installed it."""
-    runs = json.loads(subprocess.run(["gh", "run", "list", "-R", HOME_REPO, "-w", HOME_CI, "-b", "main", "-L", "10", "--json", "conclusion,status,url,headSha"], capture_output=True, text=True, check=True, timeout=60).stdout)
-    finished = next(run for run in runs if run["status"] == "completed" and run["conclusion"] != "cancelled")
-    return None if finished["conclusion"] == "success" else f"{HOME_CI} on main is {finished['conclusion']} at {finished['headSha'][:9]}: {finished['url']}"
+def regressed(drive: str, install: Path) -> str | None:
+    """Why the install would bring a red test the running one does not carry, or None when it brings none: its CI's failing tests, at the commit its tag was cut from, must be failing at the running install's commit too or be marked known-red with an owning lane, so a main that lanes keep red with known failures never holds a fix back. A run still going is a wait."""
+    here = Path(__file__).resolve().parents[2]
+    candidate, running = failures(drive, install.name), failures(drive, here.name)
+    if candidate is None or running is None:
+        return f"{HOME_CI} has not finished at {install.name}'s or {here.name}'s commit"
+    known = known_red(drive)
+    if new := sorted(candidate - running - set(known)):
+        return f"{install.name} fails {len(new)} test{'s' * (len(new) != 1)} {here.name} passes, none marked known-red: {', '.join(new[:8])}"
+    return None
+
+
+def failures(drive: str, version: str) -> set[str] | None:
+    """The failing tests and checks of the plugin's CI at the commit the version's tag was cut from, the nearest one CI ran on below its autobump commit; None while that run is still going. A finished read is kept, since a commit's run never changes."""
+    folder = store.drive_dir(drive) / PREFLIGHT
+    kept = folder / f"ci-{version}.json"
+    if kept.is_file():
+        return set(json.loads(kept.read_text()))
+    sha = gh_json("api", f"repos/{HOME_REPO}/commits/long-running--v{version}")
+    for _ in range(CI_ANCESTORS):
+        if runs := [run for run in gh_json("run", "list", "-R", HOME_REPO, "-w", HOME_CI, "--commit", sha["sha"], "--json", "databaseId,status,conclusion") if run["conclusion"] != "cancelled"]:
+            break
+        sha = gh_json("api", f"repos/{HOME_REPO}/commits/{sha['parents'][0]['sha']}")
+    else:
+        raise store.Refused(f"{HOME_CI} ran on none of the {CI_ANCESTORS} commits below long-running--v{version}")
+    if runs[0]["status"] != "completed":
+        return None
+    failed = set()
+    if runs[0]["conclusion"] != "success":
+        for job in gh_json("api", f"repos/{HOME_REPO}/actions/runs/{runs[0]['databaseId']}/jobs")["jobs"]:
+            if job["conclusion"] != "failure":
+                continue
+            log = subprocess.run(["gh", "api", "--allow-escape-sequences", f"repos/{HOME_REPO}/actions/jobs/{job['id']}/logs"], capture_output=True, text=True, check=True, timeout=120).stdout
+            tests = set(FAILED_TEST.findall(ANSI.sub("", log)))
+            failed |= tests or {job["name"]}
+    kept.write_text(json.dumps(sorted(failed)))
+    return failed
+
+
+def gh_json(*args: str):
+    return json.loads(subprocess.run(["gh", *args], capture_output=True, text=True, check=True, timeout=60).stdout)
+
+
+def known_red(drive: str) -> dict[str, str]:
+    """The tests marked known-red, each with the lane that owns its fix."""
+    path = store.drive_dir(drive) / PREFLIGHT / KNOWN_RED
+    return json.loads(path.read_text()) if path.is_file() else {}
+
+
+def mark_red(drive: str, test: str, lane: str | None) -> str:
+    """Mark a test known-red with the lane that owns its fix, or clear it with no lane."""
+    path = store.drive_dir(drive) / PREFLIGHT / KNOWN_RED
+    path.parent.mkdir(exist_ok=True)
+    known = known_red(drive)
+    if lane:
+        known[test] = lane
+    else:
+        known.pop(test)
+    path.write_text(json.dumps(known, indent=1) + "\n")
+    return f"{test}: {'known-red, owned by ' + lane if lane else 'cleared'}"
 
 
 def preflight(drive: str) -> tuple[bool, list[str]]:
