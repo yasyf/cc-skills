@@ -32,7 +32,7 @@ def keep_view(drive: str, prs: dict[tuple[str, int], dict], moment: datetime) ->
         since = {}
     kept = {}
     for (repo, number), pull in prs.items():
-        kept[f"{repo}#{number}"] = {key: pull[key] for key in ("state", "merged", "head", "rollup", "review", "base", "branch", "title")}
+        kept[f"{repo}#{number}"] = {key: pull[key] for key in ("state", "merged", "head", "rollup", "review", "base", "branch", "title", "failing", "mergeable", "reviewed_heads") if key in pull}
         if read := since.get((repo, number)):
             kept[f"{repo}#{number}"] |= {"commits": read["commits"], "whole": read["commit_count"] <= len(read["commits"])}
         elif (repo, number) in moved and "commits" in (last := before.get(f"{repo}#{number}", {})):

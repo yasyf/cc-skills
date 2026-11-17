@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import approve, facts, page, queue, rank, store, verbs, voice
+from lane import approve, fixes, facts, page, queue, rank, store, verbs, voice
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -192,6 +192,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         lane_land.spawn(drive)
         if prs:
             errors += approve.draw(drive)
+            errors += [line for line in fixes.start(drive) if ": no fix job for " in line]
         heartbeat(drive, store.now(), errors)
     return {"started": [start["lane"] for start in starts if start["token"]], "errors": errors}
 

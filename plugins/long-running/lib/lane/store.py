@@ -52,10 +52,11 @@ def live(drive: str) -> bool:
 
 
 def owner_sessions() -> frozenset[str]:
-    """Every session owning a lane on any lane drive of this Mac, by each lane file's owner: the old drive's hooks judge none of them, nor their subagents, which share the session."""
+    """Every session owning a lane on any lane drive of this Mac, by each lane file's owner, and every fix job the supervisor started for one: the old drive's hooks judge none of them, nor their subagents, which share the session."""
     if not root().is_dir():
         return frozenset()
-    return frozenset(owner["session"] for drive in os.scandir(root()) if drive.is_dir() for lane in load_all(drive.name).values() if (owner := lane.get("owner")) and owner.get("session"))
+    lanes = [lane for drive in os.scandir(root()) if drive.is_dir() for lane in load_all(drive.name).values()]
+    return frozenset([*(owner["session"] for lane in lanes if (owner := lane.get("owner")) and owner.get("session")), *(fix["session"] for lane in lanes for fix in lane.get("fixes", []) if fix.get("session"))])
 
 
 def drive_dir(drive: str) -> Path:

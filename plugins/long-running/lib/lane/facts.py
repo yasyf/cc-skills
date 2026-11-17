@@ -33,6 +33,9 @@ def pr_keys(lanes: dict[str, dict]) -> set[tuple[str, int]]:
     return keys | {pr_ref(event["ref"]) for lane in lanes.values() for event in (lane.get("wait") or {}).get("on", []) if event["kind"] in ("pr_merged", "check")}
 
 
+FAILED_CHECKS = ("FAILURE", "ERROR", "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED")
+
+
 def read_prs(keys: set[tuple[str, int]], commits: int = COMMITS_READ) -> dict[tuple[str, int], dict]:
     """Each pull request's state, merged flag, head, base and head branches, its repository's default branch, review decision and check rollup, and its last `commits` commits with their authors, in GraphQL requests of PRS_PER_QUERY run READERS at a time, since one request for the ~490 PRs of twelve lanes outran its 60 seconds. The supervisor's pass asks for one commit, the head's, which is all a wait or the rank reads, so its read stays light; lane-land asks for COMMITS_READ."""
     ordered = sorted(keys)
@@ -47,7 +50,7 @@ def read_chunk(ordered: list[tuple[str, int]], commits: int = COMMITS_READ) -> d
     for index, (repo, number) in enumerate(ordered):
         owner, name = repo.split("/", 1)
         parts.append(
-            f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ title state merged mergedAt closedAt headRefOid baseRefName headRefName repository {{ defaultBranchRef {{ name }} }} reviewDecision latestReviews(first: 20) {{ nodes {{ state author {{ login }} commit {{ oid }} }} }} commits(last: {commits}) {{ totalCount nodes {{ commit {{ oid author {{ user {{ login }} }} statusCheckRollup {{ state }} }} }} }} }} }}'
+            f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ title state merged mergedAt closedAt mergeable headRefOid baseRefName headRefName repository {{ defaultBranchRef {{ name }} }} reviewDecision latestReviews(first: 20) {{ nodes {{ state author {{ login }} commit {{ oid }} }} }} commits(last: {commits}) {{ totalCount nodes {{ commit {{ oid author {{ user {{ login }} }} statusCheckRollup {{ state contexts(first: 40) {{ nodes {{ __typename ... on CheckRun {{ name conclusion }} ... on StatusContext {{ context state }} }} }} }} }} }} }} }} }}'
         )
     done = subprocess.run(["gh", "api", "graphql", "-f", f"query={{ {' '.join(parts)} }}"], capture_output=True, text=True, check=False, timeout=60)
     if done.returncode:
@@ -59,8 +62,10 @@ def read_chunk(ordered: list[tuple[str, int]], commits: int = COMMITS_READ) -> d
         if pull is None:
             continue
         nodes = pull["commits"]["nodes"]
-        rollup = ((nodes[-1]["commit"].get("statusCheckRollup") or {}).get("state")) if nodes else None
-        read[key] = {"title": pull["title"], "state": pull["state"], "merged": pull["merged"], "merged_at": pull.get("mergedAt"), "closed_at": pull.get("closedAt"), "head": pull["headRefOid"], "base": pull["baseRefName"], "branch": pull["headRefName"], "default": pull["repository"]["defaultBranchRef"]["name"], "review": pull["reviewDecision"], "rollup": rollup, "commits": [(node["commit"]["oid"], ((node["commit"]["author"] or {}).get("user") or {}).get("login")) for node in nodes], "commit_count": pull["commits"]["totalCount"], "approvals": {node["author"]["login"]: node["commit"]["oid"] for node in (pull.get("latestReviews") or {}).get("nodes") or [] if node["state"] == "APPROVED" and node.get("author") and node.get("commit")}}
+        checks = (nodes[-1]["commit"].get("statusCheckRollup") or {}) if nodes else {}
+        rollup = checks.get("state")
+        failing = [context.get("name") or context.get("context") for context in (checks.get("contexts") or {}).get("nodes") or [] if (context.get("conclusion") or context.get("state")) in FAILED_CHECKS]
+        read[key] = {"title": pull["title"], "state": pull["state"], "merged": pull["merged"], "merged_at": pull.get("mergedAt"), "closed_at": pull.get("closedAt"), "head": pull["headRefOid"], "base": pull["baseRefName"], "branch": pull["headRefName"], "default": pull["repository"]["defaultBranchRef"]["name"], "review": pull["reviewDecision"], "rollup": rollup, "failing": failing, "mergeable": pull.get("mergeable"), "reviewed_heads": sorted({node["commit"]["oid"] for node in (pull.get("latestReviews") or {}).get("nodes") or [] if node.get("commit")}), "commits": [(node["commit"]["oid"], ((node["commit"]["author"] or {}).get("user") or {}).get("login")) for node in nodes], "commit_count": pull["commits"]["totalCount"], "approvals": {node["author"]["login"]: node["commit"]["oid"] for node in (pull.get("latestReviews") or {}).get("nodes") or [] if node["state"] == "APPROVED" and node.get("author") and node.get("commit")}}
     return read
 
 

@@ -970,3 +970,34 @@ def test_a_handover_entry_is_stamped_with_its_write_time_and_refuses_a_typed_tim
         verbs.handover(DRIVE, "a", f"pushed the fix at {past}", "drive-redesign")
     verbs.handover(DRIVE, "a", "pushed the fix; results by 9:00 AM tomorrow", "drive-redesign")
     assert store.load(DRIVE, "a")["handover"].startswith("[written ") and " PT (" in store.load(DRIVE, "a")["handover"]
+
+
+def test_the_supervisor_starts_one_fix_job_per_pr_head_and_kind_for_his_approved_prs_and_the_lander_leaves_them(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import fixes
+
+    started = []
+    monkeypatch.setattr(fixes, "launch", lambda drive, lane, key, prompt: started.append((key, prompt)) or {"job": f"job{len(started)}", "session": f"fix-session-{len(started)}"})
+    monkeypatch.setattr(owners, "record", lambda path: {"state": "working"})
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", prs=[("acme/app", n) for n in (1, 2, 3, 4, 5)], channel="C1")
+
+    def approving(lane: dict) -> None:
+        for row in lane["prs"]:
+            row["approved_head"] = "old"
+
+    store.update(DRIVE, "a", approving)
+    world["prs"][("acme/app", 1)] = pull(rollup="SUCCESS", head="h1", branch="b1") | {"mergeable": "CONFLICTING"}
+    world["prs"][("acme/app", 2)] = pull(rollup="FAILURE", head="h2", branch="b2") | {"failing": ["lint"], "mergeable": "MERGEABLE"}
+    world["prs"][("acme/app", 3)] = pull(rollup="SUCCESS", head="h3", branch="b3") | {"mergeable": "MERGEABLE", "reviewed_heads": []}
+    world["prs"][("acme/app", 4)] = pull(rollup="FAILURE", head="h4", branch="b4") | {"failing": ["unit"], "mergeable": "MERGEABLE"}
+    world["prs"][("acme/app", 5)] = pull(state="MERGED", rollup="FAILURE", head="h5", branch="b5")
+    supervisor.run_pass(DRIVE)
+    assert [key for key, _ in started] == ["acme/app#1", "acme/app#2", "acme/app#3"]
+    assert started[0][1].startswith("Rebase acme/app#1 (branch b1) onto origin/main") and "lint" in started[1][1]
+    supervisor.run_pass(DRIVE)
+    assert len(started) == 3
+    assert fixes.held_keys(store.load(DRIVE, "a")) == {"acme/app#1", "acme/app#2", "acme/app#3"}
+    assert "fix-session-1" in store.owner_sessions()
+    monkeypatch.setattr(owners, "record", lambda path: {"state": "done"})
+    supervisor.run_pass(DRIVE)
+    assert [key for key, _ in started] == ["acme/app#1", "acme/app#2", "acme/app#3", "acme/app#4"]

@@ -12,7 +12,7 @@ from contextlib import contextmanager, suppress
 from datetime import timedelta
 from pathlib import Path
 
-from lane import landing, releases, rows, stager, store, supervisor, verbs
+from lane import fixes, landing, releases, rows, stager, store, supervisor, verbs
 
 LANDING = "landing"
 LANDINGS = "landings"
@@ -26,6 +26,11 @@ LANDERS = "landers"
 CONFLICT = re.compile(r"CONFLICTING|conflicts with origin/")
 SKIP_MERGE_PREFLIGHT = "STACK_ENQUEUE_SKIP_MERGE_PREFLIGHT"
 GONE_BASE = re.compile(r"couldn't find remote ref refs/heads/(?P<branch>\S+)")
+
+
+def unit_lock(drive: str, key: str) -> Path:
+    """The lock a lander holds while it lands the unit whose bottom PR is key, which the supervisor takes too before it starts a fix job on that PR, so the two never push one branch."""
+    return store.drive_dir(drive) / LANDING / f"{key.replace('/', '_').replace('#', '-')}.lock"
 
 
 def hold(drive: str, lane_id: str, text: str) -> str:
@@ -159,7 +164,9 @@ def land(args: argparse.Namespace) -> None:
 
             def one(unit: tuple[dict, list[str]]) -> str:
                 lane, keys = unit
-                with exclusive(store.drive_dir(args.drive) / LANDING / f"{keys[0].replace('/', '_').replace('#', '-')}.lock") as mine:
+                if fixing := [key for key in keys if key in fixes.held_keys(store.load(args.drive, lane["id"]))]:
+                    return f"{lane['id']}: a fix job is working on {', '.join(fixing)}; this pass leaves {keys[0]} for the next"
+                with exclusive(unit_lock(args.drive, keys[0])) as mine:
                     if not mine:
                         return f"{lane['id']}: another lander is landing {keys[0]}; this pass skips it"
                     return merged(args.drive, lane, keys, checkout, sha, script, args.dry_run or not stager.live(args.drive))
