@@ -12,7 +12,7 @@ His words, which decide what you take together:
 What that means when you pull:
 
 - Take the top item. Then take each item pull lists beside it that you will finish in this sitting: the same lane, the same files or service, the same staging target. Leave the rest for the next worker.
-- Every staging item for one target goes in one batch: take them all, run the test once, and finish each item with its own result.
+- A staging item follows agents/stager.md, as its words say. Every staging item pull lists beside it goes into the same cut: take them all, run the test once, and finish each item with its own result.
 - A rebase, a red check or a review on a PR he approved is done now, not batched behind anything slower.
 - Finish what you take. If you cannot, `lane work done <id> --failed "<why, with the link>"` so it goes back to its lane's owner at once, never a silent drop.
 - The result line is what his lane's owner tells him: what you pushed or found, with the PR and the head, in plain words.
