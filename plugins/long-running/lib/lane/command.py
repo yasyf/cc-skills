@@ -204,7 +204,20 @@ def main(argv: list[str] | None = None) -> int:
     planning = verbs_parser.add_parser("next", help="write the lane's plan, and what it says to him of it")
     planning.add_argument("text", help="the plan, in your own working terms")
     planning.add_argument("--says", required=True, help="one plain sentence a person would say of what happens next and what it waits for, PRs named with their words")
+    serving = planning.add_mutually_exclusive_group()
+    serving.add_argument("--serves", type=int, help="the unmet done check this step moves toward, by its number")
+    serving.add_argument("--serves-none", help="why this step serves no done check")
     planning.add_argument("--lane")
+    checking = verbs_parser.add_parser("done-check", help="the lane's done checks: in his words, things a person could run to see its work done")
+    check_verbs = checking.add_subparsers(dest="check_verb", required=True)
+    check_add = check_verbs.add_parser("add")
+    check_add.add_argument("words")
+    check_add.add_argument("--lane")
+    for name in ("met", "unmet"):
+        marked = check_verbs.add_parser(name)
+        marked.add_argument("number", type=int)
+        marked.add_argument("--how", required=True, help="how it was seen met, or why it is unmet again")
+        marked.add_argument("--lane")
     verbs_parser.add_parser("asks").add_argument("--lane")
     finished = verbs_parser.add_parser("done", help="mark one of his asks done, by its ts")
     finished.add_argument("ts")
@@ -299,7 +312,11 @@ def run(args: argparse.Namespace) -> int:
         case "log":
             verbs.log(*where(args), token(), args.text)
         case "next":
-            verbs.set_next(*where(args), token(), args.text, args.says)
+            verbs.set_next(*where(args), token(), args.text, args.says, args.serves, args.serves_none)
+        case "done-check" if args.check_verb == "add":
+            print(f"done check {verbs.add_check(*where(args), token(), args.words)}")
+        case "done-check":
+            verbs.mark_check(*where(args), token(), args.number, args.check_verb == "met", args.how)
         case "asks":
             for ask in store.load(*where(args))["asks"]:
                 print(f"{ask['at']} ts {ask.get('ts')}{'' if ask.get('replied') else ' UNANSWERED'}{' done' if ask.get('done') else ''}: {ask['words']}" + (f" ({ask['link']})" if ask.get("link") else ""))

@@ -1395,3 +1395,4 @@ button.task-row { cursor: pointer; }
 .lane-more summary { cursor: pointer; }
 .lane-log li { margin-bottom: 4px; white-space: pre-line; }
 .lane-day-title { margin: 26px 0 12px; font-size: 15px; font-weight: 600; color: var(--muted); }
+.lane-done { list-style: none; padding-left: 0; } .lane-done .met { color: var(--muted); }

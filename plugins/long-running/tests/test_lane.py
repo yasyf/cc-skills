@@ -864,3 +864,23 @@ def test_the_old_drives_hooks_know_every_lane_owners_session(world: dict) -> Non
     supervisor.run_pass(DRIVE)
     (store.drive_dir(DRIVE) / "queue.json").write_text("{}")
     assert store.owner_sessions() == {store.load(DRIVE, "a")["owner"]["session"]}
+
+
+def test_a_lane_with_done_checks_names_the_one_each_step_serves_and_its_brief_leads_with_them(world: dict) -> None:
+    opened("a")
+    supervisor.run_pass(DRIVE)
+    assert verbs.add_check(DRIVE, "a", None, "from the Mac app on staging, start a Cloud agent and get its reply") == 1
+    assert verbs.add_check(DRIVE, "a", None, "the run page shows the old journal") == 2
+    with pytest.raises(store.Refused, match="--serves <n> of 1, 2"):
+        verbs.set_next(DRIVE, "a", token_of("a"), "land #7", "Landing the fix.")
+    verbs.mark_check(DRIVE, "a", token_of("a"), 2, True, "opened run 41 and saw it")
+    with pytest.raises(store.Refused, match="no unmet check"):
+        verbs.set_next(DRIVE, "a", token_of("a"), "land #7", "Landing the fix.", serves=2)
+    verbs.set_next(DRIVE, "a", token_of("a"), "land #7", "Landing the fix.", serves=1)
+    lane = store.load(DRIVE, "a")
+    assert lane["serves"] == {"check": 1}
+    text = owners.brief(DRIVE, lane, "test")
+    assert text.index("Done when") < text.index("His asks")
+    assert "- 1. not met: from the Mac app" in text and "- 2. met " in text and "(serves done check 1)" in text
+    verbs.mark_check(DRIVE, "a", None, 1, True, "replied in 4 s")
+    verbs.set_next(DRIVE, "a", token_of("a"), "watch", "Nothing left.")

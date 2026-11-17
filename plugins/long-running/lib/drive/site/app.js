@@ -2202,6 +2202,7 @@ function laneNowCard(lane) {
   return `<li class="card lane-card"><div class="card-content">
       <div class="card-top"><span class="eyebrow">${lane.position} · ${esc(lane.id)}</span><span class="pill t-${tone}">${word}</span></div>
       <h2 class="lane-title">${esc(lane.title)}</h2>
+      ${lane.done?.length ? `<div class="lane-block"><div class="eyebrow">Done when</div><ul class="lane-done">${lane.done.map((check) => `<li class="${check.met ? 'met' : 'unmet'}">${check.met ? '✓' : '○'} ${esc(check.words)}${check.how ? ` <span class="meta">${esc(check.how)}</span>` : ''}</li>`).join('')}</ul></div>` : ''}
       <p class="lane-standing">${esc(laneStanding(lane))}${lane.says ? ` <span class="lane-next">${inline(lane.says)}</span>` : ''}</p>
       ${lane.asks.length ? `<div class="lane-block"><div class="eyebrow">Your words, not yet answered</div><ul>${lane.asks.map((ask) => `<li>${ask.link ? `<a href="${esc(ask.link)}" target="_blank" rel="noopener">${esc(ask.words)}</a>` : esc(ask.words)} <span class="meta">${clock(ask.at)}</span></li>`).join('')}</ul></div>` : ''}
       ${lane.stacks.length ? `<div class="lane-block"><div class="eyebrow">Ready for your tap</div><ul>${lane.stacks.map((stack) => `<li><a href="${esc(stack.url)}" target="_blank" rel="noopener">${esc(sharedRenderers.prName(stack.key))}</a> ${esc(stack.title)}${stack.above ? ` <span class="meta">and ${stack.above} stacked above</span>` : ''}</li>`).join('')}</ul></div>` : ''}

@@ -251,14 +251,55 @@ def owner_write(drive: str, lane_id: str, token: str | None, change) -> None:
     store.update(drive, lane_id, writing)
 
 
-def set_next(drive: str, lane_id: str, token: str | None, text: str, says: str) -> None:
-    """Write the lane's plan, and the one plain sentence his page shows of it."""
+def unmet(lane: dict) -> list[int]:
+    """The numbers, from 1, of the lane's done checks not yet met."""
+    return [number for number, check in enumerate(lane.get("done", []), 1) if not check.get("met_at")]
+
+
+def set_next(drive: str, lane_id: str, token: str | None, text: str, says: str, serves: int | None = None, serves_none: str | None = None) -> None:
+    """Write the lane's plan, the one plain sentence his page shows of it, and which unmet done check the step serves, or why it serves none; refused while a check is unmet and the step names neither, so no lane moves without moving toward what he asked for."""
 
     def setting(lane: dict) -> None:
+        if (serves is None) == (serves_none is None) and (open_checks := unmet(lane)):
+            raise store.Refused(f"name the done check this step serves, --serves <n> of {', '.join(map(str, open_checks))}, or say why it serves none with --serves-none \"<why>\"")
+        if serves is not None and serves not in unmet(lane):
+            raise store.Refused(f"done check {serves} is no unmet check of lane {lane_id}: unmet are {', '.join(map(str, unmet(lane))) or 'none'}")
         lane["next"], lane["says"] = text, says
-        store.note(lane, f"next: {text}")
+        lane["serves"] = {"check": serves} if serves is not None else {"none": serves_none} if serves_none else None
+        store.note(lane, f"next: {text}" + (f" (serves done check {serves})" if serves is not None else f" (serves no done check: {serves_none})" if serves_none else ""))
 
     owner_write(drive, lane_id, token, setting)
+
+
+def add_check(drive: str, lane_id: str, token: str | None, words: str) -> int:
+    """Add one done check, in his words, a thing a person could run to see the lane's work done; its number from 1."""
+    found = {}
+
+    def adding(lane: dict) -> None:
+        lane.setdefault("done", []).append({"words": words, "at": store.stamp()})
+        found["number"] = len(lane["done"])
+        store.note(lane, f"done check {found['number']}: {words}")
+
+    owner_write(drive, lane_id, token, adding)
+    return found["number"]
+
+
+def mark_check(drive: str, lane_id: str, token: str | None, number: int, met: bool, how: str) -> None:
+    """Mark done check number met, with how it was seen met, or unmet again, with why."""
+
+    def marking(lane: dict) -> None:
+        checks = lane.get("done", [])
+        if not 1 <= number <= len(checks):
+            raise store.Refused(f"lane {lane_id} has done checks 1 to {len(checks)}, not {number}")
+        check = checks[number - 1]
+        if met:
+            check.update(met_at=store.stamp(), how=how)
+        else:
+            check.pop("met_at", None)
+            check["how"] = how
+        store.note(lane, f"done check {number} {'met' if met else 'unmet'}: {how}")
+
+    owner_write(drive, lane_id, token, marking)
 
 
 def log(drive: str, lane_id: str, token: str | None, text: str) -> None:

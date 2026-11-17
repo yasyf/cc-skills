@@ -143,8 +143,12 @@ def brief(drive: str, lane: dict, woke: str) -> str:
     asks = "\n".join(f"- {ask['at']} (ts {ask.get('ts') or 'none'}){' UNANSWERED' if not ask.get('replied') else ''}{' done' if ask.get('done') else ''}: {ask['words']}" + (f" ({ask['link']})" if ask.get("link") else "") for ask in lane.get("asks", [])[-12:])
     rulings = "\n".join(f"- {row['at']} on {row['binds']}: {row['words']}" + (f" ({row['link']})" if row.get("link") else "") for row in [*store.shared_rulings(drive), *lane.get("rulings", [])]) or "- none"
     prs = "\n".join(f"- {pr['repo']}#{pr['number']}" + (f" {pr['words']}" if pr.get("words") else "") + (f", held: {pr['held']}" if pr.get("held") else "") for pr in lane.get("prs", [])) or "- none yet"
+    done = "\n".join(f"- {number}. " + (f"met {check['met_at']} ({check.get('how')})" if check.get("met_at") else "not met") + f": {check['words']}" for number, check in enumerate(lane.get("done", []), 1)) or "- none written yet"
+    serves = lane.get("serves") or {}
     text = BRIEF.read_text().format(
         id=lane["id"],
+        done=done,
+        serves=f"done check {serves['check']}" if serves.get("check") else f"no done check: {serves['none']}" if serves.get("none") else "not named",
         drive=drive,
         title=lane["title"],
         path=store.lane_path(drive, lane["id"]),
