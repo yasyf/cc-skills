@@ -130,7 +130,7 @@ def test_each_pass_queues_one_staging_after_item_per_merged_pr_and_moves_an_old_
 
     merged = row(56967, merged=True, merged_at="2026-11-17T00:30:00Z") | {"approved_head": "h"}
     promoted = row(56900, merged=True, merged_at="2026-11-16T23:50:00Z") | {"approved_head": "h"}
-    untested = row(56999, merged=True, merged_at="2026-11-17T00:30:00Z")
+    untested = row(56999, merged=True, merged_at="2026-11-17T00:30:00Z", approved_head=None)
     added = []
     monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
     monkeypatch.setattr(stager, "live", lambda drive: True)
