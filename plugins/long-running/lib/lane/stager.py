@@ -186,6 +186,7 @@ def queue(drive: str, lanes: list[dict]) -> list[str]:
     if not live(drive):
         return []
     targets = store.config(drive)["staging_targets"]
+    since = store.config(drive)["after_merge_since"]
     added = []
     for lane in lanes:
         for stack in landing.stacks(lane):
@@ -194,8 +195,8 @@ def queue(drive: str, lanes: list[dict]) -> list[str]:
                 keys = [landing.key(row) for row in open_rows]
                 added.append(work.add(drive, "staging-before", lane["id"], keys[0], before_words(drive, keys, open_rows[-1]["head"]), head=open_rows[-1]["head"], touches=targets, by="lane-land")["id"])
         for row in lane["prs"]:
-            if row.get("merged") and not row.get("staging") and row.get("approved_head"):
-                added.append(work.add(drive, "staging-after", lane["id"], landing.key(row), after_words(drive, landing.key(row)), head=row["head"], touches=targets, by="lane-land")["id"])
+            if row.get("merged") and not row.get("staging") and row.get("approved_head") and (not since or row["merged_at"] > since["at"]):
+                added.append(work.add(drive, "staging-after", lane["id"], landing.key(row), after_words(drive, landing.key(row), since), head=row["head"], touches=targets, by="lane-land")["id"])
     for lane_id, asked in wants(drive).items():
         moved = work.item_id("staging-before", next((landing.key(stack[0]) for lane in lanes if lane["id"] == lane_id for stack in landing.stacks(lane) if any(not row.get("merged") for row in stack)), lane_id))
         written(lanes_dir(drive) / CUTS / f"{asked['cut']}.json", {"lane": lane_id, "cut": asked["cut"], "result": "moved", "stacks": {}, "why": f"staging asks are work items now: wait on work:{moved}"})
@@ -207,8 +208,9 @@ def before_words(drive: str, keys: list[str], head: str) -> str:
     return f"Test {', '.join(keys)} on staging before merge, at its top head {head[:12]}, by {PAGE}: read that page first and follow its steps, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}. Take every other staging item pull shows beside this one into the same cut. Read the staging alerts channel {store.config(drive)["staging_alerts"]} through the cut into each stack's result. `lane-land result` finishes each item it writes a stack for."
 
 
-def after_words(drive: str, key: str) -> str:
-    return f"Test {key}, merged on his Approve, on staging after merge, in one batch with every other staging-after item pull shows, as one cut of the default branch's head, by {PAGE}: read that page first and follow its steps, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}. Read the staging alerts channel {store.config(drive)["staging_alerts"]} through the cut into each stack's result. `lane-land result` finishes each item it writes a stack for."
+def after_words(drive: str, key: str, since: dict | None) -> str:
+    cutoff = f" It merged after {since['at']}, the last green staging promotion, {since['build']}, so that promotion did not test it." if since else ""
+    return f"Test {key}, merged on his Approve, on staging after merge.{cutoff} Test it in one batch with every other staging-after item pull shows, as one cut of the default branch's head, by {PAGE}: read that page first and follow its steps, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}. Read the staging alerts channel {store.config(drive)["staging_alerts"]} through the cut into each stack's result. `lane-land result` finishes each item it writes a stack for."
 
 
 def finished(drive: str, stacks: dict[str, dict]) -> None:

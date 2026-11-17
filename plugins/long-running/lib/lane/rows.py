@@ -11,7 +11,7 @@ from spawnllm import JEV, Binary, BinaryAnswer, DecideError, DecideKeyMissing, d
 from lane import facts, landing, store
 
 CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}
-PR_STATE = ("head", "checks", "merged", "under", "commits", "whole", "premerge", "title", "mergeable")
+PR_STATE = ("head", "checks", "merged", "merged_at", "under", "commits", "whole", "premerge", "title", "mergeable")
 DANGER = Path(__file__).with_name("danger.md")
 BEFORE_MERGE = "plainly needs a staging pass before merge, by his 17:00 ruling"
 DANGER_AT = 0.6
@@ -29,7 +29,7 @@ def view(drive: str, lane_ids: list[str] | None = None) -> dict[str, dict]:
     heads = {(repo, pull["branch"]): f"{repo}#{number}" for (repo, number), pull in read.items() if pull["state"] == "OPEN"}
     found = {}
     for (repo, number), pull in read.items():
-        facts_of = {"head": pull["head"] if pull["state"] == "OPEN" or pull["merged"] else None, "checks": CHECKS.get(pull["rollup"] or "", "pending"), "merged": pull["merged"], "title": pull["title"], "mergeable": pull["mergeable"], "commits": pull["commits"], "whole": pull["commit_count"] <= len(pull["commits"])}
+        facts_of = {"head": pull["head"] if pull["state"] == "OPEN" or pull["merged"] else None, "checks": CHECKS.get(pull["rollup"] or "", "pending"), "merged": pull["merged"], "merged_at": pull["merged_at"], "title": pull["title"], "mergeable": pull["mergeable"], "commits": pull["commits"], "whole": pull["commit_count"] <= len(pull["commits"])}
         if pull["base"] == pull["default"]:
             facts_of["under"] = None
         elif below := heads.get((repo, pull["base"])):

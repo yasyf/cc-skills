@@ -34,6 +34,7 @@ DEFAULTS = {
     "staging_alerts": None,
     "staging_targets": [],
     "staging_env_file": None,
+    "after_merge_since": None,
 }
 LIVE = "live"
 NOT_LANES = ("rank", "config", "supervisor", "presence", "rulings", "queue", "view", "github", "settled")
