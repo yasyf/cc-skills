@@ -34,6 +34,7 @@ DEFAULTS = {
     "queue_cli": None,
     "premerge_lanes": [],
     "premerge_question": None,
+    "merge_commands": [],
     "staging_alerts": None,
     "staging_targets": [],
     "staging_env_file": None,

@@ -71,7 +71,7 @@ def bash_hook() -> int:
     if re.search(owners.OLD_DRIVE_CALL, command):
         print("The old drive's `drive` verbs are gone and never used in a lane: land through lane-land, post through `lane say`, and write your plan with `lane next`.", file=sys.stderr)
         return 2
-    if refused := queued_push(command, Path(payload.get("cwd") or os.getcwd())) or read_only_push(command, Path(payload.get("cwd") or os.getcwd())):
+    if refused := merging(command) or queued_push(command, Path(payload.get("cwd") or os.getcwd())) or read_only_push(command, Path(payload.get("cwd") or os.getcwd())):
         print(refused, file=sys.stderr)
         return 2
     if DATA_REACH.search(command) or DESTRUCTIVE_HINT.search(command):
@@ -82,6 +82,20 @@ def bash_hook() -> int:
             print(str(refused), file=sys.stderr)
             return 2
     return 0
+
+
+MERGE = re.compile(r"\bgh\s+pr\s+merge\b|\bgh\s+api\b.*/pulls/\d+/merge\b|\benablePullRequestAutoMerge\b|\bmergePullRequest\b")
+
+
+def merging(command: str) -> str | None:
+    """Why an owner's, worker's or builder's command is refused: it merges a PR or submits one to the merge queue, by gh or by one of the drive config's merge_commands patterns, which only lane-land runs, and only for a PR whose row carries his Approve at its head, after #57931 merged at 05:09Z on a lane owner's own enqueue with no Approve of his."""
+    drive = os.environ.get("LANE_OWNER", "").partition("/")[0] or os.environ.get("LANE_DRIVE", "")
+    if not drive:
+        return None
+    config = store.config(drive)
+    if MERGE.search(command) or any(re.search(pattern, command) for pattern in config["merge_commands"]):
+        return "Only lane-land merges or queues a PR, and only one whose row carries his Approve at its head. Never merge or enqueue it yourself: once he taps Approve the landing pass submits it, and `lane-land --drive <drive> verdicts` shows why a stack waits."
+    return None
 
 
 DATA_REACH = re.compile(r"\b(kubectl|gsutil|gcloud\s+storage|aws\s+s3|az\s+storage|bq|psql|duckdb)\b|\b(gs|s3|az)://")

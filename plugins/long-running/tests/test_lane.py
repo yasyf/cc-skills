@@ -1781,3 +1781,19 @@ def test_a_draw_supersedes_no_card_whose_stack_it_does_not_ask_about_and_a_super
     assert approve.stacks_waiting(lane, seen) == [{"acme/app#1": "h1"}]
     lane["cards"][0].pop("superseded")
     assert approve.stacks_waiting(lane, seen) == []
+
+
+def test_an_owner_worker_or_builder_cannot_merge_or_enqueue_a_pr_and_reads_of_the_queue_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import command
+
+    monkeypatch.setattr(store, "config", lambda drive: {"merge_commands": [r"\bstack-enqueue\s+(?!--check)"]})
+    monkeypatch.delenv("LANE_OWNER", raising=False)
+    monkeypatch.setenv("LANE_WORKER", "worker-1")
+    monkeypatch.setenv("LANE_DRIVE", DRIVE)
+    for refused in ("gh pr merge 57931 --squash", "scripts/stack-enqueue 57931", "gh api -X PUT repos/acme/app/pulls/7/merge"):
+        assert "Only lane-land" in (command.merging(refused) or "")
+    for allowed in ("scripts/stack-enqueue --check 57931", "gh pr view 57931 --json state"):
+        assert command.merging(allowed) is None
+    monkeypatch.delenv("LANE_WORKER")
+    monkeypatch.delenv("LANE_DRIVE")
+    assert command.merging("gh pr merge 57931 --squash") is None
