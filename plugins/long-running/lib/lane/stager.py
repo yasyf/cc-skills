@@ -186,7 +186,7 @@ def queue(drive: str, lanes: list[dict]) -> list[str]:
     if not live(drive):
         return []
     targets = store.config(drive)["staging_targets"]
-    since = store.config(drive)["after_merge_since"]
+    since = promoted(drive)
     added = []
     for lane in lanes:
         for stack in landing.stacks(lane):
@@ -204,12 +204,22 @@ def queue(drive: str, lanes: list[dict]) -> list[str]:
     return added
 
 
+def promoted(drive: str) -> dict | None:
+    """The newest green promotion of the drive config's promotion_env, read from the repository's release provider each pass: a PR merged before the commit it promoted rode that promotion's staging run, so only later merges join the after-merge batch; None with no promotion_env, so every untested merge does."""
+    from drive import providers
+
+    if not (env := store.config(drive)["promotion_env"]):
+        return None
+    checkout = Path(store.config(drive)["checkout"])
+    return providers.at(checkout).release.last_promotion(env)
+
+
 def before_words(drive: str, keys: list[str], head: str) -> str:
     return f"Test {', '.join(keys)} on staging before merge, at its top head {head[:12]}, by {PAGE}: read that page first and follow its steps, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}. Take every other staging item pull shows beside this one into the same cut. Read the staging alerts channel {store.config(drive)["staging_alerts"]} through the cut into each stack's result. `lane-land result` finishes each item it writes a stack for."
 
 
 def after_words(drive: str, key: str, since: dict | None) -> str:
-    cutoff = f" It merged after {since['at']}, the last green staging promotion, {since['build']}, so that promotion did not test it." if since else ""
+    cutoff = f" It merged after {since['at']}, when {since['commit'][:12]} was the last commit staging's newest green promotion carried, {since['build']}, so no promotion has tested it." if since else ""
     return f"Test {key}, merged on his Approve, on staging after merge.{cutoff} Test it in one batch with every other staging-after item pull shows, as one cut of the default branch's head, by {PAGE}: read that page first and follow its steps, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}. Read the staging alerts channel {store.config(drive)["staging_alerts"]} through the cut into each stack's result. `lane-land result` finishes each item it writes a stack for."
 
 

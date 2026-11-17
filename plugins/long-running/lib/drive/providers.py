@@ -128,6 +128,10 @@ class ReleaseProvider(Provider):
         """Whether the repository's scheduled promotion of env last skipped its tick because a staging stack was held, so the work queue starts no new test cut until a tick promotes, by his ruling that the train goes first between cuts; False for a repository that schedules none."""
         return False
 
+    def last_promotion(self, env: str) -> dict | None:
+        """The newest green promotion of env, {commit, at, build}: the commit it promoted, that commit's time, which a PR merged after did not ride, and the link of its build; None when the repository has no promotion schedule, so every untested merge counts as untested."""
+        return None
+
     def gives_way(self, words: list[str]) -> bool:
         """Whether a release start, as its words, is the staging release a production release runs first, which goes through every staging freeze and every staging slot a test holds."""
         return False

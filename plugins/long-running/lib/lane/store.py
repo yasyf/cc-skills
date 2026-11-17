@@ -34,7 +34,7 @@ DEFAULTS = {
     "staging_alerts": None,
     "staging_targets": [],
     "staging_env_file": None,
-    "after_merge_since": None,
+    "promotion_env": None,
     "hotfix_cli": None,
 }
 LIVE = "live"
