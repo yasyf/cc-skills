@@ -6,7 +6,6 @@ import os
 import re
 import signal
 import subprocess
-from datetime import datetime
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -24,18 +23,13 @@ SKIP_MERGE_PREFLIGHT = "STACK_ENQUEUE_SKIP_MERGE_PREFLIGHT"
 GONE_BASE = re.compile(r"couldn't find remote ref refs/heads/(?P<branch>\S+)")
 
 
-def heard(drive: str) -> datetime | None:
-    path = store.drive_dir(drive) / store.PRESENCE
-    return store.parse(json.loads(path.read_text())["at"]) if path.exists() else None
-
-
 def hold(drive: str, lane_id: str, text: str) -> str:
     store.update(drive, lane_id, lambda lane: store.note(lane, text))
     return text
 
 
-def merged(drive: str, lane: dict, keys: list[str], guarded: bool, checkout: Path, sha: str, script: str, dry_run: bool) -> str:
-    """Queue one landing unit through the repository's merge queue from the pass's one worktree at the queue's base, skipping the script's local merge preflight build since every unit it lands is green at its head and the merge queue's CI grades the merge: one preflight, `--check`, retried once after retargeting onto the default branch a bottom PR whose base branch is gone, as #57004's j4413-reader-first was once its parent merged; then, for a unit the presence classes mark, his presence read again at that moment, a lapsed one holding the unit with a note in its lane, never merging; then `--watch`, which queues it."""
+def merged(drive: str, lane: dict, keys: list[str], checkout: Path, sha: str, script: str, dry_run: bool) -> str:
+    """Queue one landing unit through the repository's merge queue from the pass's one worktree at the queue's base, skipping the script's local merge preflight build since every unit it lands is green at its head and the merge queue's CI grades the merge: one preflight, `--check`, retried once after retargeting onto the default branch a bottom PR whose base branch is gone, as #57004's j4413-reader-first was once its parent merged; then `--watch`, which queues it."""
     from drive import land as old_land
 
     numbers = [key.rpartition("#")[2] for key in keys]
@@ -52,8 +46,6 @@ def merged(drive: str, lane: dict, keys: list[str], guarded: bool, checkout: Pat
         return f"would queue {', '.join(keys)} at base {sha[:12]}; --check exited {checked.returncode}: {old_land.said(checked.stdout + checked.stderr)}"
     if failed := old_land.unfinished(drive, "--check", keys, checked):
         return hold(drive, lane["id"], failed)
-    if guarded and not landing.present(heard(drive), store.now()):
-        return hold(drive, lane["id"], f"not landed: {', '.join(keys)} is dangerous and his presence lapsed during the preflight at {sha[:12]}, so it lands at his next word or tap")
     done = bounded([str(checkout / script), "--watch", *numbers], checkout, trusted)
     if done is None:
         return hold(drive, lane["id"], f"not landed: {', '.join(keys)} was not queued within {WATCH_SECONDS // 60} minutes of --watch at base {sha[:12]}, so the watch ended and the next pass queues it again")
@@ -128,12 +120,12 @@ def exclusive(path: Path) -> Iterator[bool]:
 
 
 def land(args: argparse.Namespace) -> None:
-    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, writes each unjudged head's verdict by rows.judge, prints what his Approve lands now in each lane, and in live mode queues each landing unit by merged() from one fresh worktree for the whole pass, the units only his presence lets land first while he is present, since the others land at any time."""
+    """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, writes each unjudged head's verdict by rows.judge, prints what his Approve lands now in each lane, and in live mode queues each landing unit by merged() from one fresh worktree for the whole pass."""
     from drive import github, providers
     from drive import land as old_land
 
     here = Path(__file__).resolve().parents[2]
-    with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}{'-' + '-'.join(args.lane) if args.lane else ''}{'-guarded' if args.guarded else ''}.lock") as mine:
+    with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}{'-' + '-'.join(args.lane) if args.lane else ''}.lock") as mine:
         if not mine:
             print("another landing pass runs; this one ends")
             return
@@ -142,24 +134,19 @@ def land(args: argparse.Namespace) -> None:
         read = rows.view(args.drive)
         rule = rows.rule_key(args.drive)
         rows.judge(args.drive, read)
-        moment = store.now()
         units = []
         for lane in [rows.seen(lane, read, rule) for lane in store.load_all(args.drive).values() if not args.lane or lane["id"] in args.lane]:
-            by_key = {landing.key(row): row for row in lane["prs"]}
-            for verdict in landing.verdicts(lane, heard(args.drive), moment):
+            for verdict in landing.verdicts(lane):
                 print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
                 if verdict.lands and (stager.live(args.drive) or args.dry_run):
-                    if not args.guarded or any(landing.guarded(by_key[key]) for key in verdict.keys):
-                        units.append((lane, list(verdict.keys), any(landing.guarded(by_key[key]) for key in verdict.keys)))
-        if landing.present(heard(args.drive), moment):
-            units.sort(key=lambda unit: not unit[2])
+                    units.append((lane, list(verdict.keys)))
         if not units:
             return
         checkout_of = Path(store.config(args.drive)["checkout"])
         repo = github.repo_of(units[0][1][0])
         script = providers.at(checkout_of).repo.queue().script
         with old_land.fresh(args.drive, checkout_of, repo, github.default_branch(repo), store.drive_dir(args.drive) / LANDINGS) as (checkout, sha):
-            for lane, keys, guarded in units:
+            for lane, keys in units:
                 if supervisor.newest_install() != here:
                     print(f"a newer install than {here.name} landed; this pass ends before {keys[0]} and the next pass, on the new code, lands the rest")
                     return
@@ -167,14 +154,14 @@ def land(args: argparse.Namespace) -> None:
                     if not mine:
                         print(f"{lane['id']}: another lander is landing {keys[0]}; this pass skips it")
                         continue
-                    print(merged(args.drive, lane, keys, guarded, checkout, sha, script, args.dry_run or not stager.live(args.drive)))
+                    print(merged(args.drive, lane, keys, checkout, sha, script, args.dry_run or not stager.live(args.drive)))
 
 
 def verdicts(args: argparse.Namespace) -> None:
     read = rows.view(args.drive)
     rule = rows.rule_key(args.drive)
     for lane in [rows.seen(lane, read, rule) for lane in store.load_all(args.drive).values()]:
-        for verdict in landing.verdicts(lane, heard(args.drive), store.now()):
+        for verdict in landing.verdicts(lane):
             print(f"{lane['id']}: {'LANDS' if verdict.lands else 'HOLDS'} {', '.join(verdict.keys)}; {verdict.why}")
 
 
@@ -214,8 +201,7 @@ def main() -> int:
     verbs = parser.add_subparsers(required=True)
     verb = verbs.add_parser("land", help="what his Approve lands now, queued only once live")
     verb.add_argument("--dry-run", action="store_true", help="run the merge queue's --check for each landing unit and queue nothing")
-    verb.add_argument("--guarded", action="store_true", help="land only the units his presence lets land, beside any other pass, as his word or tap starts it")
-    verb.add_argument("--lane", action="append", help="land only this lane's units, beside any whole-drive pass, as when his presence window is short; repeatable")
+    verb.add_argument("--lane", action="append", help="land only this lane's units, beside any whole-drive pass; repeatable")
     verb.set_defaults(run=land)
     verb = verbs.add_parser("verdicts", help="each lane stack's verdict now, read from GitHub, with no pass lock, no judging and no merge queue call")
     verb.set_defaults(run=verdicts)

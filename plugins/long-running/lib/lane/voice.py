@@ -140,15 +140,13 @@ say.SENDER = send
 
 
 def heard(channel: str, thread: str | None, words: str, link: str | None, ts: str) -> str:
-    """His message or tap in a lane's channel, as cc-slack's heard_command pushes it, appended to each lane it is for, which wakes its owner: in a thread, the lane whose thread it is; at the channel's root, the lane holding the channel with no thread; and when no lane or several lanes fit, every lane in the channel, so it reaches at least one and never none. A channel no lane holds, such as his DM where he taps most cards, keeps only his presence on every drive, so a dangerous land counts a tap there."""
+    """His message or tap in a lane's channel, as cc-slack's heard_command pushes it, appended to each lane it is for, which wakes its owner: in a thread, the lane whose thread it is; at the channel's root, the lane holding the channel with no thread; and when no lane or several lanes fit, every lane in the channel, so it reaches at least one and never none. A channel no lane holds, such as his DM, reaches no lane."""
     drives = [drive.name for drive in sorted(store.root().iterdir()) if drive.is_dir()] if store.root().is_dir() else []
     found = [(drive, lane_id, lane) for drive in drives for lane_id, lane in store.load_all(drive).items() if lane["channel"] == channel]
     fitting = [each for each in found if (each[2].get("thread") or None) == (thread or None)]
     chosen = fitting if len(fitting) == 1 else found
     if not chosen:
-        for drive in drives:
-            store.heard(drive, [{"ts": ts, "link": link}])
-        return f"no lane holds {channel}; his presence is kept"
+        return f"no lane holds {channel}"
     from lane import approve
 
     for drive, lane_id, lane in chosen:
@@ -159,7 +157,7 @@ def heard(channel: str, thread: str | None, words: str, link: str | None, ts: st
 
 
 def tapped_pr(drive: str, lane: dict, words: str, link: str | None, ts: str) -> None:
-    """His tap on an Approve #N or Hold #N button the voice attached, written as his Approve or Hold on that lane PR at the head view.json read, with the tap's ts as his presence, as a card tap is; his words still reach the lane beside it."""
+    """His tap on an Approve #N or Hold #N button the voice attached, written as his Approve or Hold on that lane PR at the head view.json read; his words still reach the lane beside it."""
     if not (found := TAPPED_PR.match(words)):
         return
     label, number = found[1], int(found[2])

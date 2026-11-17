@@ -1,7 +1,9 @@
 """The verbs that change a lane: open, his message, his ruling, park, end_turn and the owner's own writes. Each is one locked write, and no verb writes a fourth state."""
 
 import json
-from datetime import timedelta
+import re
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from lane import facts, store
 
@@ -25,7 +27,7 @@ def live_drives_holding(repo: str, number: int) -> list[str]:
 
 
 def tapped(drive: str, repo: str, number: int, label: str, head: str, source: str, ts: str | None = None, named: bool = False) -> list[str]:
-    """His Approve or Hold on a lane PR at a head, written on each row carrying it: an Approve sets its approved_head, so lane-land lands it on its next pass, and lifts his Hold only as his later word on that PR: a tap that names it, not a stack card covering it, whose ts is after the Hold, or within PRESENT_SECONDS for a Hold whose time is unknown, so a replayed or carried Approve never clears a Hold, as #17808's did; and a Hold names when and where he gave it; a waiting lane carrying it wakes. A tap given with its ts, his Slack action's or the moment his dashboard sent it, is his presence too, so a dangerous PR he approves lands within his 15 minutes; one recorded by hand passes none and moves no presence. The lanes it was written on."""
+    """His Approve or Hold on a lane PR at a head, written on each row carrying it: an Approve sets its approved_head, so lane-land lands it on its next pass, and lifts his Hold only as his later word on that PR: a tap that names it, not a stack card covering it, whose ts is after the Hold, or within PRESENT_SECONDS for a Hold whose time is unknown, so a replayed or carried Approve never clears a Hold, as #17808's did; and a Hold names when and where he gave it; a waiting lane carrying it wakes. The lanes it was written on."""
     if label not in TAP_LABELS:
         raise store.Refused(f"his tap is Approve or Hold, not {label!r}")
     carrying = [lane_id for lane_id, lane in store.load_all(drive).items() if any((row["repo"], row["number"]) == (repo, number) for row in lane["prs"])]
@@ -48,8 +50,6 @@ def tapped(drive: str, repo: str, number: int, label: str, head: str, source: st
 
     for lane_id in carrying:
         store.update(drive, lane_id, tapping)
-    if ts:
-        store.heard(drive, [{"ts": ts, "link": source if source.startswith("https://") else None}])
     store.kick(drive)
     return carrying
 
@@ -122,14 +122,13 @@ def unpark(drive: str, lane_id: str) -> None:
 
 
 def take_messages(drive: str, lanes: dict[str, dict], lane_id: str, asks: list[dict], cap: int) -> int:
-    """Append his messages and taps to a lane by ts, once each, and keep his presence from their Slack ts by store.heard, the one inbound path for his words. An owner started before its hook read his unanswered words, which fires only on the handover note, gets each one appended to that note whole, so it reads it at its next tool call. A parked lane unparks on his word, since his ask would otherwise wait unanswered; past the cap the check names it. The count appended."""
+    """Append his messages and taps to a lane by ts, once each, the one inbound path for his words. An owner started before its hook read his unanswered words, which fires only on the handover note, gets each one appended to that note whole, so it reads it at its next tool call. A parked lane unparks on his word, since his ask would otherwise wait unanswered; past the cap the check names it. The count appended."""
     lane = lanes[lane_id]
     known = {ask.get("ts") for ask in lane.get("asks", []) if ask.get("ts")}
     fresh = [ask for ask in asks if not ask.get("ts") or ask["ts"] not in known]
     if not fresh:
         return 0
     lane["asks"] = [*lane.get("asks", []), *fresh]
-    store.heard(drive, fresh)
     if lane["state"] == store.RUNNING and not (lane.get("owner") or {}).get("asks_hook"):
         with store.note_path(drive, lane_id).open("a") as note:
             note.write("".join(f"His words to this lane at {ask['at']}{', ' + ask['link'] if ask.get('link') else ''}, not answered yet: answer them with `lane say` now.\n{ask['words']}\n\n" for ask in fresh))
@@ -456,17 +455,29 @@ def adopt(drive: str, paths: list[str], rulings_only: bool = False) -> list[str]
     return said
 
 
+CLOCK = re.compile(r"\b(1[0-2]|0?[1-9]):([0-5]\d)\s?([AaPp])\.?[Mm]\b")
+PACIFIC = ZoneInfo("America/Los_Angeles")
+
+
+def clocked(found: re.Match[str]) -> datetime:
+    """A typed clock time, as today's in Pacific."""
+    hour = int(found[1]) % 12 + (12 if found[3].lower() == "p" else 0)
+    return store.now().astimezone(PACIFIC).replace(hour=hour, minute=int(found[2]), second=0, microsecond=0)
+
+
 def handover(drive: str, lane_id: str, text: str | None, writer: str | None = None) -> None:
     """Add one entry, stamped and signed by its writer, to the note every owner of the lane reads at its start, such as the old jobs still running on its work, which is no ask of his and wants no reply; an owner running now is shown the entry at its next tool call. With no text, clear every entry, which is the owner's call once it has adopted them."""
     if text is not None and not writer:
         raise store.Refused("a handover entry names its writer: --from")
+    if text is not None and (typed := [found[0] for found in CLOCK.finditer(text) if clocked(found) <= store.now() and "tomorrow" not in text[found.end() : found.end() + 14]]):
+        raise store.Refused(f"the entry types {', '.join(typed)}, a time already past: the entry is stamped with its write time for you, so a time for something done is never typed; type a time only for a bound still ahead")
 
     def setting(lane: dict) -> None:
         if text is None:
             lane["handover"] = None
             store.note(lane, "handover cleared")
             return
-        entry = f"[{store.stamp()} from {writer}]\n{text.strip()}"
+        entry = f"[written {store.now().astimezone(PACIFIC).strftime('%-I:%M %p')} PT ({store.stamp()}) by {writer}]\n{text.strip()}"
         lane["handover"] = f"{lane['handover']}\n\n{entry}" if lane.get("handover") else entry
         store.note(lane, f"handover entry from {writer}")
         if lane["state"] == store.RUNNING:

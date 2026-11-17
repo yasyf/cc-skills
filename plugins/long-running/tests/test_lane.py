@@ -696,16 +696,14 @@ def test_his_page_shows_only_stacks_ready_for_his_tap_and_counts_the_rest_by_why
     assert "3 more not ready" in page.drawn(DRIVE)
 
 
-def test_his_stack_card_tap_lands_on_each_member_and_is_his_presence(world: dict) -> None:
+def test_his_stack_card_tap_lands_on_each_member(world: dict) -> None:
     from drive import card
 
     opened("a", prs=[("acme/app", 7), ("acme/app", 8)])
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     card.answered({"repo": "acme/app", "number": 7, "label": "Approve", "heads": {"acme/app#7": "h7", "acme/app#8": "h8"}, "source": "pressed the button", "action_ts": "1794870000.000100", "waits": ""})
     assert [row["approved_head"] for row in store.load(DRIVE, "a")["prs"]] == ["h7", "h8"]
-    assert json.loads((store.drive_dir(DRIVE) / store.PRESENCE).read_text())["ts"] == "1794870000.000100"
-    verbs.tapped(DRIVE, "acme/app", 7, "Hold", "h7", "recorded by hand")
-    assert json.loads((store.drive_dir(DRIVE) / store.PRESENCE).read_text())["ts"] == "1794870000.000100"
+    assert not (store.drive_dir(DRIVE) / "presence.json").exists()
 
 
 def test_his_lane_screens_show_each_lane_its_owner_at_work_and_its_record(world: dict) -> None:
@@ -847,18 +845,6 @@ def test_his_word_to_an_owner_between_turns_is_put_before_it_as_a_message_once_i
     assert len(sent) == 1 and "where does #57961 stand?" in sent[0]
 
 
-def test_his_terminal_words_make_him_present_only_moving_forward_and_touch_no_lane(world: dict) -> None:
-    opened("a")
-    before = store.load(DRIVE, "a")
-    said = store.now() - timedelta(minutes=2)
-    assert store.present(DRIVE, "merge it", said, "terminal") is True
-    assert store.parse(json.loads((store.drive_dir(DRIVE) / store.PRESENCE).read_text())["at"]) == said.replace(microsecond=0)
-    assert store.present(DRIVE, "older words", said - timedelta(minutes=5), "terminal") is False
-    assert store.load(DRIVE, "a") == before
-    logged = [json.loads(line) for line in (store.drive_dir(DRIVE) / "events.jsonl").read_text().splitlines()]
-    assert [row["words"] for row in logged if row.get("kind") == "present"] == ["merge it", "older words"]
-
-
 def test_the_old_drives_hooks_know_every_lane_owners_session(world: dict) -> None:
     opened("a")
     supervisor.run_pass(DRIVE)
@@ -954,3 +940,12 @@ def test_lane_install_keeps_his_dashboard_beside_the_lanes_and_boots_out_the_old
     assert ["launchctl", "bootstrap"] in ran
     ran.clear()
     assert supervisor.dashboard(DRIVE) == [] and ran == []
+
+
+def test_a_handover_entry_is_stamped_with_its_write_time_and_refuses_a_typed_time_already_past(world: dict) -> None:
+    opened("a")
+    past = (store.now() - timedelta(minutes=20)).astimezone(verbs.PACIFIC).strftime("%-I:%M %p")
+    with pytest.raises(store.Refused, match="a time already past"):
+        verbs.handover(DRIVE, "a", f"pushed the fix at {past}", "drive-redesign")
+    verbs.handover(DRIVE, "a", "pushed the fix; results by 9:00 AM tomorrow", "drive-redesign")
+    assert store.load(DRIVE, "a")["handover"].startswith("[written ") and " PT (" in store.load(DRIVE, "a")["handover"]

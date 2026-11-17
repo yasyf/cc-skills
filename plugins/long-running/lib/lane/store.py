@@ -5,7 +5,6 @@ import json
 import os
 import re
 import secrets
-import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -32,7 +31,6 @@ DEFAULTS = {
     "checkout": None,
     "staging_targets": ["plat-usw2-staging"],
 }
-PRESENCE = "presence.json"
 LIVE = "live"
 NOT_LANES = ("rank", "config", "supervisor", "presence", "rulings", "queue", "view")
 RULINGS = "rulings.shared.json"
@@ -288,33 +286,6 @@ def write_lane(drive: str, lane: dict) -> None:
             token.write_text(owner["token"] + "\n")
     else:
         token.unlink(missing_ok=True)
-
-
-def heard(drive: str, asks: list[dict]) -> None:
-    """Keep when he was last present: the newest Slack ts among his own messages and taps reaching a lane, only ever moving forward, so a dangerous land reads his 15 minutes from his words alone, and start a landing pass of the units only his presence lets land at once, ahead of the periodic pass, once the drive is live. take_messages is its one caller."""
-    if not (stamped := [ask for ask in asks if ask.get("ts")]):
-        return
-    newest = max(stamped, key=lambda ask: float(ask["ts"]))
-    path = drive_dir(drive) / PRESENCE
-    if path.is_file() and float(json.loads(path.read_text())["ts"]) >= float(newest["ts"]):
-        return
-    fresh = path.with_name(f".presence.{os.getpid()}.tmp")
-    fresh.write_text(json.dumps({"at": stamp(datetime.fromtimestamp(float(newest["ts"]), UTC)), "ts": newest["ts"], "link": newest.get("link")}) + "\n")
-    fresh.replace(path)
-    if live(drive):
-        subprocess.Popen([str(Path(__file__).resolve().parents[2] / "bin" / "lane-land"), "--drive", drive, "land", "--guarded"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-
-
-def present(drive: str, words: str, at: datetime, source: str) -> bool:
-    """Keep his words outside a lane's channel, his terminal included, as his presence: presence.json moves to at when it is newer, with no ask and no lane, and the words go to the event log either way. True when presence moved."""
-    event(drive, {"kind": "present", "source": source, "said_at": stamp(at), "words": words})
-    path = drive_dir(drive) / PRESENCE
-    if path.is_file() and parse(json.loads(path.read_text())["at"]) >= at:
-        return False
-    fresh = path.with_name(f".presence.{os.getpid()}.tmp")
-    fresh.write_text(json.dumps({"at": stamp(at), "ts": f"{at.timestamp():.6f}", "link": None, "source": source}) + "\n")
-    fresh.replace(path)
-    return True
 
 
 def event(drive: str, row: dict) -> None:

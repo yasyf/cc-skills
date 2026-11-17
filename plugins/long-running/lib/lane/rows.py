@@ -160,7 +160,7 @@ def rule_key(drive: str) -> str:
 
 
 def presence(drive: str, files: dict[str, tuple[str, list[str]]], key: str) -> dict[str, dict]:
-    """Each head's presence mark, {head, classes, rule}: the repository's broad [[dangerous]] tables and its provider's dangerous_paths, by state.dangerous_in as the providers of the drive's checkout read them, which hold a merge until he is present but never ask a staging pass; none with no checkout configured, so those heads stay unjudged and hold."""
+    """Each head's presence mark, {head, classes, rule}: the repository's broad [[dangerous]] tables and its provider's dangerous_paths, by state.dangerous_in as the providers of the drive's checkout read them, which mark the head and never ask a staging pass; none with no checkout configured, so those heads stay unjudged and hold."""
     from drive import providers, state
 
     if not (checkout := store.config(drive)["checkout"]):
