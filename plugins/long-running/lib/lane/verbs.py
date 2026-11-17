@@ -113,10 +113,10 @@ def premerge_revoke(drive: str, repo: str, number: int, why: str, by: str) -> li
 
     def revoking(lane: dict) -> None:
         for row in lane["prs"]:
-            if (row["repo"], row["number"]) == (repo, number) and row.pop("premerge_exempt", None):
+            if (row["repo"], row["number"]) == (repo, number) and (row.pop("premerge_exempt", None) or row.pop("not_sandsql", None)):
                 store.note(lane, f"{repo}#{number} lost its premerge exemption, so its verdict decides its test before merge again: {why} ({by})")
 
-    marked = [lane_id for lane_id, lane in store.load_all(drive).items() if any((row["repo"], row["number"]) == (repo, number) and row.get("premerge_exempt") for row in lane["prs"])]
+    marked = [lane_id for lane_id, lane in store.load_all(drive).items() if any((row["repo"], row["number"]) == (repo, number) and (row.get("premerge_exempt") or row.get("not_sandsql")) for row in lane["prs"])]
     for lane_id in marked:
         store.update(drive, lane_id, revoking, leaving_unreplied=True)
     store.kick(drive)
