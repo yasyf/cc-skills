@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import ack, approve, audit, board, facts, page, queue, rank, store, verbs, voice, work
+from lane import ack, approve, audit, board, events, facts, page, queue, rank, store, verbs, voice, work
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -449,7 +449,10 @@ def supervise(drive: str) -> None:
     if gh := store.config(drive).get("gh"):
         os.environ[facts.GH_ENV] = gh
     heartbeat(drive, store.now(), [])
+    delivered_at = -1
     if store.live(drive):
+        for line in alone(drive, [], "GitHub is not delivering to this Mac", lambda: events.receiving(drive)) or []:
+            print(line, flush=True)
         try:
             for line in dashboard(drive):
                 print(line, flush=True)
@@ -470,7 +473,12 @@ def supervise(drive: str) -> None:
             out.write(json.dumps({"at": store.stamp(), "good": good, "started": result["started"], "errors": result["errors"], "lines": lines}) + "\n")
         seen = kick.stat().st_mtime if kick.exists() else 0.0
         deadline = time.monotonic() + store.config(drive)["pass_seconds"]
+        delivered = events.deliveries_path()
         while time.monotonic() < deadline and (kick.stat().st_mtime if kick.exists() else 0.0) == seen:
+            if delivered.is_file() and delivered.stat().st_size != delivered_at:
+                delivered_at = delivered.stat().st_size
+                for line in alone(drive, [], "a GitHub delivery was not handled", lambda: events.github(drive)) or []:
+                    print(f"{store.stamp()} {line}", flush=True)
             time.sleep(1)
 
 

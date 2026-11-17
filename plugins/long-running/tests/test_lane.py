@@ -1367,3 +1367,21 @@ def test_his_message_reaches_a_running_owner_with_a_builder_out_in_the_call_that
     told = voice.heard("C1", None, "status?", "https://x.slack.com/archives/C1/p1794883276477119", "1794883276.477119")
     assert told.startswith("a: 1 new, delivered to its running owner") and len(sent) == 1 and "status?" in sent[0][1] and "--re 1794883276.477119" in sent[0][1]
     assert voice.heard("C1", None, "status?", None, "1794883276.477119") == "a: seen before" and len(sent) == 1
+
+
+def test_a_github_delivery_naming_a_lane_pr_wakes_the_lane_waiting_on_it_in_the_call_that_reads_it(world: dict, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from lane import events
+
+    log = tmp_path / "deliveries.jsonl"
+    log.write_text(json.dumps({"kind": "delivery", "repo": "acme/app", "event": "push", "base": "old"}) + "\n")
+    monkeypatch.setattr(events, "deliveries_path", lambda: log)
+    opened("a", prs=[("acme/app", 7)])
+    supervisor.run_pass(DRIVE)
+    ended("a", ["pr_merged:acme/app#7"])
+    assert events.github(DRIVE) == []
+    world["prs"][("acme/app", 7)] = pull(state="MERGED", rollup="SUCCESS")
+    with log.open("a") as out:
+        out.write(json.dumps({"kind": "delivery", "repo": "acme/app", "event": "pull_request", "numbers": [7]}) + "\n")
+    said = events.github(DRIVE)
+    assert "woke a" in said and store.load(DRIVE, "a")["state"] != store.WAITING or store.load(DRIVE, "a")["wait"].get("fired")
+    assert events.github(DRIVE) == []

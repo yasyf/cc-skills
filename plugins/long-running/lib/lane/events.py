@@ -1,5 +1,8 @@
 """Each thing that happens, handled in the call that reports it, by his words "everything used to be fast bc it was event based": his message reaches its owner in the call that hears it, and his tap starts the lander in the call that writes it. The supervisor's pass only replays what a source lost."""
 
+import json
+from pathlib import Path
+
 from lane import owner as owners
 from lane import store
 
@@ -41,3 +44,77 @@ def tapped(drive: str, landed: list[str]) -> str:
 
     supervisor.lane_land.spawn(drive)
     return f"his tap on {', '.join(landed)}; the lander started"
+
+
+CURSOR = "deliveries.cursor"
+
+
+def deliveries_path() -> Path:
+    from drive import receiver
+
+    return receiver.deliveries_path()
+
+
+def new_deliveries(drive: str) -> list[dict]:
+    """GitHub's deliveries the receiver took since this drive last read them, from its log; the drive's cursor moves past them."""
+    found = deliveries_path()
+    cursor = store.drive_dir(drive) / CURSOR
+    end = found.stat().st_size if found.is_file() else 0
+    start = int(cursor.read_text()) if cursor.is_file() else end
+    if start > end:
+        start = 0
+    if start == end:
+        cursor.write_text(str(end))
+        return []
+    with found.open("rb") as log:
+        log.seek(start)
+        chunk = log.read(end - start)
+    whole = chunk[: chunk.rfind(b"\n") + 1]
+    cursor.write_text(str(start + len(whole)))
+    return [json.loads(line) for line in whole.decode().splitlines() if line.strip()]
+
+
+def named_keys(drive: str, deliveries: list[dict]) -> set[tuple[str, int]]:
+    """The lane PRs the deliveries name: by number, by the head a check or status ran at, by the branch a status is on, and every open lane PR on a base a push moved, whose mergeability that push can change."""
+    from lane import page
+
+    seen = page.view(drive)["prs"]
+    rows = {(row["repo"], row["number"]) for lane in store.load_all(drive).values() for row in lane["prs"]}
+    keys = set()
+    for delivery in deliveries:
+        repo = delivery.get("repo")
+        mine = {key for key in rows if key[0] == repo}
+        keys |= {key for key in mine if key[1] in (delivery.get("numbers") or [])}
+        keys |= {key for key in mine if (pull := seen.get(f"{key[0]}#{key[1]}")) and (pull.get("head") == delivery.get("head") or pull.get("branch") in (delivery.get("branches") or []) or delivery.get("base") and pull.get("base") == delivery["base"] and pull.get("state") == "OPEN")}
+    return keys
+
+
+def github(drive: str) -> list[str]:
+    """Each GitHub delivery since the last, handled now: the lane PRs it names read once, kept on his page, each lane waiting on one of them woken when its fact holds, the queue given each fix they now need, and the lander started on them; what it did."""
+    if not (deliveries := new_deliveries(drive)) or not (keys := named_keys(drive, deliveries)):
+        return []
+    from lane import facts, page, verbs, work
+    from lane import supervisor
+
+    prs = facts.read_prs(keys, commits=1)
+    page.merge_view(drive, prs, store.now())
+    said = [f"{len(deliveries)} deliveries named {len(keys)} lane PRs"]
+    for lane_id, lane in store.load_all(drive).items():
+        if lane["state"] != store.WAITING:
+            continue
+        held = [event for event in lane["wait"]["on"] if event["kind"] in ("pr_merged", "check") and facts.pr_ref(event["ref"]) in prs and facts.holds(drive, lane, event, prs)]
+        if held:
+            verbs.wake(drive, lane_id, f"GitHub just said {', '.join(event['kind'] + ' ' + event['ref'] for event in held)}")
+            said.append(f"woke {lane_id}")
+    said += work.adds(drive)
+    supervisor.lane_land.spawn(drive)
+    return said
+
+
+def receiving(drive: str) -> list[str]:
+    """Keep GitHub delivering to this Mac for every lane repository: the old drive's receiver kept under launchd behind its Tailscale Funnel path, and a webhook of it on each lane repository this account administers; what it changed."""
+    from drive import receiver
+
+    receiver.keep()
+    repos = {row["repo"] for lane in store.load_all(drive).values() for row in lane["prs"]}
+    return [f"hooked {repo}" for repo in receiver.unhooked(repos) if receiver.hook(repo)]
