@@ -8,6 +8,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import traceback
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
@@ -261,6 +262,18 @@ def exclusive(path: Path) -> Iterator[bool]:
         finally:
             path.unlink()
 
+def alone(drive: str, what: str, step):
+    """Run one step of a landing pass that the merge step does not read, so its failure is written to the drive's alerts, which check reports, and the pass goes on to land, by drive-redesign's 9:44 PM words that each step of a pass stands alone: a Buildkite 401 in the staging queue kept the lander from submitting anything from 04:22Z to 05:09Z."""
+    try:
+        return step()
+    except Exception as failed:
+        line = f"{what}: {type(failed).__name__}: {failed}"
+        print(f"{line}; the pass goes on")
+        with (store.drive_dir(drive) / supervisor.ALERTS).open("a") as out:
+            out.write(json.dumps({"at": store.stamp(), "step": what, "error": line, "trace": traceback.format_exc()[-2000:]}) + "\n")
+        return None
+
+
 
 def land(args: argparse.Namespace) -> None:
     """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, takes out of the merge queue each PR that waits on a staging proof by dequeued(), puts every staging test the lanes owe on the work queue by stager.queue, uses each head's verdict the judge worker already wrote, never judging inside the pass, prints what his Approve lands now in each lane, reads the merge queue's row for every unit in one call, and in live mode submits every unit the queue does not hold by merged(), UNITS_AT_ONCE at a time, and exits; the next pass reads what came of each."""
@@ -289,11 +302,11 @@ def land(args: argparse.Namespace) -> None:
                     if row.get("mergeable") == "CONFLICTING" and not row.get("merged") and fixes.landable(row, row["head"]):
                         conflicted(args.drive, lane, [landing.key(row)], lambda row=row: conflict_said(checkout, row))
         if stager.live(args.drive) and not args.dry_run:
-            for said in dequeued(args.drive, checkout, list(unstaged)):
+            for said in alone(args.drive, "taking unproven PRs out of the merge queue", lambda: dequeued(args.drive, checkout, list(unstaged))) or []:
                 print(said)
             if not args.lane:
-                print(f"staging items queued or kept: {len(stager.queue(args.drive, seen_lanes))}")
-            for said in frozen(args.drive, seen_lanes):
+                print(f"staging items queued or kept: {len(alone(args.drive, "queueing staging tests", lambda: stager.queue(args.drive, seen_lanes)) or [])}")
+            for said in alone(args.drive, "reading release freezes", lambda: frozen(args.drive, seen_lanes)) or []:
                 print(said)
         if not units:
             return

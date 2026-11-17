@@ -198,7 +198,7 @@ def queue(drive: str, lanes: list[dict]) -> list[str]:
     for lane in lanes:
         for stack in landing.stacks(lane):
             open_rows = [row for row in stack if not row.get("merged")]
-            if open_rows and not landing.proven(open_rows) and any(landing.judged(row) and landing.dangerous(row) for row in open_rows):
+            if open_rows and open_rows[-1]["head"] and not landing.proven(open_rows) and any(landing.judged(row) and landing.dangerous(row) for row in open_rows):
                 keys = [landing.key(row) for row in open_rows]
                 added.append(work.add(drive, "staging-before", lane["id"], keys[0], before_words(drive, keys, open_rows[-1]["head"]), head=open_rows[-1]["head"], touches=targets, by="lane-land")["id"])
         for row in lane["prs"]:

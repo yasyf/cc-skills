@@ -503,3 +503,16 @@ def test_a_premerge_lane_pr_skips_its_test_before_merge_only_on_a_clear_no_to_wh
     lane_of = {"id": "sandsql-engine", "prs": [candidate(57931, 0.09), candidate(56519, 0.54), candidate(56950, 0.1, head="old"), candidate(57401, 0.05, rule="older")]}
     read = {f"Forge-AI/monorepo#{number}": {"head": "h"} for number in (57931, 56519, 56950, 57401)}
     assert [pr["premerge"] for pr in rows.seen(lane_of, read, "r", ["sandsql-engine"])["prs"]] == [False, True, True, True]
+
+
+def test_a_side_step_of_the_landing_pass_that_fails_is_written_to_the_alerts_and_the_pass_goes_on(monkeypatch, tmp_path, capsys) -> None:
+    from lane import cli, supervisor
+
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+
+    def unauthorized() -> list[str]:
+        raise RuntimeError("ci bk: 401 Authentication required")
+
+    assert cli.alone("durable-agents", "queueing staging tests", unauthorized) is None
+    assert cli.alone("durable-agents", "reading release freezes", lambda: ["frozen"]) == ["frozen"]
+    assert "the pass goes on" in capsys.readouterr().out and "401" in (tmp_path / supervisor.ALERTS).read_text()
