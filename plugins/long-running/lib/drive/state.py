@@ -19,7 +19,7 @@ import traceback
 import uuid
 from calendar import monthrange
 from collections import Counter
-from collections.abc import Callable, Collection, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator, MutableMapping
 from contextlib import AbstractContextManager, closing, contextmanager, suppress
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
@@ -340,6 +340,7 @@ READ_ONLY = {
 }
 GH_FIELDS = {"-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"}
 DATABASE = "drive.db"
+NORMALIZATION = "1"
 MAC_BOXES_LOG = "mac-boxes.log"
 BACKUP = "drive.json.before-sqlite"
 MOVED = "moved_to"
@@ -1090,34 +1091,85 @@ def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
     return rows_read(path, fields)
 
 
+class Rows(MutableMapping):
+    """Independent mutable records decoded on access, retaining their encoded baseline and tracking added or removed keys."""
+
+    def __init__(self, encoded: dict[str, str]) -> None:
+        self.encoded = encoded
+        self.loaded: dict[str, dict] = {}
+        self.deleted: set[str] = set()
+
+    def __getitem__(self, key: str) -> dict:
+        if key in self.deleted:
+            raise KeyError(key)
+        if key not in self.loaded:
+            self.loaded[key] = json.loads(self.encoded[key])
+        return self.loaded[key]
+
+    def __setitem__(self, key: str, value: dict) -> None:
+        self.deleted.discard(key)
+        self.loaded[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        if key not in self:
+            raise KeyError(key)
+        self.loaded.pop(key, None)
+        if key in self.encoded:
+            self.deleted.add(key)
+
+    def __contains__(self, key: object) -> bool:
+        return key not in self.deleted and (key in self.loaded or key in self.encoded)
+
+    def __iter__(self) -> Iterator[str]:
+        yield from (key for key in self.encoded if key not in self.deleted)
+        yield from (key for key in self.loaded if key not in self.encoded)
+
+    def __len__(self) -> int:
+        return len(self.encoded) - len(self.deleted) + sum(key not in self.encoded for key in self.loaded)
+
+    def changed(self) -> set[str]:
+        """Only accessed records can have nested edits; untouched encoded records require no comparison or decoding."""
+        return self.deleted | {key for key, value in self.loaded.items() if key not in self.encoded or json.dumps(value) != self.encoded[key] and value != json.loads(self.encoded[key])}
+
+    def copy(self) -> dict:
+        return dict(self.items())
+
+    def __or__(self, other: dict) -> dict:
+        return self.copy() | other
+
+    def __ior__(self, other: dict) -> "Rows":
+        self.update(other)
+        return self
+
+
 class Snapshot:
     """A normalized drive encoded by row, with independent reads and unchanged rows shared by write baselines."""
 
     def __init__(self, data: dict) -> None:
         self.order = tuple(data)
-        self.fields = {field: marshal.dumps(value, ROW_MARSHAL) for field, value in data.items() if field not in COLLECTIONS}
-        self.collections = {field: {key: marshal.dumps(row, ROW_MARSHAL) for key, row in value.items()} for field, value in data.items() if field in COLLECTIONS}
+        self.fields = {field: json.dumps(value) for field, value in data.items() if field not in COLLECTIONS}
+        self.collections = {field: {key: json.dumps(row) for key, row in value.items()} for field, value in data.items() if field in COLLECTIONS}
+
+    @classmethod
+    def saved(cls, rows: dict[str, dict[str, tuple[int, str | None]]]) -> "Snapshot":
+        """Keep normalized database bodies encoded; constructing a view parses no historical records."""
+        snapshot = cls.__new__(cls)
+        snapshot.order = tuple(rows.get("", {}))
+        snapshot.fields = {key: body for key, (_, body) in rows.get("", {}).items() if body is not None}
+        snapshot.collections = {field: {key: body for key, (_, body) in rows.get(field, {}).items()} for field, (_, body) in rows.get("", {}).items() if body is None}
+        return snapshot
 
     def read(self, fields: tuple[str, ...] | None = None) -> dict:
         """Decode only the requested fields into independent mutable values."""
-        return {field: {key: marshal.loads(row) for key, row in self.collections[field].items()} if field in self.collections else marshal.loads(self.fields[field]) for field in (self.order if fields is None else fields)}
+        return {field: Rows(self.collections[field]) if field in self.collections else json.loads(self.fields[field]) for field in (self.order if fields is None else fields)}
 
     def baseline(self, mine: dict) -> dict:
-        """Reuse unchanged current values and decode only changed or removed original rows."""
-        baseline = {}
-        for field in self.order:
-            if field in self.collections:
-                current = mine.get(field, {})
-                previous = {key: current[key] if key in current and marshalled(current[key]) == row else marshal.loads(row) for key, row in self.collections[field].items()}
-                baseline[field] = current if previous.keys() == current.keys() and all(previous[key] is current[key] for key in previous) else previous
-            else:
-                row = self.fields[field]
-                baseline[field] = mine[field] if field in mine and marshalled(mine[field]) == row else marshal.loads(row)
-        return baseline
+        """The original rows stay encoded until conflict handling reads a changed row."""
+        return self.read()
 
 
-def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]], fields: tuple[str, ...] | None = None) -> dict:
-    """The drive's whole saved state as shape brings it up to this install's fields, from this process's copy of its rows, which caught_up brings up to the database once another connection committed since, as PRAGMA data_version on the copy's own connection that never writes says, reading only the rows written since; a fresh copy of what it shaped last while none did, so a verb's many loads parse and shape the drive's rows once, and a shape that says it read something outside the database that may change with no commit is shaped again on each load. Shaping runs outside READING, since it may read the drive itself. Its reads wait on another connection's write no longer than the running write's budget leaves, by waiting, so a write's load counts against that budget, and unlocked turns a wait run out into Busy there."""
+def whole(path: Path, fields: tuple[str, ...] | None = None) -> dict:
+    """Read normalized row bodies without parsing collections, catching up only changed database rows and preserving the revision used by tracked writes."""
     key = (path, path.stat().st_ino)
     with READING:
         if (copy := WHOLE_READS.get(key)) is None:
@@ -1132,19 +1184,18 @@ def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]], fields: tuple[
         if now != copy.version:
             caught_up(copy)
             copy.version = now
-        rev, saved = copy.rev, copy.built_back()
-    data, keep = shape(saved)
-    if keep or LOADED_BASE.get() is not None:
-        encoded = Snapshot(data)
-        if keep:
-            with READING:
-                if (copy.rev, copy.version) == (rev, now):
-                    copy.shaped, copy.shaped_rev = encoded, rev
-        if (baseline := LOADED_BASE.get()) is not None:
-            baseline[:] = [encoded]
+        rev, saved = copy.rev, {field: dict(records) for field, records in copy.rows.items()}
+    if copy.normalization != NORMALIZATION:
+        raise DriveError(f"{path.parent.name}: run drive install to normalize its database before reading it")
+    encoded = Snapshot.saved(saved)
+    with READING:
+        if (copy.rev, copy.version) == (rev, now):
+            copy.shaped, copy.shaped_rev = encoded, rev
+    if (baseline := LOADED_BASE.get()) is not None:
+        baseline[:] = [encoded]
     LOADED_VERSION.set(now)
     LOADED_REV.set(rev)
-    return data if fields is None else {field: data[field] for field in fields}
+    return encoded.read(fields)
 
 
 def unchanged_since(name: str, version: int | None) -> bool:
@@ -1158,22 +1209,23 @@ def unchanged_since(name: str, version: int | None) -> bool:
 
 
 class Copy:
-    """This process's copy of a drive's database: each row's place and body, parsed and kept as marshal bytes, by collection and key, as of rev, the newest entry the changed table held then, or None while it held no such table; shaped, what those rows shaped into last when shaping read nothing outside the database."""
+    """An ordered cache of database row bodies and its normalized lazy snapshot at one committed revision."""
 
     def __init__(self, path: Path) -> None:
         self.watcher = sqlite3.connect(path, timeout=WRITE_BUDGET_SECONDS, check_same_thread=False, isolation_level=None)
         self.version: int | None = None
         self.rev: int | None = None
-        self.rows: dict[str, dict[str, tuple[int, bytes | None]]] = {}
+        self.rows: dict[str, dict[str, tuple[int, str | None]]] = {}
+        self.normalization: str | None = None
         self.shaped: Snapshot | None = None
         self.shaped_rev: int | None = None
 
     def built_back(self) -> dict:
         """The drive the rows hold, as rows_read builds it back."""
-        data = {field: {} if body is None else marshal.loads(body) for field, (_, body) in self.rows.get("", {}).items()}
+        data = {field: {} if body is None else json.loads(body) for field, (_, body) in self.rows.get("", {}).items()}
         for collection, records in self.rows.items():
             if collection:
-                data[collection] = {key: marshal.loads(body) for key, (_, body) in records.items()}
+                data[collection] = {key: json.loads(body) for key, (_, body) in records.items()}
         return data
 
     def patch(self, rows: dict[str, dict[str, tuple[int, str | None] | None]]) -> None:
@@ -1186,7 +1238,7 @@ class Copy:
                     held.pop(key, None)
                 else:
                     moved |= key not in held or held[key][0] != row[0]
-                    held[key] = (row[0], None if row[1] is None else marshal.dumps(json.loads(row[1]), ROW_MARSHAL))
+                    held[key] = row
             if moved:
                 self.rows[collection] = dict(sorted(held.items(), key=lambda item: item[1][0]))
             self.shaped = None
@@ -1209,6 +1261,8 @@ def caught_up(copy: Copy) -> None:
                 rows.setdefault(collection, {})[key] = (place, body)
         copy.patch(rows)
         copy.rev = last
+        normalization = db.execute("SELECT value FROM meta WHERE key = 'normalization'").fetchone()
+        copy.normalization = normalization[0] if normalization else None
     finally:
         db.execute("COMMIT")
 
@@ -1265,7 +1319,7 @@ def bound(data: dict) -> dict:
 
 
 def load(name: str, fields: tuple[str, ...] | None = None) -> dict:
-    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, in memory and from what is on this Mac alone, whatever install saved it last. Inside a batch, the batch's copy as its writes so far left it. It writes nothing: a one-time change to the drive's files is `migrate`'s, since every drive command, hook and watch pass reads through here at once. When fields are named, return only those fields, decoding no other field from an unchanged snapshot. All copies of its acyclic JSON records are materialized without cyclic garbage collection, which would repeatedly scan every retained drive copy while allocating them; the caller's collector setting is restored on return or error."""
+    """Read independent mutable row views from an explicitly normalized store, decoding only accessed records and preserving the caller's collector setting."""
     collecting = gc.isenabled()
     gc.disable()
     try:
@@ -1277,7 +1331,7 @@ def load(name: str, fields: tuple[str, ...] | None = None) -> dict:
             return data if fields is None else {field: data[field] for field in fields}
         if (attempt := ATTEMPT.get()) is not None and attempt.name == name:
             attempt.reads.update({("", "*"), *((collection, "*") for collection in COLLECTIONS)})
-        return whole(path, lambda saved: shaped(name, saved), fields)
+        return whole(path, fields)
     finally:
         if collecting:
             gc.enable()
@@ -2192,6 +2246,7 @@ def migrate(name: str) -> None:
     """Make each one-time change to the drive's files that an older install's drive still owes, each skipped once its mark exists, and an older install's driver row, dropped by folded_driver; `drive install` runs it from the new install before any session reloads onto it and `drive start` on the drive it makes, and two at once take turns under the drive's migrate lock, the second finding each mark written. A drive still in drive.json moves into its database first, by moved, before this takes that lock, which moved takes too."""
     moved(name)
     with migrating(name):
+        normalize_store(name)
         data = load(name)
         if "driver" in stored(name, ("driver",)) or unsaved_marks(name, data):
             folded_driver(name)
@@ -2209,6 +2264,29 @@ def migrate(name: str) -> None:
             reopen_jev_fold(name, data)
         if not (drive_dir(name) / HANDOFF_JOBS).exists():
             read_handoff_jobs(name, data)
+
+
+def normalize_store(name: str) -> None:
+    """Normalize an installed drive once, atomically, before runtime reads use its rows directly."""
+    with closing(connect(database_path(name))) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            held = db.execute("SELECT value FROM meta WHERE key = 'normalization'").fetchone()
+            if held and held[0] == NORMALIZATION:
+                db.execute("COMMIT")
+                return
+            rows = db.execute("SELECT collection, key, place, body FROM rows ORDER BY collection, place").fetchall()
+            saved = {key: {} if body is None else json.loads(body) for collection, key, _, body in rows if not collection}
+            for collection, key, _, body in rows:
+                if collection:
+                    saved[collection][key] = json.loads(body)
+            data, _ = shaped(name, saved)
+            rewrite(db, data, None)
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('normalization', ?)", (NORMALIZATION,))
+            db.execute("COMMIT")
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
 
 
 def unsaved_marks(name: str, data: dict) -> bool:
@@ -4116,7 +4194,7 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     held = {key: waits for key, pr in data["prs"].items() if pr["state"] in github.UNLANDED and (waits := view.holding(data, [wait for wait in pr["waits"] if wait in ours], None))}
     if not held:
         return None
-    taken = marshal.loads(marshal.dumps(data))
+    taken = marshal.loads(marshal.dumps(materialized(data)))
     take_result(taken, job_id, line, report)
     post_staging_proof(taken, job_id, line, report, proven=True)
     if not (freed := [key for key, waits in held.items() if not view.holding(taken, waits, None)]):
@@ -4829,6 +4907,7 @@ def save(name: str, data: dict) -> None:
         os.replace(built(name, data), path)
         pointed(name, data)
         return
+    data = shaped(name, materialized(data))[0]
     key = (path, path.stat().st_ino)
     with closing(connect(path)) as db:
         db.execute("BEGIN IMMEDIATE")
@@ -4857,7 +4936,8 @@ def built(name: str, data: dict) -> Path:
         db.executescript(TABLES)
         db.execute("BEGIN IMMEDIATE")
         db.execute("INSERT INTO meta VALUES ('schema', ?)", (SCHEMA,))
-        rewrite(db, data, None)
+        rewrite(db, shaped(name, data)[0], None)
+        db.execute("INSERT INTO meta VALUES ('normalization', ?)", (NORMALIZATION,))
         db.execute("COMMIT")
     return path
 
@@ -4873,15 +4953,15 @@ def rewrite(db: sqlite3.Connection, data: dict, copy: Copy | None) -> tuple[list
     if not current:
         for collection, key, place, body in db.execute("SELECT collection, key, place, body FROM rows"):
             kept.setdefault(collection, {})[key] = (place, body)
-    parse = marshal.loads if current else json.loads
-    stored = (lambda body: body and json.dumps(marshal.loads(body))) if current else (lambda body: body)
+    parse = json.loads
+    stored = lambda body: body
     foreign = {collection for collection in kept if collection and collection not in COLLECTIONS and collection not in FIELDS_ONCE_COLLECTIONS}
     top = {field: None if field in COLLECTIONS or field in foreign else json.dumps(value) for field, value in data.items()}
     changed = {"": {field: body for field, body in top.items() if (was := kept.get("", {}).get(field)) is None or stored(was[1]) != body}}
     for collection in COLLECTIONS:
         held, changed[collection] = kept.get(collection, {}), {}
         for key, record in data.get(collection, {}).items():
-            if (was := held.get(key)) and current and was[1] == marshalled(record):
+            if (was := held.get(key)) and current and was[1] == json.dumps(record):
                 continue
             body = json.dumps(record)
             if not was or stored(was[1]) != body:
@@ -4925,14 +5005,6 @@ def newer_saver(name: str) -> str | None:
 
 def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split("."))
-
-
-def marshalled(record: object) -> bytes | None:
-    """A record as a Copy keeps it, or None while it holds a value marshal cannot write but JSON writes as its base type, such as an instance of a str subclass an edit just set, which the record's JSON then compares."""
-    try:
-        return marshal.dumps(record, ROW_MARSHAL)
-    except ValueError:
-        return None
 
 
 def drop_ended_texts(data: dict, ended: dict[str, str]) -> list[str]:
@@ -5149,7 +5221,10 @@ def written_rows(base: dict, mine: dict) -> set[Row]:
     """Each row mine holds differently from base: a top-level field under "", else a collection's record by its key."""
     rows = {("", field) for field in {*base, *mine} if field not in COLLECTIONS and base.get(field, ABSENT) != mine.get(field, ABSENT)}
     for collection in COLLECTIONS:
-        if (was := base.get(collection, {})) != (now := mine.get(collection, {})):
+        was, now = base.get(collection, {}), mine.get(collection, {})
+        if isinstance(was, Rows) and isinstance(now, Rows) and was.encoded is now.encoded:
+            rows.update((collection, key) for key in now.changed())
+        elif was != now:
             rows |= {(collection, key) for key in {*was, *now} if was.get(key, ABSENT) != now.get(key, ABSENT)}
     return rows
 
@@ -5195,7 +5270,7 @@ def changed_since(name: str, rev: int) -> tuple[int, set[Row] | None]:
     return newest, rows
 
 
-def loaded_raw(name: str) -> tuple[dict, dict[str, dict[str, tuple[int, bytes | None]]] | None, Snapshot]:
+def loaded_raw(name: str) -> tuple[dict, dict[str, dict[str, tuple[int, str | None]]] | None, Snapshot]:
     """The drive as load reads it, its unshaped rows while its database keeps no changed table, and its normalized fields encoded at that same load, which a write uses as its baseline without encoding the whole drive again. Unshaped rows are each collection's copy, since a later catch-up patches them in place, loading again while another thread's load or save moved the copy past it; None for the rows once the table is there. Baseline capture is scoped to this load alone."""
     path = database_path(name)
     baseline: list[Snapshot] = []
@@ -5214,9 +5289,9 @@ def loaded_raw(name: str) -> tuple[dict, dict[str, dict[str, tuple[int, bytes | 
         LOADED_BASE.reset(capturing)
 
 
-def raw_row(raw: dict[str, dict[str, tuple[int, bytes | None]]], row: Row) -> object:
+def raw_row(raw: dict[str, dict[str, tuple[int, str | None]]], row: Row) -> object:
     """A record or top-level field as the database held it in rows loaded_raw read, unshaped, ABSENT where it held none."""
-    return ABSENT if (found := raw.get(row[0], {}).get(row[1])) is None else {} if found[1] is None else marshal.loads(found[1])
+    return ABSENT if (found := raw.get(row[0], {}).get(row[1])) is None else {} if found[1] is None else json.loads(found[1])
 
 
 def waiting() -> "Budget":
@@ -5358,67 +5433,43 @@ class Reads(set[Row]):
     pass
 
 
-class ReadCollection(dict):
-    """A collection of the drive that records in reads each record a write reads by its key, and every record, as "*", once it lists, counts or walks them."""
+class ReadCollection(MutableMapping):
+    """Record the keys a write reads while preserving lazy record access."""
 
-    def __init__(self, collection: str, records: dict, reads: Reads) -> None:
-        super().__init__(records)
-        self.collection, self.reads = collection, reads
+    def __init__(self, collection: str, records: MutableMapping, reads: Reads) -> None:
+        self.collection, self.records, self.reads = collection, records, reads
 
     def __getitem__(self, key: str) -> object:
         self.reads.add((self.collection, key))
-        return super().__getitem__(key)
+        return self.records[key]
 
-    def get(self, key: str, default: object = None) -> object:
-        self.reads.add((self.collection, key))
-        return super().get(key, default)
+    def __setitem__(self, key: str, value: object) -> None:
+        self.records[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.records[key]
 
     def __contains__(self, key: object) -> bool:
         self.reads.add((self.collection, str(key)))
-        return super().__contains__(key)
-
-    def setdefault(self, key: str, default: object = None) -> object:
-        self.reads.add((self.collection, key))
-        return super().setdefault(key, default)
-
-    def pop(self, key: str, *default: object) -> object:
-        self.reads.add((self.collection, key))
-        return super().pop(key, *default)
-
-    def everything(self) -> None:
-        self.reads.add((self.collection, "*"))
+        return key in self.records
 
     def __iter__(self) -> Iterator[str]:
-        self.everything()
-        return super().__iter__()
+        self.reads.add((self.collection, "*"))
+        return iter(self.records)
 
     def __len__(self) -> int:
-        self.everything()
-        return super().__len__()
+        self.reads.add((self.collection, "*"))
+        return len(self.records)
 
-    def keys(self):  # type: ignore[override]
-        self.everything()
-        return super().keys()
+    def __or__(self, other: dict) -> dict:
+        return self.copy() | other
 
-    def values(self):  # type: ignore[override]
-        self.everything()
-        return super().values()
-
-    def items(self):  # type: ignore[override]
-        self.everything()
-        return super().items()
-
-    def __eq__(self, other: object) -> bool:
-        self.everything()
-        return super().__eq__(other)
-
-    def __or__(self, other: dict) -> dict:  # type: ignore[override]
-        self.everything()
-        return dict(super().items()) | other
+    def __ior__(self, other: dict) -> "ReadCollection":
+        self.update(other)
+        return self
 
     def copy(self) -> dict:
-        self.everything()
-        return dict(super().items())
+        return dict(self.items())
 
 
 class Attempt(NamedTuple):
@@ -5489,7 +5540,12 @@ class ReadDrive(dict):
 
 def plain(data: dict) -> dict:
     """The drive a ReadDrive holds, as plain dicts, recording no reads."""
-    return {field: dict(dict.items(value)) if isinstance(value, ReadCollection) else value for field, value in dict.items(data)}
+    return {field: value.records if isinstance(value, ReadCollection) else value for field, value in dict.items(data)}
+
+
+def materialized(data: dict) -> dict:
+    """Explicit full-drive operations turn lazy collections into ordinary dictionaries."""
+    return {field: dict(value.items()) if isinstance(value, MutableMapping) and not isinstance(value, dict) else value for field, value in data.items()}
 
 
 def fields_set(record: dict, mine: object, fields: set[str]) -> dict:
@@ -5505,7 +5561,7 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
         data = load(name)
         with changing(Attempt(name, data, Reads(), AFTER_SAVE[name])):
             done = change(data)
-        BATCHED[name] = marshal.dumps(data)
+        BATCHED[name] = marshal.dumps(materialized(data))
         return done
     seconds = WRITE_BUDGET_SECONDS if budget is None else budget
     waits = Budget(time.monotonic(), math.inf if patient else seconds)
@@ -5594,7 +5650,7 @@ def committed(name: str, base: bytes, mine: dict) -> tuple[int | None, list[Call
     for _ in range(UPDATE_TRIES):
         now = load(name)
         since = LOADED_REV.get()
-        saved = marshal.loads(marshal.dumps(merged(was, mine, now)))
+        saved = marshal.loads(marshal.dumps(merged(was, mine, materialized(now))))
         if not (written := tuple(sorted(written_rows(now, saved)))):
             return None, []
         try:
@@ -5611,7 +5667,7 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
         yield []
         return
     lines: list[str] = []
-    BATCHED[name] = base = marshal.dumps(load(name))
+    BATCHED[name] = base = marshal.dumps(materialized(load(name)))
     AFTER_SAVE[name] = []
     taken: list[tuple[str, str, int]] = []
     tokens = EDITING.set(name), TAKEN_IDS.set(taken), BATCHING.set(name)

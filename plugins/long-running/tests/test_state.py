@@ -423,14 +423,14 @@ def test_a_load_after_another_processs_save_reads_only_the_rows_that_save_wrote_
 def test_cold_cached_and_batched_loads_skip_cyclic_scans_and_preserve_caller_collection(state_root: Path, monkeypatch: pytest.MonkeyPatch, collecting: bool) -> None:
     path = ordered("demo", 3)
     state.WHOLE_READS.pop((path, path.stat().st_ino), None)
-    original = state.marshal.loads
+    original = state.json.loads
     scans: list[bool] = []
 
-    def decode(body: bytes) -> dict:
+    def decode(body: str) -> dict:
         scans.append(gc.isenabled())
         return original(body)
 
-    monkeypatch.setattr(state.marshal, "loads", decode)
+    monkeypatch.setattr(state.json, "loads", decode)
     was_collecting = gc.isenabled()
     (gc.enable if collecting else gc.disable)()
     try:
@@ -464,18 +464,18 @@ def test_selected_loads_decode_only_requested_fields_and_keep_independent_copies
         mark.touch()
     whole = state.load("demo")
     cached = state.WHOLE_READS[(path, path.stat().st_ino)].shaped
-    decoded: list[bytes] = []
-    loads = state.marshal.loads
+    decoded: list[str] = []
+    loads = state.json.loads
 
-    def decode(body: bytes) -> dict:
+    def decode(body: str) -> dict:
         decoded.append(body)
         return loads(body)
 
-    monkeypatch.setattr(state.marshal, "loads", decode)
+    monkeypatch.setattr(state.json, "loads", decode)
     selected = state.load("demo", fields)
-    assert selected == {field: whole[field] for field in fields}
     assert cached is not None
-    assert decoded == [body for field in fields for body in (cached.collections[field].values() if field in cached.collections else [cached.fields[field]])]
+    assert decoded == [cached.fields[field] for field in fields if field not in cached.collections]
+    assert selected == {field: whole[field] for field in fields}
     if "orders" in selected:
         selected["orders"]["o0"]["text"] = "only this caller"
         assert state.load("demo", fields)["orders"]["o0"]["text"] == "order 0"
@@ -515,57 +515,38 @@ def test_writes_reuse_the_loaded_snapshot_without_encoding_the_whole_drive(
 @pytest.mark.parametrize("collecting", [True, False])
 def test_write_baseline_reuses_unchanged_fields_and_decodes_changes_without_cyclic_scans(monkeypatch: pytest.MonkeyPatch, collecting: bool) -> None:
     before = {"jobs": {"j1": {"text": "unchanged"}}, "orders": {"o1": {"text": "before"}}, "terminal": "removed"}
-    encoded = state.Snapshot(before)
-    mine = {"jobs": before["jobs"], "orders": {"o1": {"text": "after"}}, "owner": "added"}
-    loads = state.marshal.loads
-    decoded: list[bytes] = []
-
-    def decode(value: bytes):
-        assert not gc.isenabled()
-        decoded.append(value)
-        return loads(value)
-
-    monkeypatch.setattr(state.marshal, "loads", decode)
+    snapshot = state.Snapshot(before)
+    mine = snapshot.read()
+    mine["orders"]["o1"]["text"] = "after"
+    del mine["terminal"]
+    mine["owner"] = "added"
     was_collecting = gc.isenabled()
     (gc.enable if collecting else gc.disable)()
     try:
-        baseline = state.write_baseline(encoded, mine)
+        baseline = state.write_baseline(snapshot, mine)
         assert gc.isenabled() == collecting
-        assert baseline == before
-        assert baseline["jobs"] is mine["jobs"]
-        assert baseline["orders"] is not mine["orders"]
-        assert decoded == [encoded.collections["orders"]["o1"], encoded.fields["terminal"]]
+        assert not baseline["jobs"].loaded and not baseline["orders"].loaded
         assert state.written_rows(baseline, mine) == {("orders", "o1"), ("", "terminal"), ("", "owner")}
-        broken = state.Snapshot({"broken": None})
-        broken.fields["broken"] = b""
-        with pytest.raises(EOFError):
-            state.write_baseline(broken, {})
-        assert gc.isenabled() == collecting
+        assert not baseline["jobs"].loaded
+        assert baseline == before
     finally:
         (gc.enable if was_collecting else gc.disable)()
 
 
 @pytest.mark.parametrize("count", [1, 1000])
-def test_row_snapshot_baseline_decodes_only_changed_and_removed_rows(monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+def test_row_snapshot_baseline_decodes_only_changed_and_removed_rows(count: int) -> None:
     before = {"jobs": {f"j{i}": {"text": f"job {i}", "reports": [i]} for i in range(count + 2)}, "owner": "same"}
     snapshot = state.Snapshot(before)
     mine = snapshot.read()
     mine["jobs"]["j0"]["reports"].append("changed")
     del mine["jobs"]["j1"]
     mine["jobs"]["added"] = {"text": "new"}
-    loads = state.marshal.loads
-    decoded: list[bytes] = []
-
-    def decode(body: bytes):
-        decoded.append(body)
-        return loads(body)
-
-    monkeypatch.setattr(state.marshal, "loads", decode)
     baseline = state.write_baseline(snapshot, mine)
-    assert baseline == before
-    assert decoded == [snapshot.collections["jobs"]["j0"], snapshot.collections["jobs"]["j1"]]
-    assert all(baseline["jobs"][f"j{i}"] is mine["jobs"][f"j{i}"] for i in range(2, count + 2))
     assert state.written_rows(baseline, mine) == {("jobs", "j0"), ("jobs", "j1"), ("jobs", "added")}
+    assert set(mine["jobs"].loaded) == {"j0", "added"}
+    assert not baseline["jobs"].loaded
+    assert baseline["jobs"]["j0"] == before["jobs"]["j0"]
+    assert len(baseline["jobs"].loaded) == 1
     mine["jobs"]["j0"]["reports"].append("later")
     assert baseline["jobs"]["j0"] == before["jobs"]["j0"]
 
@@ -581,6 +562,25 @@ def test_row_snapshot_baseline_preserves_json_serializable_typed_values() -> Non
     assert baseline == before
     assert state.written_rows(baseline, mine) == {("jobs", "j1"), ("", "owner")}
     assert isinstance(mine["jobs"]["j1"]["text"], Message)
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def test_normalized_load_and_tracked_write_leave_unaccessed_records_encoded(state_root: Path, monkeypatch: pytest.MonkeyPatch, warm: bool) -> None:
+    path = ordered("demo", 102)
+    if warm:
+        state.load("demo")
+    else:
+        state.WHOLE_READS.pop((path, path.stat().st_ino), None)
+    monkeypatch.setattr(state, "shaped", lambda *args: pytest.fail("runtime reads must not normalize the drive"))
+    data = state.load("demo")
+    assert not data["orders"].loaded
+    assert list(data["orders"]) == [f"o{i}" for i in range(102)]
+    assert not data["orders"].loaded
+    data["orders"]["o1"]["text"] = "only this caller"
+    assert set(data["orders"].loaded) == {"o1"}
+    state.write("demo", lambda current: current["orders"]["o1"].update(text="one changed row"))
+    assert state.saved_row("demo", "orders", "o1")["text"] == "one changed row"
+    assert data["orders"]["o1"]["text"] == "only this caller"
 
 
 def test_selected_loads_observe_other_processes_saves_and_batch_writes(state_root: Path) -> None:
