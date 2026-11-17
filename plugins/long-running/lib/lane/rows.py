@@ -41,7 +41,7 @@ def view(drive: str) -> dict[str, dict]:
 
 
 def seen(lane: dict, read: dict[str, dict], rule: str, premerge_lanes: list[str]) -> dict:
-    """The lane with each prs row joined to its PR's state from view(), in memory, a PR GitHub did not answer keeping no head, so it never lands, a verdict judged under a bar other than rule dropped, so a head stays unjudged and holds until judge() reads it against the bar in force, with `premerge` when the drive config's premerge_lanes names the lane, its SandSQL work, and with `foreign`, the commits since his approved head that our lanes' account did not author, by foreign()."""
+    """The lane with each prs row joined to its PR's state from view(), in memory, a PR GitHub did not answer keeping no head, so it never lands, a verdict judged under a bar other than rule dropped, so a head stays unjudged and holds until judge() reads it against the bar in force, with `premerge` when the drive config's premerge_lanes names the lane, so its every PR waits on a staging proof, and with `foreign`, the commits since his approved head that our lanes' account did not author, by foreign()."""
     joined = []
     for row in lane["prs"]:
         kept = {field: value for field, value in row.items() if field not in PR_STATE} | read.get(landing.key(row), {"head": None})

@@ -35,7 +35,7 @@ def hold(drive: str, lane_id: str, text: str) -> str:
 
 
 def queue_cli(drive: str) -> list[str]:
-    """The words, run from the drive's checkout, that read and submit to the repository's merge queue, from the drive config's queue_cli, as the monorepo's own queue script calls `tools/ci trunk`."""
+    """The words, run from the drive's checkout, that read and submit to the repository's merge queue, from the drive config's queue_cli."""
     return store.config(drive)["queue_cli"]
 
 
@@ -55,7 +55,7 @@ def queued(drive: str, checkout: Path, numbers: list[str]) -> dict[str, dict]:
 
 
 def dequeued(drive: str, checkout: Path, keys: list[str]) -> list[str]:
-    """Take out of the merge queue each PR it holds that waits on a staging proof before merge, SandSQL work by his 5:02 PM words, so a PR submitted before a ruling or a premerge_lanes entry named it never merges untested."""
+    """Take out of the merge queue each PR it holds that waits on a staging proof before merge, so a PR submitted before a ruling or a premerge_lanes entry named it never merges untested."""
     repo = queue_repo(checkout)
     numbers = [key.rpartition("#")[2] for key in keys if key.rpartition("#")[0] == repo]
     said = []

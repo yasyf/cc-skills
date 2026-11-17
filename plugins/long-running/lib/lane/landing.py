@@ -30,7 +30,7 @@ def tooling(row: dict) -> bool:
 
 
 def dangerous(row: dict) -> bool:
-    """Whether the head needs a staging pass before it merges: the narrow danger page names a class, or its lane is one the drive config's premerge_lanes names, whose every PR is SandSQL work whatever the judge scored."""
+    """Whether the head needs a staging pass before it merges: the narrow danger page names a class, or its lane is one the drive config's premerge_lanes names, whose every PR needs one whatever the judge scored."""
     return row["premerge"] or bool(row["dangerous"]["classes"])
 
 

@@ -5,7 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from lane import facts, queue, rank, store, supervisor, verbs, voice
+from lane import facts, queue, rank, stager, store, supervisor, verbs, voice
 from lane import owner as owners
 from lane import rows as lane_rows
 from lane import say as saying
@@ -65,6 +65,14 @@ def answered(lane_id: str) -> None:
 def ended(lane_id: str, on: list[str], until: str = "1h") -> None:
     answered(lane_id)
     verbs.end_turn(DRIVE, lane_id, token_of(lane_id), [verbs.parse_event(text) for text in on], until, "test wait")
+
+
+def asked(lane_id: str, cut: str) -> Path:
+    path = stager.lanes_dir(DRIVE) / stager.WANTS / f"{lane_id}.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps({"lane": lane_id, "cut": cut, "at": store.stamp()}))
+    return path
+
 
 
 def due(lane_id: str) -> None:
@@ -186,6 +194,7 @@ def test_finished_checks_and_a_cut_result_wake_the_owner(world: dict) -> None:
     opened("a")
     opened("b")
     ended("a", ["check:acme/app#7"])
+    asked("b", "cut-1")
     ended("b", ["staging_result:cut-1"])
     world["prs"][("acme/app", 7)] = pull(rollup="FAILURE")
     cut = facts.side_path(DRIVE, "cuts", "cut-1")
@@ -243,6 +252,7 @@ def test_replaying_his_229_pm_ruling_stores_his_words_refuses_the_252_paraphrase
     opened("a")
     opened("b")
     supervisor.run_pass(DRIVE)
+    asked("a", "cut-1")
     ended("a", ["staging_result:cut-1"], "2h")
     ended("b", ["his_reply"], "2h")
     with pytest.raises(store.Refused, match="not his words"):
@@ -1064,14 +1074,20 @@ def test_his_words_get_a_construction_mark_once_its_owner_runs_and_a_check_once_
     assert ("200.0", "white_check_mark", ["construction", "eyes"]) in world["slack"]
 
 
-def test_replaying_v3s_257_pm_wait_on_a_cut_no_stager_holds_fires_in_the_next_pass_and_twice_is_a_defect(world: dict) -> None:
+def test_replaying_v3s_257_pm_wait_on_a_cut_no_stager_holds_is_refused_one_whose_ask_goes_fires_in_the_next_pass_and_twice_is_a_defect(world: dict) -> None:
     opened("a")
     supervisor.run_pass(DRIVE)
+    with pytest.raises(store.Refused, match="no stager has taken or queued cut run-page-v3-20261116225700"):
+        ended("a", ["staging_result:run-page-v3-20261116225700"], "2h")
+    ask = asked("a", "run-page-v3-20261116225700")
     ended("a", ["staging_result:run-page-v3-20261116225700"], "2h")
+    ask.unlink()
     supervisor.run_pass(DRIVE)
     lane = store.load(DRIVE, "a")
     assert lane["state"] == store.RUNNING and "no stager has an ask open for cut run-page-v3-20261116225700" in lane["owner"]["woke"]
+    asked("a", "run-page-v3-20261116225700")
     ended("a", ["staging_result:run-page-v3-20261116225700"], "2h")
+    ask.unlink()
     supervisor.run_pass(DRIVE)
     assert store.load(DRIVE, "a")["defect"].startswith("its wait twice had nothing producing it")
     assert any(line.startswith("a: DEFECT") for line in supervisor.check(DRIVE)[1])
