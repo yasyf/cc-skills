@@ -1014,11 +1014,10 @@ def test_lane_install_keeps_his_dashboard_beside_the_lanes_and_boots_out_the_old
     assert supervisor.dashboard(DRIVE) == [] and ran == []
 
 
-def test_a_handover_entry_is_stamped_with_its_write_time_and_refuses_a_typed_time_already_past(world: dict) -> None:
+def test_a_handover_entry_is_stamped_with_its_write_time_and_keeps_a_quoted_past_time(world: dict) -> None:
     opened("a")
     past = (store.now() - timedelta(minutes=20)).astimezone(verbs.PACIFIC).strftime("%-I:%M %p")
-    with pytest.raises(store.Refused, match="a time already past"):
-        verbs.handover(DRIVE, "a", f"pushed the fix at {past}", "drive-redesign")
+    verbs.handover(DRIVE, "a", f"the owner promised the fix at {past}", "drive-redesign")
     verbs.handover(DRIVE, "a", "pushed the fix; results by 9:00 AM tomorrow", "drive-redesign")
     assert store.load(DRIVE, "a")["handover"].startswith("[written ") and " PT (" in store.load(DRIVE, "a")["handover"]
 

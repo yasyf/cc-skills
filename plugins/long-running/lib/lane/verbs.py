@@ -534,8 +534,6 @@ def handover(drive: str, lane_id: str, text: str | None, writer: str | None = No
     """Add one entry, stamped and signed by its writer, to the note every owner of the lane reads at its start, such as the old jobs still running on its work, which is no ask of his and wants no reply; an owner running now is shown the entry at its next tool call. With no text, clear every entry, which is the owner's call once it has adopted them."""
     if text is not None and not writer:
         raise store.Refused("a handover entry names its writer: --from")
-    if text is not None and (typed := [found[0] for found in CLOCK.finditer(text) if clocked(found) <= store.now() and "tomorrow" not in text[found.end() : found.end() + 14]]):
-        raise store.Refused(f"the entry types {', '.join(typed)}, a time already past: the entry is stamped with its write time for you, so a time for something done is never typed; type a time only for a bound still ahead")
 
     def setting(lane: dict) -> None:
         if text is None:
