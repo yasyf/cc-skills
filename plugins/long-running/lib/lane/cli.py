@@ -16,6 +16,8 @@ from lane import landing, releases, rows, stager, store, supervisor, verbs
 LANDING = "landing"
 LANDINGS = "landings"
 CONFLICTS = "conflicts"
+REVIEWS = "reviews"
+UNREVIEWED = re.compile(r"\bnot started on head\b")
 WATCH_SECONDS = 300
 CONFLICT = re.compile(r"CONFLICTING|conflicts with origin/")
 SKIP_MERGE_PREFLIGHT = "STACK_ENQUEUE_SKIP_MERGE_PREFLIGHT"
@@ -44,6 +46,8 @@ def merged(drive: str, lane: dict, keys: list[str], guarded: bool, checkout: Pat
     if (blocked := old_land.BLOCKED_LINE.search(checked.stdout)) and (cut := numbers.index(blocked["number"]) if blocked["number"] in numbers else 0):
         numbers, keys = numbers[:cut], keys[:cut]
         checked = subprocess.run([str(checkout / script), "--check", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
+    if refused := reviews_asked(drive, keys[0].rpartition("#")[0], checkout, checked.stdout):
+        return hold(drive, lane["id"], refused)
     if dry_run:
         return f"would queue {', '.join(keys)} at base {sha[:12]}; --check exited {checked.returncode}: {old_land.said(checked.stdout + checked.stderr)}"
     if failed := old_land.unfinished(drive, "--check", keys, checked):
@@ -58,6 +62,22 @@ def merged(drive: str, lane: dict, keys: list[str], guarded: bool, checkout: Pat
     if CONFLICT.search(said := done.stdout + done.stderr):
         conflicted(drive, lane, keys, old_land.said(said))
     return hold(drive, lane["id"], old_land.unfinished(drive, "--watch", keys, done) or f"not landed: --watch exited {done.returncode}: {old_land.said(said)}")
+
+
+def reviews_asked(drive: str, repo: str, checkout: Path, checked: str) -> str | None:
+    """Ask the repository's review bot, once per head, to review each head --check names BLOCKED on a review it has not started, as #53092's ai-review never started and its --watch waited on it for 29 minutes; why the unit holds when the ask was refused, None otherwise."""
+    from drive import land as old_land
+    from drive import providers
+
+    for line in old_land.BLOCKED_LINE.finditer(checked):
+        marker = store.drive_dir(drive) / LANDING / REVIEWS / f"{line['number']}-{line['head']}"
+        if not (old_land.OLDER_HEAD.search(line["gaps"]) or UNREVIEWED.search(line["gaps"])) or marker.exists():
+            continue
+        if refused := old_land.ask_review(providers.at(checkout).repo.review_ask, repo, line["number"], line["head"]):
+            return refused
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    return None
 
 
 def bounded(argv: list[str], cwd: Path, env: dict) -> subprocess.CompletedProcess | None:
