@@ -1574,7 +1574,7 @@ def test_an_answer_that_left_nothing_running_takes_a_check_and_construction_come
     opened("a", channel="C1")
     world["slack"] = []
     store.update(DRIVE, "a", lambda lane: lane["asks"][0].update({"ts": "200.0", "link": "https://x.slack.com/archives/C1/p200000", "replied": "QUEUED a1"}))
-    store.update(DRIVE, "a", lambda lane: lane.update({"state": store.RUNNING}))
+    store.update(DRIVE, "a", lambda lane: lane.update({"state": store.RUNNING, "wait": None}))
     ack.working(DRIVE)
     store.update(DRIVE, "a", lambda lane: lane.update({"state": store.WAITING, "owner": None, "wait": {"on": [{"kind": "his_reply"}], "until": store.stamp(), "why": "answered", "set": store.stamp()}}))
     ack.working(DRIVE)
