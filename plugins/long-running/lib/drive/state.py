@@ -4768,10 +4768,11 @@ def carrying(data: dict, order_id: str, other: str) -> bool:
     return any((job := data["jobs"][job_id])["order"] == order_id and other in job["carries"] or job["order"] == other and order_id in job["carries"] for job_id in data["orders"][order_id]["jobs"])
 
 
-def share_reporters(data: dict) -> None:
+def share_reporters(data: dict, order_ids: Iterable[str] | None = None) -> None:
     """Keep one record of a thread a bug was reported in for each fix: an order naming a thread kept by an order on the same fix, by carrying, keeps no copy and reads that order's record, by kept_by, so the thread hears the fix is live once; the record is kept by the order that told it, else by the oldest open one, and a different fix reported there keeps its own, even one a job carries beside it. Worked out afresh on each load, so a record its keeper drops, or closes untold, is kept again by an order naming it."""
     naming: dict[tuple[str, str], list[tuple[str, int]]] = {}
-    for order_id, order in data["orders"].items():
+    for order_id in data["orders"] if order_ids is None else order_ids:
+        order = data["orders"][order_id]
         if not order["reporters"] or order["kind"] == "answer":
             continue
         order["reporters"] = [reporter(held["link"]) if "kept_by" in held else held for held in order["reporters"]]
@@ -4785,6 +4786,44 @@ def share_reporters(data: dict) -> None:
                 order["reporters"][place] = {"link": held["link"], "channel": held["channel"], "thread": held["thread"], "kept_by": keeper}
             elif held["told"] or order["state"] not in CLOSED_ORDER_STATES:
                 keepers.append(order_id)
+
+
+def refresh_reporters(base: dict, current: dict, written: Iterable[Row], reads: Reads) -> None:
+    seeds = set()
+    for collection, key in written:
+        if collection not in ("orders", "jobs"):
+            continue
+        before, after = base[collection].get(key), current[collection].get(key)
+        fields = ("reporters", "state", "kind", "jobs", "created") if collection == "orders" else ("order", "carries")
+        if before is not None and after is not None and all(before.get(field) == after.get(field) for field in fields):
+            continue
+        if collection == "orders":
+            seeds.add(key)
+        else:
+            for job in (before, after):
+                if job:
+                    seeds.update([job["order"], *job["carries"]])
+
+    def connected(data: dict) -> set[str]:
+        held, pending = set(), list(seeds)
+        while pending:
+            order_id = pending.pop()
+            if order_id in held:
+                continue
+            reads.add(("orders", order_id))
+            if order_id not in data["orders"]:
+                continue
+            held.add(order_id)
+            for job_id in data["orders"][order_id]["jobs"]:
+                reads.add(("jobs", job_id))
+                if job_id in data["jobs"]:
+                    job = data["jobs"][job_id]
+                    pending.extend(other for other in (job["order"], *job["carries"]) if other not in held)
+        return held
+
+    if seeds:
+        selected = connected(base) | connected(current)
+        share_reporters(current, sorted(order_id for order_id in selected if order_id in current["orders"]))
 
 
 def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str) -> dict:
@@ -5632,6 +5671,8 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
                     continue
                 mine = plain(attempt.data)
                 was = write_baseline(base, mine)
+                written = tuple(sorted(written_rows(was, mine)))
+                refresh_reporters(was, attempt.data, written, reads)
                 written = tuple(sorted(written_rows(was, mine)))
                 try:
                     rev, post = rows_saved(name, {row: row_of(was, row) if raw is None else raw_row(raw, row) for row in written}, was, mine, written, since, frozenset(reads), waits) if written or attempt.effects else (None, [])

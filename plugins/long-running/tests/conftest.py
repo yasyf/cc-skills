@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, MutableMapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -641,7 +641,7 @@ def adopted_as(name: str, args: list[str], pid: int) -> int:
     token = args[args.index("--reserved") + 1]
 
     def found(value: object) -> None:
-        if isinstance(value, dict):
+        if isinstance(value, MutableMapping):
             if value.get("token") == token:
                 value |= {"state": "adopted", "child": state.born(pid)}
             for each in value.values():

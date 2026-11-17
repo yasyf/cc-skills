@@ -839,7 +839,7 @@ def test_migrate_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kep
     card = {"title": "Should row counts be exact?", "body": body, "options": ["Exact: one query per table", "Estimate: the planner's numbers"], "recommended": "Exact: one query per table", "waits": "demo:j1-7"}
     (drive / "cards.json").write_text(json.dumps({"closed": [], "pr_cards": [], "questions": [{"card": card}], "source": "live", "team_url": ""}))
     kept = drive / "asks" / "j1-7.md"
-    assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] == str(kept)
+    assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] is None
     state.migrate("demo")
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] == str(kept)
     assert kept.read_text() == (
