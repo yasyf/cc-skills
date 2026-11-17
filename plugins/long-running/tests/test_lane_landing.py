@@ -237,3 +237,18 @@ def test_a_stack_a_cut_cannot_carry_goes_back_in_line_unclaimed_so_the_next_stag
     assert "sandsql-engine" in stager.unserved("durable-agents")
     assert stager.starts("durable-agents", "engine-1") == "next"
     assert not (tmp_path / stager.CUTS / "engine-1.json").exists()
+
+
+def test_each_pass_files_an_ask_for_a_lane_owing_a_staging_test_closes_one_owing_none_and_waits_out_a_fresh_block(monkeypatch, tmp_path) -> None:
+    import json
+
+    from lane import stager
+
+    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(stager, "live", lambda drive: True)
+    stager.written(tmp_path / stager.WANTS / "run-page-v3.json", {"lane": "run-page-v3", "cut": "v3-1", "at": "2026-11-17T01:25:03Z", "claimed": "2026-11-17T01:25:03Z"})
+    stager.written(tmp_path / stager.CUTS / "blobstore-1.json", {"lane": "blobstore", "cut": "blobstore-1", "result": "blocked", "stacks": {}, "why": "nodes-4 exists nowhere"})
+    stager.reconcile("durable-agents", {"sandsql-engine", "blobstore"})
+    assert set(stager.wants("durable-agents")) == {"sandsql-engine"}
+    assert json.loads((tmp_path / stager.CUTS / "v3-1.json").read_text())["result"] == "after_merge"
+    assert stager.starts("durable-agents", stager.wants("durable-agents")["sandsql-engine"]["cut"]) == "next"

@@ -6,7 +6,7 @@ The tester is an agent (agents/stager.md). Code here gathers facts and records r
 import json
 import os
 import subprocess
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from lane import landing, rows, store
@@ -153,11 +153,16 @@ def result(drive: str, cut: str, stacks: dict[str, dict]) -> Path:
 
 def want(drive: str, lane_id: str) -> str:
     """A lane's ask for a staging test of its pending stack: kept under wants/ until a stager's cut serves it, one per lane, so asking again returns the same cut id; the cut id the lane waits on as staging_result:<id>. The lane never runs the test itself: a stager folds every waiting lane's stack into its cut, by his words "let me check if there's anything else pending I can pull in"."""
+    if not (lanes_dir(drive) / WANTS / f"{lane_id}.json").is_file() and not premerge(drive, lane_id):
+        return AFTER_MERGE
+    return filed(drive, lane_id)
+
+
+def filed(drive: str, lane_id: str) -> str:
+    """The cut id of the lane's open ask, filing one when it has none."""
     path = lanes_dir(drive) / WANTS / f"{lane_id}.json"
     if path.is_file():
         return json.loads(path.read_text())["cut"]
-    if not premerge(drive, lane_id):
-        return AFTER_MERGE
     cut = f"{lane_id}-{store.now().strftime('%Y%m%d%H%M%S')}"
     written(path, {"lane": lane_id, "cut": cut, "at": store.stamp()})
     return cut
@@ -214,6 +219,25 @@ def block(drive: str, lane_id: str, why: str) -> Path:
     path = written(lanes_dir(drive) / CUTS / f"{asked['cut']}.json", {"lane": lane_id, "cut": asked["cut"], "result": "blocked", "stacks": {}, "why": why})
     (lanes_dir(drive) / WANTS / f"{lane_id}.json").unlink()
     return path
+
+
+def reconcile(drive: str, owed: set[str]) -> None:
+    """Keep the asks in line with the lanes that owe a staging test before merge, read each landing pass: a lane that owes one and has no ask gets one, as want() files it, so a stack waits on no ask by hand after a block, a new head or his Approve; an ask of a lane that owes none is closed with an after_merge result, which wakes the lane to land on his Approve, so a ruling that narrows the bar re-judges every live staging wait at once."""
+    if not live(drive):
+        return
+    for lane_id in sorted(owed - blocked(drive)):
+        filed(drive, lane_id)
+    for lane_id, asked in wants(drive).items():
+        if lane_id not in owed:
+            written(lanes_dir(drive) / CUTS / f"{asked['cut']}.json", {"lane": lane_id, "cut": asked["cut"], "result": "after_merge", "stacks": {}, "why": AFTER_MERGE})
+            (lanes_dir(drive) / WANTS / f"{lane_id}.json").unlink()
+
+
+def blocked(drive: str) -> set[str]:
+    """The lanes a stager blocked within STAGER_MINUTES, whose ask reconcile() files again only after that, so a stack no cut can run starts no stager each pass."""
+    since = store.now() - timedelta(minutes=STAGER_MINUTES)
+    folder = lanes_dir(drive) / CUTS
+    return {read["lane"] for path in folder.glob("*.json") if datetime.fromtimestamp(path.stat().st_mtime, UTC) > since and (read := json.loads(path.read_text())).get("result") == "blocked"} if folder.is_dir() else set()
 
 
 def defer(drive: str, lane_id: str, why: str) -> Path:
