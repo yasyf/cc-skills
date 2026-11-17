@@ -1108,8 +1108,14 @@ def test_the_supervisor_starts_an_audit_every_15_minutes_that_files_defects_for_
     [argv] = started
     assert argv[:4] == ["claude", "-p", "--model", "sonnet"] and argv[argv.index("--effort") + 1] != "max"
     assert "a card asking him to merge PRs he already approved" in argv[-1] and "voice.md" in argv[-1] and "defect --what" in argv[-1]
-    filed = json.loads(audit.defect(DRIVE, "no 👀 on his 6:25 PM ask", "https://x/p1", "no ack on receipt", "lane-core").read_text())
-    assert (filed["kind"], filed["owner"]) == ("fix the system", "lane-core")
+    sent = []
+    monkeypatch.setattr(owners, "send", lambda to, text: sent.append((to, text)))
+    path = audit.defect(DRIVE, "no 👀 on his 6:25 PM ask", "https://x/p1", "no ack on receipt", "lane-core")
+    filed = json.loads(path.read_text())
+    assert (filed["kind"], filed["owner"], sent[0][0]) == ("fix the system", "lane-core", "lane-core") and "no 👀 on his 6:25 PM ask" in sent[0][1]
+    assert any(line.startswith(f"defect {path.stem} for lane-core, open 0m") for line in supervisor.check(DRIVE)[1])
+    audit.fixed(DRIVE, path.stem, "abc1234")
+    assert audit.open_defects(DRIVE) == []
 
 
 def test_the_pr_read_of_300_prs_goes_in_chunks_of_40_and_a_failed_chunk_drops_only_its_own(monkeypatch: pytest.MonkeyPatch) -> None:

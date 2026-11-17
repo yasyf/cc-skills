@@ -6,6 +6,7 @@ import subprocess
 from datetime import timedelta
 from pathlib import Path
 
+from lane import owner as owners
 from lane import session, store
 
 EVERY = timedelta(minutes=15)
@@ -62,11 +63,24 @@ def start(drive: str) -> str | None:
 
 
 def defect(drive: str, what: str, evidence: str, mechanism: str, owner: str) -> Path:
-    """File one "fix the system" item for the code's owner, with its evidence and the class of mechanism that let it through."""
+    """File one "fix the system" item for the code's owner, with its evidence and the class of mechanism that let it through, and deliver it to that owner's session at once, by the drive config's `defect_to` address for it, else its name, so no defect waits in a folder nobody reads."""
     path = store.drive_dir(drive) / DEFECTS / f"{store.stamp()}-{secrets.token_hex(2)}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"kind": "fix the system", "what": what, "evidence": evidence, "mechanism": mechanism, "owner": owner, "at": store.stamp(), "state": "open"}, ensure_ascii=False) + "\n")
+    to = (store.config(drive).get("defect_to") or {}).get(owner) or owner
+    owners.send(to, f"A defect of the lane system, found by the auditor, is yours to fix: {what}\nEvidence: {evidence}\nMechanism that let it through: {mechanism}\nWhen a commit fixes it: `{store.launcher(drive)} --drive {drive} defect-fixed {path.stem} --commit <sha>`.")
     return path
+
+
+def fixed(drive: str, defect_id: str, commit: str) -> None:
+    path = store.drive_dir(drive) / DEFECTS / f"{defect_id}.json"
+    kept = json.loads(path.read_text())
+    path.write_text(json.dumps(kept | {"state": "fixed", "commit": commit, "fixed_at": store.stamp()}, ensure_ascii=False) + "\n")
+
+
+def open_defects(drive: str) -> list[dict]:
+    folder = store.drive_dir(drive) / DEFECTS
+    return [{"id": path.stem, **kept} for path in sorted(folder.glob("*.json")) if (kept := json.loads(path.read_text()))["state"] == "open"] if folder.is_dir() else []
 
 
 def missed(drive: str, line: str) -> None:

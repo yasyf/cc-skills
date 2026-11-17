@@ -5,7 +5,7 @@ Read everything new since {since}:
 - every lane post and card as Slack renders it, buttons included: `cc-slack thread --channel <lane channel> --since-ts <epoch of {since}> --raw` for each lane's channel and thread;
 - the voice's sends and refusals: `cc-slack voice --last 50`;
 - the supervisor's errors and failed steps: {lanes}/checks.jsonl and {lanes}/alerts.jsonl; landing results in {lanes}/landing and {lanes}/landings; staging cuts in {lanes}/cuts;
-- the earlier audits in {audits}, so you never file a defect already filed.
+- the earlier audits in {audits}, so you never file a defect already filed, and the open defects in {lanes}/defects: one open over 30 minutes with no fix is itself a defect, filed again for its owner.
 
 Judge them against: the voice page {voice}, the owner page {owner}, his rulings ({lanes}/rulings.json and each lane's `rulings`, his words verbatim), the gold-standard post {gold}, and the misses below. The questions that matter, as a careful human colleague of his would ask them:
 - Did each ask of his move forward since it arrived, and did he get an answer he can act on? An ask with no reply, no 👀, or a reply that answers a different question is a defect.

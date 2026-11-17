@@ -115,11 +115,15 @@ def quiet_since(owner: dict) -> datetime | None:
 
 
 def deliver(owner: dict, text: str) -> None:
-    """Put text before the owner's session as a message from another of his sessions, which starts a turn in a session between turns, so words reach an owner whose hooks would only show them at a tool call it is not making: a one-call `claude -p` in the owners' permission class sends it with SendMessage, by the session name its job carries, in the background."""
+    """Put text before the owner's session as a message from another of his sessions, which starts a turn in a session between turns, so words reach an owner whose hooks would only show them at a tool call it is not making: by the session name its job carries, through send."""
     job = record(config_dir() / "jobs" / owner["job"] / "state.json") if owner.get("job") else None
-    if not job or not job.get("name"):
-        return
-    prompt = f'Call the SendMessage tool exactly once, with to set to "{job["name"]}" and message set to the text between the markers, verbatim. Do nothing else.\n<<<\n{text}\n>>>'
+    if job and job.get("name"):
+        send(job["name"], text)
+
+
+def send(to: str, text: str) -> None:
+    """A one-call `claude -p` in the owners' permission class sends text to the session or agent named to with SendMessage, in the background."""
+    prompt = f'Call the SendMessage tool exactly once, with to set to "{to}" and message set to the text between the markers, verbatim. Do nothing else.\n<<<\n{text}\n>>>'
     subprocess.Popen(shapes.argv(store.DEFAULTS, "acker", store.root(), {}, ["-p"], ["--permission-mode", "bypassPermissions", "--", prompt]), cwd=store.root(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 

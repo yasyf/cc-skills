@@ -125,6 +125,7 @@ def conflicts(checkout: Path, default: str, number: str) -> list[str]:
     return [path for path in done.stdout.splitlines()[1:] if path] if done.returncode == 1 else []
 
 
+@contextmanager
 def exclusive(path: Path) -> Iterator[bool]:
     """Hold a non-blocking lock for this process's life; whether it holds it."""
     path.parent.mkdir(parents=True, exist_ok=True)

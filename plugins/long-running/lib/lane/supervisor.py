@@ -20,6 +20,7 @@ QUIET_BEFORE_NUDGE = timedelta(seconds=60)
 NUDGE_EVERY = timedelta(minutes=10)
 ALERTS = "alerts.jsonl"
 GITHUB = "github.json"
+DEFECT_OPEN = timedelta(minutes=30)
 UNPRODUCED = "nothing is producing what it waits on"
 READERS = 6
 BOOTOUT_SECONDS = 30
@@ -310,6 +311,11 @@ def check(drive: str) -> tuple[bool, list[str]]:
         blocked = [entry for entry in board.entries(drive, lane_id) if entry["words"].startswith("blocked, from ")]
         if blocked and moment - store.parse(blocked[-1]["at"]) < timedelta(hours=1):
             lines.append(f"{lane_id}: BLOCKED {blocked[-1]['words'].removeprefix('blocked, from ')}")
+    for found in audit.open_defects(drive):
+        age = moment - store.parse(found["at"])
+        late = age > DEFECT_OPEN
+        good &= not late
+        lines.append(f"defect {found['id']} for {found['owner']}, open {int(age.total_seconds() // 60)}m{' OVERDUE' if late else ''}: {found['what']}")
     read = store.drive_dir(drive) / GITHUB
     if read.is_file() and (failed := json.loads(read.read_text())["failed"]):
         good = False

@@ -166,6 +166,9 @@ def main(argv: list[str] | None = None) -> int:
     defecting.add_argument("--evidence", required=True, help="a permalink or file:line")
     defecting.add_argument("--mechanism", required=True, help="the class of mechanism that let it through")
     defecting.add_argument("--owner", required=True, help="the lane that owns that code")
+    fixing = verbs_parser.add_parser("defect-fixed", help="close a defect the auditor filed, naming the commit that fixed it")
+    fixing.add_argument("defect")
+    fixing.add_argument("--commit", required=True)
     missing = verbs_parser.add_parser("audit-miss", help="a defect he found that the audits missed, kept as a rubric line every later audit checks")
     missing.add_argument("line")
     homing = verbs_parser.add_parser("home", help="move a lane's home to its project channel, out of his DM")
@@ -314,6 +317,9 @@ def run(args: argparse.Namespace) -> int:
         case "defect":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             print(audit.defect(drive, args.what, args.evidence, args.mechanism, args.owner))
+        case "defect-fixed":
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            audit.fixed(drive, args.defect, args.commit)
         case "audit-miss":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             audit.missed(drive, args.line)
