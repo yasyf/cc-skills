@@ -1829,3 +1829,15 @@ def test_a_red_item_is_pulled_before_rebases_queued_earlier(world: dict) -> None
     work.add(DRIVE, "rebase", "a", "acme/app#1", "rebase it", by="supervisor")
     work.add(DRIVE, "red", "a", "staging promotion runs green", "make it green", by="supervisor")
     assert work.pull(DRIVE)["top"]["kind"] == "red"
+
+
+
+
+def test_a_lane_land_block_comes_off_with_a_note_once_its_prs_merge_and_check_stops_reporting_it(world: dict) -> None:
+    opened("a")
+    verbs.blocked(DRIVE, "a", "the merge queue failed acme/app#56226, acme/app#56293 at 38425813000d", "lane-land", ["acme/app#56226", "acme/app#56293"])
+    verbs.blocked(DRIVE, "a", "a block only he can clear", "owner")
+    assert verbs.unblocked(DRIVE, "a", {"acme/app#56226"}, "they merged", "lane-land") == 0
+    assert verbs.unblocked(DRIVE, "a", {"acme/app#56226", "acme/app#56293"}, "they merged", "lane-land") == 1
+    assert [block["by"] for block in store.load(DRIVE, "a")["blocks"]] == ["owner"]
+    assert "unblocked, from lane-land" in store.note_path(DRIVE, "a").read_text()

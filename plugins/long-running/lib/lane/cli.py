@@ -215,7 +215,7 @@ def woken(drive: str, lane: dict, keys: list[str], kind: str, what: Callable[[],
         return
     said = what()
     if block:
-        verbs.blocked(drive, lane["id"], said, "lane-land")
+        verbs.blocked(drive, lane["id"], said, "lane-land", keys)
     verbs.handover(drive, lane["id"], f"- {said}", "lane-land")
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
@@ -294,6 +294,8 @@ def land(args: argparse.Namespace) -> None:
         for lane in seen_lanes:
             unstaged |= {landing.key(row): "it waits on a staging proof" for stack in landing.stacks(lane) if not landing.proven(stack) for row in stack if not row.get("merged") and landing.judged(row) and landing.dangerous(row)}
             unstaged |= {landing.key(row): f"it is or sits on {landing.key(stack[lost])}, which has no Approve of his at its head, and the queue would land it with them" for stack in landing.stacks(lane) if (lost := next((index for index, row in enumerate(stack) if landing.unapproved(row)), None)) is not None for row in stack[lost:] if not row.get("merged")}
+            if (landed := {landing.key(row) for row in lane["prs"] if row.get("merged")}) and any(block["by"] == "lane-land" and set(block.get("subjects") or [None]) <= landed for block in lane.get("blocks", [])) and not args.dry_run:
+                verbs.unblocked(args.drive, lane["id"], landed, "they merged", "lane-land")
             for verdict in landing.verdicts(lane):
                 print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
                 if verdict.lands and (stager.live(args.drive) or args.dry_run):

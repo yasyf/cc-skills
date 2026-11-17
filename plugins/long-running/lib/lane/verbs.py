@@ -401,17 +401,33 @@ def home(drive: str, lane_id: str, channel: str, thread: str | None) -> None:
     store.update(drive, lane_id, moving, leaving_unreplied=True)
 
 
-def blocked(drive: str, lane_id: str, what: str, by: str) -> None:
+def blocked(drive: str, lane_id: str, what: str, by: str, subjects: list[str] | None = None) -> None:
     """A refusal or blocker, written on the lane that waits on it and waking it, so no blocker lives only in a record another session must read."""
 
     def blocking(lane: dict) -> None:
         store.note(lane, f"blocked, from {by}: {what}")
-        lane["blocks"] = [*lane.get("blocks", []), {"what": what, "by": by, "at": store.stamp()}]
+        lane["blocks"] = [*lane.get("blocks", []), {"what": what, "by": by, "at": store.stamp()} | ({"subjects": subjects} if subjects else {})]
         if lane["state"] == store.WAITING:
             woken(lane, f"a blocker from {by}: {what}")
 
     store.update(drive, lane_id, blocking)
     store.kick(drive)
+
+
+def unblocked(drive: str, lane_id: str, subjects: set[str], why: str, by: str) -> int:
+    """Take off each of by's blockers on the lane whose every subject is in subjects, the PRs whose block cleared, with a note saying so, so neither the lane nor check reports a block that cleared, as #56226 and #56293's merge-queue failure was still reported 20 minutes after both merged. The count taken off."""
+    cleared = []
+
+    def unblocking(lane: dict) -> None:
+        kept = []
+        for block in lane.get("blocks", []):
+            (cleared if block["by"] == by and block.get("subjects") and set(block["subjects"]) <= subjects else kept).append(block)
+        lane["blocks"] = kept
+        for block in cleared:
+            store.note(lane, f"unblocked, from {by}: {block['what']} ({why})")
+
+    store.update(drive, lane_id, unblocking, leaving_unreplied=True)
+    return len(cleared)
 
 
 def set_next(drive: str, lane_id: str, token: str | None, text: str, says: str, serves: int | None = None, serves_none: str | None = None) -> None:

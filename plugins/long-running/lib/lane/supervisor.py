@@ -336,8 +336,6 @@ def alerted(drive: str, paged: set[str]) -> None:
 
 def overdue(drive: str, moment: datetime) -> None:
     """Each promise a lane's post stated, past its bound with no newer post in its thread, once: the owner is told it is overdue, woken if it waits and the promised work is queued as an item, so a promise like "PR by 3:45 PM" never sits unkept and unseen."""
-    from lane import audit
-
     for lane_id, lane in store.load_all(drive).items():
         late = [kept for kept in lane.get("promises", []) if not kept.get("followed") and not kept.get("overdue") and store.parse(kept["due"]) <= moment]
         if not late:
@@ -474,8 +472,8 @@ def check(drive: str) -> tuple[bool, list[str]]:
         if seen["at"] and (unread := [f"{row['repo']}#{row['number']}" for row in lane.get("prs", []) if f"{row['repo']}#{row['number']}" not in seen["prs"]]):
             good = False
             lines.append(f"{lane_id}: UNREAD {', '.join(unread)}: the last GitHub read gave no head for these rows, so nothing lands, cards or carries them")
-        blocked = [entry for entry in board.entries(drive, lane_id) if entry["words"].startswith("blocked, from ")]
-        if blocked and moment - store.parse(blocked[-1]["at"]) < timedelta(hours=1):
+        blocked = [entry for entry in board.entries(drive, lane_id) if entry["words"].startswith(("blocked, from ", "unblocked, from "))]
+        if blocked and blocked[-1]["words"].startswith("blocked, from ") and moment - store.parse(blocked[-1]["at"]) < timedelta(hours=1):
             lines.append(f"{lane_id}: BLOCKED {blocked[-1]['words'].removeprefix('blocked, from ')}")
     for found in audit.open_defects(drive):
         age = moment - store.parse(found["at"])
