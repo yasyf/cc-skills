@@ -570,6 +570,19 @@ def test_row_snapshot_baseline_decodes_only_changed_and_removed_rows(monkeypatch
     assert baseline["jobs"]["j0"] == before["jobs"]["j0"]
 
 
+def test_row_snapshot_baseline_preserves_json_serializable_typed_values() -> None:
+    class Message(str):
+        pass
+
+    before = {"jobs": {"j1": {"text": "before"}}, "owner": "old owner"}
+    snapshot = state.Snapshot(before)
+    mine = {"jobs": {"j1": {"text": Message("after")}}, "owner": Message("new owner")}
+    baseline = state.write_baseline(snapshot, mine)
+    assert baseline == before
+    assert state.written_rows(baseline, mine) == {("jobs", "j1"), ("", "owner")}
+    assert isinstance(mine["jobs"]["j1"]["text"], Message)
+
+
 def test_selected_loads_observe_other_processes_saves_and_batch_writes(state_root: Path) -> None:
     ordered("demo", 3)
     fields = ("terminal", "orders")
