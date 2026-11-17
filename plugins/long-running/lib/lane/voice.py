@@ -8,6 +8,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -266,16 +267,39 @@ def followed(drive: str, moment: datetime) -> list[dict]:
 
 def unsent(drive: str, lanes: dict[str, dict], rows: list[dict]) -> None:
     """Tell a lane's owner, once, of each post of its the voice took and never sent, its send failed or dropped, so a promise or news it believes he read is said again rather than recorded as told."""
-    path = store.drive_dir(drive) / SETTLED_FILE
-    done = json.loads(path.read_text()) if path.is_file() else {}
     for row in rows:
-        if row.get("lane") not in lanes or (key := f"unsent:{row['id']}") in done:
+        key = f"unsent:{row['id']}"
+        if row.get("lane") not in lanes or not marking(drive, lambda done: key not in done and bool(done.setdefault(key, store.stamp()))):
             continue
         told = f"Your post of {clock(row['at'])} never reached him ({row.get('error') or row.get('dropped')}), so he has not read: \"{(row.get('before') or '')[:300]}\". Fix what stopped it and say it again with `lane say`."
         verbs.handover(drive, row["lane"], f"- {told}", "lane-voice")
         verbs.wake(drive, row["lane"], told, if_waiting=True)
-        done[key] = store.stamp()
-    path.write_text(json.dumps(done))
+
+
+def marking(drive: str, mark: Callable[[dict], bool]) -> bool:
+    """Run mark over the drive's settled file as it stands under the drive's lock, and write the file back when it marks something, so no concurrent pass erases another's mark or acts on one it never read, and a pass that fails later keeps the marks it already made; whether it marked."""
+    path = store.drive_dir(drive) / SETTLED_FILE
+    with store.locked(drive):
+        done = json.loads(path.read_text()) if path.is_file() else {}
+        if not mark(done):
+            return False
+        fresh = path.with_name(f".{SETTLED_FILE}.{os.getpid()}.tmp")
+        fresh.write_text(json.dumps(done))
+        fresh.replace(path)
+        return True
+
+
+def kept_as(ts: str, field: str, value: str) -> Callable[[dict], bool]:
+    """The mark setting one field of a post's settled entry to value, which marks only when the field held something else."""
+
+    def mark(done: dict) -> bool:
+        kept = done.setdefault(ts, {})
+        if kept.get(field) == value:
+            return False
+        kept[field] = value
+        return True
+
+    return mark
 
 
 def sent_since(since: datetime) -> list[dict]:
@@ -298,22 +322,21 @@ def subject_keys(posts: list[dict]) -> set[tuple[str, int]]:
 def settle(drive: str, posts: list[dict], prs: dict[tuple[str, int], dict]) -> list[str]:
     """Make each followed post follow what it named, his order: "mesags should be tagged such that when the thing undernetht hem (such as an approval) changes they change state, autmoaticaly or by agent deopending on the situation". A PR merged or closed after the post, or approved or held by him on a question naming it, is mechanical: the post gets one state line, such as "✅ #57894 merged 3:18 PM", and loses its buttons. A PR given a new head since the post is a judgment, since the post's claims about it may no longer hold: its owner is told, once, to edit it. What each post was given is kept in the drive's settled file, so nothing is done twice; the permalinks it changed."""
     path = store.drive_dir(drive) / SETTLED_FILE
-    done = json.loads(path.read_text()) if path.is_file() else {}
     lanes = store.load_all(drive)
     changed = []
     releases = release_states(drive, {subject["ref"] for post in posts for subject in post["about"] if subject["kind"] == "release"})
     for post in posts:
         lane = lanes[post["lane"]]
         lines, stale = changes(post, lane, prs, releases)
-        kept = done.setdefault(post["ts"], {})
+        kept = (json.loads(path.read_text()) if path.is_file() else {}).get(post["ts"]) or {}
         if post.get("question") and not post.get("answer") and "ruled" not in kept:
             body = json.dumps({"channel_id": post["channel_id"], "ts": post["ts"], "thread_ts": post.get("thread_ts") or "", "question": post.get("after") or "", "options": post.get("options") or [], "rulings": rulings_of(drive, lane), **({"dry_run": True} if os.environ.get(DRY_RUN) else {})}).encode()
             with urllib.request.urlopen(urllib.request.Request(RULED_URL, body, {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())}), timeout=ENQUEUE_SECONDS * 10) as answer:
                 ruled = json.load(answer)
-                kept["ruled"] = ruled.get("line") or "none"
+            marking(drive, kept_as(post["ts"], "ruled", verdict := ruled.get("line") or "none"))
             if os.environ.get(DRY_RUN):
-                RENDERED.append({"lane": post["lane"], "kind": "ruled", "text": kept["ruled"], **ruled})
-            if kept["ruled"] != "none":
+                RENDERED.append({"lane": post["lane"], "kind": "ruled", "text": verdict, **ruled})
+            if verdict != "none":
                 changed.append(post["permalink"])
                 continue
         if lines and (line := " · ".join(lines)) != kept.get("line"):
@@ -324,13 +347,11 @@ def settle(drive: str, posts: list[dict], prs: dict[tuple[str, int], dict]) -> l
                     changed.append(permalink)
             if os.environ.get(DRY_RUN):
                 RENDERED.append({"lane": post["lane"], "kind": "settle", "text": line, **settled})
-            kept["line"] = line
-        if stale and (why := "; ".join(stale)) != kept.get("stale"):
+            marking(drive, kept_as(post["ts"], "line", line))
+        if stale and marking(drive, kept_as(post["ts"], "stale", why := "; ".join(stale))):
             told = f"Your post {post['permalink']} is stale because {why}. If what it says no longer holds, edit it: `lane say --edit {post['ts']} \"<the post as it should read now>\"`."
             verbs.handover(drive, post["lane"], f"- {told}", "lane-voice")
             verbs.wake(drive, post["lane"], told, if_waiting=True)
-            kept["stale"] = why
-    path.write_text(json.dumps(done))
     return changed
 
 
