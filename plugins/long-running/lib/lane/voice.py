@@ -282,7 +282,23 @@ def followed(drive: str, moment: datetime) -> list[dict]:
     with urllib.request.urlopen(urllib.request.Request(f"{POSTS_URL}?since={since}", headers={"X-Claude-Pid": str(os.getpid())}), timeout=ENQUEUE_SECONDS) as answer:
         listed = json.load(answer)
     lanes, taps = store.load_all(drive), listed.get("taps") or {}
+    unsent(drive, lanes, listed.get("unsent") or [])
     return [post | {"answer": taps.get(post["ts"]), "prs": post.get("prs") or named_prs(post.get("after") or "", {}), "about": [subject | ({"answer": taps.get(subject["ts"])} if subject["kind"] == "card" else {}) for subject in post.get("about") or []]} for post in listed.get("posts") or [] if post.get("lane") in lanes and post.get("ts")]
+
+
+def unsent(drive: str, lanes: dict[str, dict], rows: list[dict]) -> None:
+    """Tell a lane's owner, once, of each post of its the voice took and never sent, its send failed or dropped, so a promise or news it believes he read is said again rather than recorded as told."""
+    path = store.drive_dir(drive) / SETTLED_FILE
+    done = json.loads(path.read_text()) if path.is_file() else {}
+    for row in rows:
+        if row.get("lane") not in lanes or (key := f"unsent:{row['id']}") in done:
+            continue
+        told = f"Your post of {clock(row['at'])} never reached him ({row.get('error') or row.get('dropped')}), so he has not read: \"{(row.get('before') or '')[:300]}\". Fix what stopped it and say it again with `lane say`."
+        verbs.handover(drive, row["lane"], f"- {told}", "lane-voice")
+        if lanes[row["lane"]]["state"] == store.WAITING:
+            verbs.wake(drive, row["lane"], told)
+        done[key] = store.stamp()
+    path.write_text(json.dumps(done))
 
 
 def subject_keys(posts: list[dict]) -> set[tuple[str, int]]:

@@ -257,3 +257,16 @@ def test_a_cards_id_leaves_the_text_for_its_buttons_and_his_rulings_ride_a_quest
     voice.send("demo", lane, "13 PRs wait on your Approve (card 75976b).", None, ["Approve all 13", "Hold all"])
     assert (sent[0]["card"], "75976b" in sent[0]["text"]) == ("75976b", False)
     assert sent[0]["rulings"] == [{"at": "4:58 PM", "binds": "no staging hold"}, {"at": "12:00 PM", "binds": "ship the pool"}]
+
+
+def test_a_post_the_voice_never_sent_tells_its_owner_once(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    told = []
+    monkeypatch.setattr(voice.verbs, "handover", lambda drive, lane, text, by: told.append((lane, text)))
+    monkeypatch.setattr(voice.verbs, "wake", lambda drive, lane, text: told.append((lane, "woke")))
+    row = {"id": "a1", "lane": "releases", "at": "2026-11-16T15:56:41.000-08:00", "error": "channel_not_found", "before": "The everything-but-SandSQL release passed on staging."}
+    lanes = {"releases": {"state": store.WAITING}}
+    voice.unsent("d", lanes, [row, row | {"lane": "gone"}])
+    voice.unsent("d", lanes, [row])
+    assert told[0][0] == "releases" and "Your post of 3:56 PM never reached him (channel_not_found)" in told[0][1] and "release passed on staging" in told[0][1]
+    assert told[1:] == [("releases", "woke")]
