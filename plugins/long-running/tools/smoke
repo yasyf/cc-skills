@@ -134,6 +134,7 @@ tests=plugins/long-running/tests
   "$tests/test_watch.py::test_a_watch_process_a_newer_install_ends_at_its_first_read_still_says_a_never_started_jobs_orphan_and_heals_no_gap_its_lanes_were_not_read_for" \
   "$tests/test_state.py::test_normalized_load_and_tracked_write_leave_unaccessed_records_encoded" \
   "$tests/test_state.py::test_install_normalization_is_atomic_and_runs_once" \
+  "$tests/test_state.py::test_reporter_refresh_visits_only_connected_orders" \
   "$tests/test_state.py::test_lazy_row_views_preserve_mapping_and_json_contracts" \
   "$tests/test_quoted_commands.py" \
   "$tests/test_modules.py" \

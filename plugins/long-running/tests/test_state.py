@@ -613,6 +613,24 @@ def test_lazy_row_views_preserve_mapping_and_json_contracts(capsys: pytest.Captu
     cli.emit(cli.argparse.Namespace(json=True), "", data)
     assert json.loads(capsys.readouterr().out) == expected
 
+
+def test_reporter_refresh_visits_only_connected_orders() -> None:
+    moment = state.stamp()
+    link = "https://acme.slack.com/archives/C1/p1794400100000200"
+    orders = {key: state.new_order(key, "slack", None, {}, moment) | {"kind": "build", "reporters": [state.reporter(link)]} for key in ("o1", "o2", "o3")}
+    orders["o2"]["jobs"] = ["j1"]
+    snapshot = state.Snapshot({"orders": orders, "jobs": {"j1": state.new_job("o2", "builder", "build", [], moment)}})
+    snapshot.collections["orders"]["o3"] = "not JSON: unrelated orders must remain unread"
+    base, current = snapshot.read(), snapshot.read()
+    current["jobs"]["j1"]["carries"]["o1"] = []
+    current["orders"]["o1"]["jobs"] = ["j1"]
+    reads = state.Reads()
+    state.refresh_reporters(base, current, [("jobs", "j1"), ("orders", "o1")], reads)
+    assert current["orders"]["o2"]["reporters"][0]["kept_by"] == "o1"
+    assert "o3" not in current["orders"].loaded
+    assert "o3" not in base["orders"].loaded
+    assert not any(key == "*" for _, key in reads)
+
 def test_install_normalization_is_atomic_and_runs_once(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = ordered("demo", 3)
     with closing(state.connect(path)) as db:

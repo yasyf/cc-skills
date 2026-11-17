@@ -4788,7 +4788,7 @@ def share_reporters(data: dict, order_ids: Iterable[str] | None = None) -> None:
                 keepers.append(order_id)
 
 
-def refresh_reporters(base: dict, current: dict, written: Iterable[Row], reads: Reads) -> None:
+def refresh_reporters(base: dict, current: dict, written: Iterable[tuple[str, ...]], reads: set[tuple[str, ...]]) -> None:
     seeds = set()
     for collection, key in written:
         if collection not in ("orders", "jobs"):
@@ -4821,7 +4821,7 @@ def refresh_reporters(base: dict, current: dict, written: Iterable[Row], reads: 
                     pending.extend(other for other in (job["order"], *job["carries"]) if other not in held)
         return held
 
-    if seeds:
+    if seeds and any(data["orders"].get(order_id, {}).get("reporters") for data in (base, current) for order_id in seeds):
         selected = connected(base) | connected(current)
         share_reporters(current, sorted(order_id for order_id in selected if order_id in current["orders"]))
 
