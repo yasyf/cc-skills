@@ -348,6 +348,11 @@ def targets(args: argparse.Namespace) -> None:
     print(json.dumps(stager.targets(args.drive, args.target)))
 
 
+def release(args: argparse.Namespace) -> None:
+    words = args.words[1:] if args.words[:1] == ["--"] else args.words
+    print(releases.start(args.drive, args.lane, words, args.ask or [], args.leaves_out or [], args.reporter or [], args.also or []))
+
+
 def result(args: argparse.Namespace) -> None:
     print(stager.result(args.drive, args.cut, json.loads(Path(args.file).read_text())))
 
@@ -378,6 +383,14 @@ def main() -> int:
     verb = verbs.add_parser("targets", help="set the drive's staging targets, each '<env>' or '<env> <generation>', refused when one does not exist on the default branch")
     verb.add_argument("target", nargs="+")
     verb.set_defaults(run=targets)
+    verb = verbs.add_parser("release", help="start one release for a lane through the release provider, refused when its plan pulls in a component not named with --with or an open ask of the lane is neither shipped with --ask nor left out with --leaves-out; prints the release to wait on")
+    verb.add_argument("--lane", required=True)
+    verb.add_argument("--ask", action="append", help="the ts of an ask of the lane this release ships; repeatable")
+    verb.add_argument("--leaves-out", action="append", help="\"<ts>: <why>\" for an open ask this release leaves out; repeatable")
+    verb.add_argument("--reporter", action="append", help="the thread of a person who reported what this release fixes, told once it is live; repeatable")
+    verb.add_argument("--with", dest="also", action="append", help="a component the plan pulls in that the release means to carry; repeatable")
+    verb.add_argument("words", nargs=argparse.REMAINDER, help="the release start's own words after --, such as its targets and --env")
+    verb.set_defaults(run=release)
     verb = verbs.add_parser("result", help="write each stack's result for a cut, which wakes its lane")
     verb.add_argument("--cut", required=True)
     verb.add_argument("file")

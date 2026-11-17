@@ -119,6 +119,11 @@ class ReleaseProvider(Provider):
     approve_command: str | None = None
     hold_command: str | None = None
     show_command: str | None = None
+    start_command: str | None = None
+
+    def plan(self, words: list[str]) -> dict | None:
+        """What a release start of words would do, read before it starts: {commit, picked, additions, holds}, the components it names, each component it pulls in beside them as {component, why}, and each hold its approve step names as {subject, when, subjects}, such as a pending migration or a stack that plans a delete or replace; None when the repository plans no release."""
+        return None
 
     def prebuild(self, commit: str) -> str | None:
         """Kick off the builds a later release at commit adopts, so a production start there builds nothing its staging start already built, returning the link of the build it started; None when the repository prebuilds nothing."""

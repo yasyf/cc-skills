@@ -370,3 +370,32 @@ def test_a_met_done_check_naming_staging_is_reopened_by_a_later_untested_merge_a
     ha = lane(merged) | {"done": [{"words": "the switch-back passes on staging", "met_at": "2026-11-17T03:00:00Z"}, {"words": "a card shows it", "met_at": "2026-11-17T03:00:00Z"}]}
     stager.queue("durable-agents", [ha])
     assert served == [1] and "met_at" not in ha["done"][0] and ha["done"][1]["met_at"]
+
+
+def test_a_lane_release_applies_only_what_it_names_and_says_which_open_asks_it_leaves_out(monkeypatch, tmp_path) -> None:
+    import json
+    import re
+
+    import pytest
+
+    from drive import providers
+    from lane import releases
+
+    plan = {"commit": "200a92a24af8", "picked": ["runtime-api-next"], "additions": [{"component": "api", "why": "release-with runtime-api-next #53305"}], "holds": [{"subject": "migration", "when": "a migration is pending", "subjects": ["api"]}]}
+    ran = []
+    release = type("Release", (), {"start_command": "ci release start", "plan": lambda self, words: plan, "run": lambda self, command: ran.append(command) or "started https://buildkite.com/forge/release/builds/18900"})()
+    build = type("Build", (), {"finditer": lambda self, text: list(re.finditer(r"https://buildkite\.com/(?P<pipeline>[\w-]+/[\w-]+)/builds/(?P<number>\d+)", text))})()
+    monkeypatch.setattr(providers, "at", lambda checkout: type("Found", (), {"release": release, "build": build})())
+    monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path)})
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(store, "load", lambda drive, lane_id: {"id": lane_id, "asks": [{"ts": "1.1", "done": None}, {"ts": "2.2", "done": None}]})
+    monkeypatch.setattr(store, "update", lambda drive, lane_id, change: None)
+    words = ["runtime-api-next", "--env", "plat-usw2-staging"]
+    with pytest.raises(store.Refused, match="pulls in api"):
+        releases.start("durable-agents", "releases", words, ["1.1"], ["2.2: waits on #57908"], [], [])
+    with pytest.raises(store.Refused, match="open asks 2.2"):
+        releases.start("durable-agents", "releases", words, ["1.1"], [], [], ["api"])
+    said = releases.start("durable-agents", "releases", words, ["1.1"], ["2.2: waits on #57908"], ["C1/p1"], ["api"])
+    assert ran == ["ci release start runtime-api-next --env plat-usw2-staging"] and "Wait on release:18900" in said and "migration when a migration is pending: api" in said
+    kept = json.loads((tmp_path / releases.FOLDER / "18900.json").read_text())
+    assert (kept["lane"], kept["asks"], kept["leaves_out"], kept["reporters"]) == ("releases", ["1.1"], {"2.2": "waits on #57908"}, ["C1/p1"])
