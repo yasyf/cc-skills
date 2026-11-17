@@ -1,4 +1,4 @@
-"""His words acknowledged in Slack by his rule ("it should be eyes when reaidng/respiondin, constgrutcion if doing somehting async, and none otherwise, and checkmark if handled (if there was something to handle, else none)"), by the supervisor and never by an owner: the voice puts 👀 on each message of his as a lane records it and it stays while the owner reads it; 🚧 replaces it once the owner has answered and the work goes on, and ✅ replaces either once the owner marks it done."""
+"""His words acknowledged in Slack by his rule ("it should be eyes when reaidng/respiondin, constgrutcion if doing somehting async, and none otherwise, and checkmark if handled (if there was something to handle, else none)"), by the supervisor and never by an owner: the voice puts 👀 on each message of his as a lane records it and it stays while the owner reads it; 🚧 replaces it once the owner has answered while its work goes on, and ✅ replaces either once the work is done or nothing is left running, each moved from the lane's state on every pass."""
 
 import json
 import os
@@ -28,21 +28,36 @@ def his(ask: dict) -> bool:
     return bool(ask.get("ts")) and not ask["words"].startswith("tapped ")
 
 
+REMOVES = {"construction": ["eyes"], "white_check_mark": ["construction", "eyes"]}
+
+
+def wanted(lane: dict, ask: dict) -> str | None:
+    """The reaction his message takes from its lane's state now: none while it is unanswered, since the voice's 👀 shows it is being read; ✅ once done, or once answered with nothing left running, because the owner ended its turn waiting only on his reply; 🚧 while the owner runs or waits on work, such as a PR, a check or a staging test."""
+    if ask.get("done"):
+        return "white_check_mark"
+    if not ask.get("replied"):
+        return None
+    busy = lane.get("state") == store.RUNNING or any(event.get("kind") != "his_reply" for event in (lane.get("wait") or {}).get("on", []))
+    return "construction" if busy else "white_check_mark"
+
+
 def working(drive: str) -> None:
-    """🚧 in place of 👀 on each message of his its owner answered and is still working on, once each: a message still being read keeps its 👀."""
+    """Each pass, move the reaction on each message of his to what its lane's state wants now, once per change: 🚧 comes off when the work ends, whether or not its owner ran lane done, and an answer that needed no work goes straight to ✅. One message the voice cannot react to never stops the others."""
+    refused = []
     for lane_id, lane in store.load_all(drive).items():
-        fresh = [ask for ask in lane.get("asks", []) if his(ask) and ask.get("replied") and not ask.get("done") and not ask.get("picked")]
-        for ask in fresh:
-            react(lane, ask, "construction", ["eyes"])
-        if fresh:
-            picked = {ask["ts"] for ask in fresh}
-
-            def marking(lane: dict, picked: set[str] = picked) -> None:
-                for ask in lane["asks"]:
-                    if ask.get("ts") in picked:
-                        ask["picked"] = store.stamp()
-
-            store.update(drive, lane_id, marking, leaving_unreplied=True)
+        moved = {}
+        for ask in lane.get("asks", []):
+            had = ask.get("reaction") or ("construction" if ask.get("picked") else "white_check_mark" if ask.get("done") else None)
+            if his(ask) and (want := wanted(lane, ask)) and want != had:
+                try:
+                    react(lane, ask, want, REMOVES[want])
+                    moved[ask["ts"]] = want
+                except store.Refused as error:
+                    refused.append(str(error))
+        if moved:
+            store.update(drive, lane_id, lambda lane, moved=moved: [ask.__setitem__("reaction", moved[ask["ts"]]) for ask in lane["asks"] if ask.get("ts") in moved], leaving_unreplied=True)
+    if refused:
+        raise store.Refused("; ".join(refused))
 
 
 def finished(drive: str, lane_id: str, ts: str) -> None:
@@ -50,4 +65,5 @@ def finished(drive: str, lane_id: str, ts: str) -> None:
     lane = store.load(drive, lane_id)
     ask = next(ask for ask in lane["asks"] if ask.get("ts") == ts)
     if his(ask):
-        react(lane, ask, "white_check_mark", ["construction", "eyes"])
+        react(lane, ask, "white_check_mark", REMOVES["white_check_mark"])
+        store.update(drive, lane_id, lambda lane: [each.__setitem__("reaction", "white_check_mark") for each in lane["asks"] if each.get("ts") == ts], leaving_unreplied=True)

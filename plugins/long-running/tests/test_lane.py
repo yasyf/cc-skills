@@ -1542,3 +1542,27 @@ def test_the_merge_queues_own_check_is_never_a_red_item_and_its_conflict_verdict
     queue_conflict = {"rollup": "FAILURE", "head": "h", "failing": [{"name": "Trunk Merge Queue (dev)", "says": "merge conflict"}]}
     lint = {"rollup": "FAILURE", "head": "h", "failing": [{"name": "lint", "says": ""}, {"name": "Trunk Merge Queue (dev)", "says": ""}]}
     assert fixes.kind({}, queue_cancelled) is None and fixes.kind({}, queue_conflict) == "conflict" and fixes.kind({}, lint) == "red"
+
+
+def test_a_post_naming_no_ask_answers_one_only_when_it_is_the_one_waiting(world: dict) -> None:
+    opened("a")
+    verbs.message(DRIVE, "a", "and the staging one?", None, "101.0")
+    saying.say(DRIVE, "a", "Landing #7 now.", token=token_of("a"))
+    assert [ask["ts"] for ask in store.unreplied(store.load(DRIVE, "a"))] == ["100.0", "101.0"]
+    saying.say(DRIVE, "a", "Staging runs after the merge.", token=token_of("a"), re="101.0")
+    saying.say(DRIVE, "a", "On it.", token=token_of("a"))
+    assert not store.unreplied(store.load(DRIVE, "a"))
+
+
+def test_an_answer_that_left_nothing_running_takes_a_check_and_construction_comes_off_when_the_work_ends_without_lane_done(world: dict) -> None:
+    from lane import ack
+
+    opened("a", channel="C1")
+    world["slack"] = []
+    store.update(DRIVE, "a", lambda lane: lane["asks"][0].update({"ts": "200.0", "link": "https://x.slack.com/archives/C1/p200000", "replied": "QUEUED a1"}))
+    store.update(DRIVE, "a", lambda lane: lane.update({"state": store.RUNNING}))
+    ack.working(DRIVE)
+    store.update(DRIVE, "a", lambda lane: lane.update({"state": store.WAITING, "wait": {"on": [{"kind": "his_reply"}], "until": store.stamp(), "why": "answered", "set": store.stamp()}}))
+    ack.working(DRIVE)
+    ack.working(DRIVE)
+    assert world["slack"] == [("200.0", "construction", ["eyes"]), ("200.0", "white_check_mark", ["construction", "eyes"])]
