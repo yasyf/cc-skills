@@ -249,7 +249,7 @@ def alerted(drive: str, paged: set[str]) -> None:
 
 
 def overdue(drive: str, moment: datetime) -> None:
-    """Each promise a lane's post stated, past its bound with no newer post in its thread, once: the owner is told it is overdue, woken if it waits, and a defect is filed for lane-core, so a promise like "PR by 3:45 PM" never sits unkept and unseen."""
+    """Each promise a lane's post stated, past its bound with no newer post in its thread, once: the owner is told it is overdue, woken if it waits, the promised work is queued as an item, and a defect is filed for lane-core, so a promise like "PR by 3:45 PM" never sits unkept and unseen."""
     from lane import audit
 
     for lane_id, lane in store.load_all(drive).items():
@@ -271,6 +271,8 @@ def overdue(drive: str, moment: datetime) -> None:
                 verbs.woken(lane, f"overdue: {why}")
 
         store.update(drive, lane_id, marking, leaving_unreplied=True)
+        for kept in late:
+            work.add(drive, "ask", lane_id, f"promise {kept['at']}", f"The lane's post at {kept['at']} promised \"{kept['text'][:300]}\" by {kept['due']}, and nothing newer went out in that thread. Do what it promised, then finish this item with what you did and its link; the lane's owner tells him.", by="supervisor")
         audit.defect(drive, f"lane {lane_id} broke a promise: {why}", lane.get("channel") or lane_id, "a stated bound with nothing tracking it until the overdue check", "lane-core")
 
 

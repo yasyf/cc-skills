@@ -1316,6 +1316,9 @@ def test_replaying_the_ringo_thread_a_promised_pr_by_345_with_nothing_after_wake
     lane = store.load(DRIVE, "a")
     assert lane["promises"][0]["overdue"] and "overdue: its post" in (lane.get("wait") or {}).get("fired_why", "") + (lane.get("owner") or {}).get("woke", "")
     assert len(filed) == 1 and filed[0][1] == "lane-core" and "broke a promise" in filed[0][0]
+    from lane import work
+
+    assert [item["kind"] for item in work.items(DRIVE) if item["subject"].startswith("promise ")] == ["ask"]
     supervisor.run_pass(DRIVE)
     assert len(filed) == 1
 
