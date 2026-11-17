@@ -1108,11 +1108,11 @@ class Snapshot:
         for field in self.order:
             if field in self.collections:
                 current = mine.get(field, {})
-                previous = {key: current[key] if key in current and marshal.dumps(current[key], ROW_MARSHAL) == row else marshal.loads(row) for key, row in self.collections[field].items()}
+                previous = {key: current[key] if key in current and marshalled(current[key]) == row else marshal.loads(row) for key, row in self.collections[field].items()}
                 baseline[field] = current if previous.keys() == current.keys() and all(previous[key] is current[key] for key in previous) else previous
             else:
                 row = self.fields[field]
-                baseline[field] = mine[field] if field in mine and marshal.dumps(mine[field], ROW_MARSHAL) == row else marshal.loads(row)
+                baseline[field] = mine[field] if field in mine and marshalled(mine[field]) == row else marshal.loads(row)
         return baseline
 
 
@@ -4927,7 +4927,7 @@ def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split("."))
 
 
-def marshalled(record: dict) -> bytes | None:
+def marshalled(record: object) -> bytes | None:
     """A record as a Copy keeps it, or None while it holds a value marshal cannot write but JSON writes as its base type, such as an instance of a str subclass an edit just set, which the record's JSON then compares."""
     try:
         return marshal.dumps(record, ROW_MARSHAL)
