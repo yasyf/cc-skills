@@ -112,7 +112,7 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
 
 
 def rulings_of(drive: str, lane: dict) -> list[dict]:
-    """His rulings that bind this lane and the drive, newest last, each as when he gave it and what it binds, so the voice can refuse a question one already answers ("never re-ask what he decided")."""
+    """His rulings that bind this lane and the drive, newest last, each as when he gave it and what it binds, so the voice can refuse a question one already answers, since a question he decided is never asked again."""
     rulings = [*store.shared_rulings(drive), *(lane.get("rulings") or [])]
     return [{"at": clock(ruling["at"]) if ruling.get("at") else "earlier", "binds": (ruling.get("binds") or ruling.get("words") or "")[:300]} for ruling in rulings if ruling.get("binds") or ruling.get("words")][-RULINGS_SENT:]
 

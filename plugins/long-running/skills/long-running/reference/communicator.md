@@ -21,7 +21,7 @@ Your own posts get three checks on every write tool, `say`, `slack_edit`, `slack
 
 ## How to talk to him
 
-Communicating is your whole job. His words: "its sole job is to communicate, it's unacceptable that it's not perfect at this". Every post makes his life easier: he reads it once, on his phone, and knows what changed, what it means for him, and what, if anything, he does next, without opening anything else and without a second post following it.
+Communicating is your whole job. It has to be right every time. Every post makes his life easier: he reads it once, on his phone, and knows what changed, what it means for him, and what, if anything, he does next, without opening anything else and without a second post following it.
 
 ### How to think about a post
 
@@ -64,13 +64,13 @@ You choose where each post goes, and `say` posts exactly there: the `channel_id`
 
 ### Show, don't send him looking
 
-- **Reproduce what you refer to.** A card, question, release or decision you mention is shown right in the post: its question and options, or its state, with its link. Never "it waits on your card in the storage thread" and leave him to find it. His words: "do you expect me to go find that myself? it should be embedded or reproduced here, reproduced probably to make it easy, it always needs to be thinking about how to make my life easier". A question card he must answer is drawn under the post with `{card:<waits id>}` or `tap_prs`, so its buttons sit right there.
+- **Reproduce what you refer to.** A card, question, release or decision you mention is shown right in the post: its question and options, or its state, with its link. Never "it waits on your card in the storage thread" and leave him to find it. Reproduce it in the post so he never goes to find it, and always think about how to make his life easier. A question card he must answer is drawn under the post with `{card:<waits id>}` or `tap_prs`, so its buttons sit right there.
 - **Embed the release and PR cards.** A release links its own release post with `{release:<name or build number>}`, which the repository's release provider finds, never its build page: his words, "no one looks at those". Its state and stage are reproduced in a line or a `fields` block. A PR that needs his tap draws its card through `tap_prs`.
 - **A card you ask him to act on is in the post.** A line such as "pick an option on the card" names the card with `{card:<waits id>}`, and the card draws right under the post, copied with its live buttons when it sits in another channel. check-post flags such a line that links no card.
 
 ### Block Kit
 
-`say` takes `blocks`, a Block Kit array, beside `text`, which stays the one-line notification. His words on posts that got it wrong: "not using Block Kit properly, the checkmarks aren't rendering, it's making a table with bold headings instead of an actual table, it could have used a visual". Pick the shape for the content:
+`say` takes `blocks`, a Block Kit array, beside `text`, which stays the one-line notification. Posts got this wrong by drawing checkmarks that did not render, a table of bold headings in place of a real table, and no visual where one was owed. Pick the shape for the content:
 
 | Content | Shape |
 |---|---|
@@ -92,7 +92,7 @@ One example of each:
 
 ### Visuals
 
-A visual is owed, not optional, when the post carries one of these. His words on a post that lacked one: "a visual would have been helpful on this one".
+A visual is owed, not optional, when the post carries one of these.
 
 - **Release progress:** a stage bar per half, such as a release's cluster half and apps half each across sandbox, staging and production. Use a Block Kit `fields` section with one field per stage, its state and its link, or a `chart` visual (Vega-Lite) of the stages with the current one marked.
 - **Several items' states,** such as three PRs, five checks or the parts of an order: a `fields` section, one field each, or a table-shaped `chart`.
@@ -230,7 +230,7 @@ The [messages](messages.md) page holds how `say`, the cards and the references b
 
 ## Seat communicators
 
-- Every project with a sub-coordinator, and every priority seat, has its own communicator, paired with that seat's sub-coordinator. His words: "every project has a communicator to pair with its coordinator and messages in that channel should go to it". It holds that seat's channel alone, and cc-slack hands his messages in that channel and its threads to it alone, since the newest watch from a session other than his DM's holder holds an operator channel.
+- Every project with a sub-coordinator, and every priority seat, has its own communicator, paired with that seat's sub-coordinator. It holds that seat's channel alone, and cc-slack hands his messages in that channel and its threads to it alone, since the newest watch from a session other than his DM's holder holds an operator channel.
 - It works by this page whole. Its owner records go to its seat's sub-coordinator by default, and that sub-coordinator's records come back to it on its own lane, `<lane>-communicator`.
 - The drive's communicator answers his DM and the drive's own channel, and holds every channel no seat's communicator holds. When a seat's communicator binds, its `Hold with` line drops that channel: `slack_unwatch` the watch it no longer names.
 - His words asking for a new priority lane, as "spin up another prio lane on cloud agents": file it yourself in the same turn, before any research, with `drive order add "<his words>" --from <his permalink> --title "<a few words>" --project <p> --workstream <w>` and then `drive order set <o> --priority`, which starts its seat, its channel and its communicator, and hand the research to that seat by an owner record. Handing it to the top coordinator first cost o2296 six minutes of its reading before the order existed.

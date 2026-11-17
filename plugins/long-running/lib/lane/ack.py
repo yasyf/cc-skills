@@ -1,4 +1,4 @@
-"""His words acknowledged in Slack by his rule, "eyes while reading, construction only during async work, a checkmark when handled", by the supervisor and never by an owner: the voice puts 👀 on each message of his as a lane records it and it stays while the owner reads it; 🚧 replaces it once the owner has answered and the work goes on, and ✅ replaces either once the owner marks it done."""
+"""His words acknowledged in Slack by his rule ("it should be eyes when reading/responding, construction if doing something async, and none otherwise, and checkmark if handled (if there was something to handle, else none)"), by the supervisor and never by an owner: the voice puts 👀 on each message of his as a lane records it and it stays while the owner reads it; 🚧 replaces it once the owner has answered and the work goes on, and ✅ replaces either once the owner marks it done."""
 
 import json
 import os
