@@ -14,7 +14,7 @@ from lane import facts, landing, store
 CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}
 PR_STATE = ("head", "checks", "merged", "under", "commits", "whole", "foreign", "title")
 DANGER = Path(__file__).with_name("danger.md")
-BEFORE_MERGE = "plainly needs a staging pass before merge, by his 14:33 and 14:55 rulings"
+BEFORE_MERGE = "plainly needs a staging pass before merge, by his 17:00 ruling"
 DANGER_AT = 0.6
 JUDGED_AT = 20
 JUDGES = 6
