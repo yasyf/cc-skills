@@ -214,6 +214,12 @@ def main(argv: list[str] | None = None) -> int:
     config_set.add_argument("key")
     config_set.add_argument("value", help="JSON, such as false, 8 or {\"opus\": ...}; anything else is a string")
     config_set.add_argument("--by", required=True, help="who sets it, a lane or a person")
+    triaging = verbs_parser.add_parser("incident-triage", help="an alert's triage verdict: open an incident lane, join an open one, or drop it")
+    triaging.add_argument("monitor")
+    verdicts = triaging.add_mutually_exclusive_group(required=True)
+    verdicts.add_argument("--open")
+    verdicts.add_argument("--drop")
+    verdicts.add_argument("--join", nargs=2, metavar=("LANE", "WHY"))
     paging = verbs_parser.add_parser("page", help="page him through Datadog On-Call: a live production failure only, what broke, for whom and its link")
     paging.add_argument("--lane")
     paging.add_argument("--why", required=True)
@@ -422,6 +428,11 @@ def run(args: argparse.Namespace) -> int:
                     value = args.value
                 was = store.set_config(args.drive, args.key, value, args.by)
                 print(f"{args.key}: {json.dumps(was)} -> {json.dumps(value)}")
+        case "incident-triage":
+            from lane import incidents
+
+            verdict, why, lane_id = ("open", args.open, None) if args.open else ("drop", args.drop, None) if args.drop else ("join", args.join[1], args.join[0])
+            print(incidents.triage(args.drive, args.monitor, verdict, why, lane_id))
         case "page":
             from lane import incidents
 

@@ -1518,23 +1518,28 @@ def test_a_wait_on_a_release_grant_or_item_nothing_produces_fires_as_unproduced(
     assert facts.unproduced(DRIVE, lane, {"kind": "release", "ref": "r-1"}, {}) == "the release tool knows no release r-1"
 
 
-def test_an_alerting_monitor_no_lane_holds_opens_an_incident_lane_past_the_cap_with_a_diagnosis_item_and_pages_him_when_away(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lane import incidents, work
+def test_each_new_alert_is_triaged_first_and_only_an_open_verdict_opens_a_lane_past_the_cap_and_pages_him_when_away(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import incidents, session, work
 
-    paged = []
-    monkeypatch.setattr(incidents, "alerting", lambda drive: [{"id": 345323874, "name": "next-app errors", "status": "Alert", "tags": ["service:runtime-api"]}, {"id": 99, "name": "runtime-api 5xx", "status": "Alert", "tags": ["service:runtime-api"]}])
-    monkeypatch.setattr(incidents, "settings", lambda drive: {"query": "tag:team:platform", "channel": "C9", "away_minutes": 30})
+    paged, triages = [], []
+    monitors = [{"id": 345323874, "name": "next-app errors", "status": "Alert", "tags": ["service:runtime-api"], "last_triggered_ts": 1}, {"id": 99, "name": "runtime-api 5xx", "status": "Alert", "tags": ["service:runtime-api"], "last_triggered_ts": 2}, {"id": 7, "name": "flappy", "status": "Alert", "tags": [], "last_triggered_ts": 3}]
+    monkeypatch.setattr(incidents, "alerting", lambda drive: monitors)
+    monkeypatch.setattr(incidents, "settings", lambda drive: {"query": "q", "channel": "C9", "away_minutes": 30})
     monkeypatch.setattr(incidents, "page", lambda drive, lane_id, why: paged.append((lane_id, why)) or "paged")
     monkeypatch.setattr(incidents, "away", lambda drive: True)
+    monkeypatch.setattr(session, "argv", lambda config, role, checkout, own, head, tail: ["claude", *tail])
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kwargs: triages.append(argv[-1]))
     for lane_id in ("a", "b", "c"):
         opened(lane_id)
     shape = store.drive_dir(DRIVE) / "config.json"
     shape.write_text(json.dumps(json.loads(shape.read_text()) | {"incident_worktree": "/checkout"}))
-    opened_now = incidents.intake(DRIVE)
-    assert opened_now == ["incident-345323874"] and store.load(DRIVE, "incident-345323874")["incident"]["monitor"] == "345323874"
-    assert [item["subject"] for item in work.items(DRIVE)] == ["diagnose monitor 345323874"] and store.load(DRIVE, "incident-345323874")["incident"]["joined"] == ["99"]
-    assert paged and paged[0][0] == "incident-345323874"
-    assert incidents.intake(DRIVE) == []
+    assert len(incidents.intake(DRIVE)) == 3 and incidents.intake(DRIVE) == [] and "incident-triage 345323874" in triages[0]
+    assert paged == [] and "incident-345323874" not in store.load_all(DRIVE)
+    assert incidents.triage(DRIVE, "345323874", "open", "real users see 5xx on chat load") == "opened incident-345323874"
+    assert incidents.triage(DRIVE, "99", "join", "same 5xx", "incident-345323874") == "monitor 99 joined incident-345323874"
+    assert incidents.triage(DRIVE, "7", "drop", "flaps every hour, no user impact").startswith("dropped")
+    assert [item["subject"] for item in work.items(DRIVE)] == ["diagnose monitor 345323874"] and len(paged) == 1
+    assert "flaps every hour" in (store.drive_dir(DRIVE) / incidents.LOG).read_text()
 
 
 def test_the_merge_queues_own_check_is_never_a_red_item_and_its_conflict_verdict_is_a_rebase() -> None:

@@ -77,29 +77,76 @@ def joined(drive: str, lane_id: str, monitor: dict) -> None:
     store.update(drive, lane_id, joining, leaving_unreplied=True)
 
 
+TRIAGED = "incidents.json"
+LOG = "incidents.log"
+
+
+def triaged(drive: str) -> dict[str, dict]:
+    path = store.drive_dir(drive) / TRIAGED
+    return json.loads(path.read_text()) if path.is_file() else {}
+
+
+def mark(drive: str, monitor_id: str, row: dict) -> None:
+    with store.locked(drive):
+        kept = triaged(drive)
+        kept[monitor_id] = (kept.get(monitor_id) or {}) | row
+        fresh = (store.drive_dir(drive) / TRIAGED).with_name(f".{TRIAGED}.{os.getpid()}.tmp")
+        fresh.write_text(json.dumps(kept, indent=1) + "\n")
+        fresh.replace(store.drive_dir(drive) / TRIAGED)
+
+
+def open_incidents(drive: str) -> dict[str, dict]:
+    return {lane_id: lane for lane_id, lane in store.load_all(drive).items() if (lane.get("incident") or {}).get("monitor") and not lane["incident"].get("fix_live")}
+
+
 def intake(drive: str) -> list[str]:
-    """Open an incident lane for each alerting monitor no open lane names, its owner started in the same call with no cap holding it, a diagnosis item queued beside it, and him paged when he is away; what it opened."""
+    """Start one triage for each alert not triaged yet, by his words "it should triage each one and determine if relevant, not just blindly fix whatever comes in": an alerting monitor no open incident lane names, once per time it triggered. A cheap model reads it and decides, by `lane incident-triage`, to open a lane, join an open one, or drop it with why; nothing opens or pages before that. What it started."""
+    import subprocess
+
+    from lane import session
+
+    held = {str(lane["incident"]["monitor"]) for lane in open_incidents(drive).values()} | {str(monitor) for lane in open_incidents(drive).values() for monitor in lane["incident"].get("joined", [])}
+    seen, started = triaged(drive), []
+    for monitor in alerting(drive):
+        key, fired = str(monitor["id"]), str(monitor.get("last_triggered_ts") or "")
+        if key in held or (seen.get(key) or {}).get("fired") == fired:
+            continue
+        mark(drive, key, {"fired": fired, "name": monitor["name"], "status": monitor["status"], "started": store.stamp(), "verdict": None})
+        lane = store.launcher(drive)
+        lanes = {lane_id: {"title": open_lane["title"], "monitor": open_lane["incident"]["monitor"], "services": open_lane["incident"].get("services")} for lane_id, open_lane in open_incidents(drive).items()}
+        prompt = (
+            f"Triage one Datadog alert for drive {drive}, by his words \"it should triage each one and determine if relevant, not just blindly fix whatever comes in\". The monitor: {json.dumps({key: monitor.get(key) for key in ('id', 'name', 'status', 'tags', 'query', 'last_triggered_ts')}, ensure_ascii=False)}, https://app.datadoghq.com/monitors/{monitor['id']}. "
+            f"Open incident lanes: {json.dumps(lanes, ensure_ascii=False)}. Read the monitor, its message and its last few days of state with the Datadog tools: whether it is real now, whether real users are failing because of it, whether it flaps or is known noisy, and whether an open lane already covers it. "
+            f"Then run exactly one: `{lane} --drive {drive} incident-triage {monitor['id']} --open \"<what is failing, for whom, the evidence>\"` for a live user-facing failure no lane covers; `--join <lane id> \"<why it is the same failure>\"` for one an open lane covers; or `--drop \"<why it is not a live user-facing failure>\"`. Change nothing and post nothing; end with that line."
+        )
+        with (store.drive_dir(drive) / LOG).open("a") as out:
+            subprocess.Popen(session.argv(store.config(drive), "auditor", store.drive_dir(drive), {}, ["-p"], ["--permission-mode", "bypassPermissions", "--", prompt]), cwd=store.drive_dir(drive), stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
+        started.append(f"triage of monitor {monitor['id']} ({monitor['name']})")
+    return started
+
+
+def triage(drive: str, monitor_id: str, verdict: str, why: str, lane_id: str | None = None) -> str:
+    """The triage's verdict on one alert: open an incident lane with a diagnosis item, paging him only now, for a triaged live user-facing failure while he is away; join an open lane; or drop it, one logged line saying why. What it did."""
     from lane import verbs, work
 
+    found = next((monitor for monitor in alerting(drive) if str(monitor["id"]) == monitor_id), None) or {"id": monitor_id, "name": (triaged(drive).get(monitor_id) or {}).get("name") or f"monitor {monitor_id}", "status": "Alert", "tags": []}
+    mark(drive, monitor_id, {"verdict": verdict, "why": why, "lane": lane_id, "at": store.stamp()})
+    with (store.drive_dir(drive) / LOG).open("a") as out:
+        out.write(f"{store.stamp()} monitor {monitor_id} ({found['name']}): {verdict}{' ' + lane_id if lane_id else ''}: {why}\n")
+    if verdict == "drop":
+        return f"dropped monitor {monitor_id}: {why}"
+    if verdict == "join":
+        if lane_id not in open_incidents(drive):
+            raise store.Refused(f"{lane_id} is no open incident lane: {', '.join(open_incidents(drive)) or 'none is open'}")
+        joined(drive, lane_id, found)
+        return f"monitor {monitor_id} joined {lane_id}"
     shape, ruled = store.config(drive), settings(drive)
-    open_lanes = {lane_id: lane for lane_id, lane in store.load_all(drive).items() if (lane.get("incident") or {}).get("monitor") and not lane["incident"].get("fix_live")}
-    held = {str(lane["incident"]["monitor"]) for lane in open_lanes.values()} | {str(monitor) for lane in open_lanes.values() for monitor in lane["incident"].get("joined", [])}
-    opened = []
-    for monitor in alerting(drive):
-        if str(monitor["id"]) in held or f"incident-{monitor['id']}" in store.load_all(drive):
-            continue
-        services = {tag for tag in monitor.get("tags") or [] if tag.startswith("service:")}
-        if covering := next((lane_id for lane_id, lane in open_lanes.items() if services & set(lane["incident"].get("services") or [])), None):
-            joined(drive, covering, monitor)
-            held.add(str(monitor["id"]))
-            continue
-        lane_id = f"incident-{monitor['id']}"
-        link = f"https://app.datadoghq.com/monitors/{monitor['id']}"
-        words = f"Datadog monitor {monitor['id']} is {monitor['status']}: {monitor['name']}. {link}. Start the fix now, narrate it in this lane's channel as ai-oncall does, and tell the person who reported it once the fix is live."
-        verbs.open_lane(drive, lane_id, monitor["name"][:80], words=words, channel=ruled.get("channel"), worktree=shape.get("incident_worktree") or shape["checkout"], incident={"monitor": str(monitor["id"]), "link": link, "opened": store.stamp(), "services": sorted(services)})
-        open_lanes[lane_id] = store.load(drive, lane_id)
-        work.add(drive, "ask", lane_id, f"diagnose monitor {monitor['id']}", f"Diagnose why Datadog monitor {monitor['id']} ({monitor['name']}, {link}) alerts: read its query, the logs, traces and metrics behind it with the Datadog tools, and the recent deploys and merges, and finish this item with the mechanism and the evidence for it, so the lane's owner can aim the fix. Change nothing.", by="incident intake")
-        opened.append(lane_id)
-        if away(drive):
-            page(drive, lane_id, f"{monitor['name']} is {monitor['status']} ({link}); a fix lane and a diagnosis item started on it")
-    return opened
+    lane_id = f"incident-{monitor_id}"
+    link = f"https://app.datadoghq.com/monitors/{monitor_id}"
+    services = sorted(tag for tag in found.get("tags") or [] if tag.startswith("service:"))
+    words = f"Datadog monitor {monitor_id} is {found['status']}: {found['name']}. {link}. Triage found: {why}. Start the fix now, narrate it in this lane's channel as ai-oncall does, and tell the person who reported it once the fix is live."
+    verbs.open_lane(drive, lane_id, found["name"][:80], words=words, channel=ruled.get("channel"), worktree=shape.get("incident_worktree") or shape["checkout"], incident={"monitor": monitor_id, "link": link, "opened": store.stamp(), "services": services, "triage": why})
+    work.add(drive, "ask", lane_id, f"diagnose monitor {monitor_id}", f"Diagnose why Datadog monitor {monitor_id} ({found['name']}, {link}) alerts; triage found: {why}. Read its query, the logs, traces and metrics behind it with the Datadog tools, and the recent deploys and merges, and finish this item with the mechanism and the evidence for it, so the lane's owner can aim the fix. Change nothing.", by="incident triage")
+    if away(drive):
+        page(drive, lane_id, f"{found['name']} ({link}): {why}; a fix lane and a diagnosis item started on it")
+    return f"opened {lane_id}"
