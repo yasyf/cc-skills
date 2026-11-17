@@ -52,8 +52,8 @@ def working(drive: str) -> None:
                 try:
                     react(lane, ask, want, REMOVES[want])
                     moved[ask["ts"]] = want
-                except store.Refused as error:
-                    refused.append(str(error))
+                except (store.Refused, OSError) as error:
+                    refused.append(f"{lane_id} his message {ask['ts']}: {type(error).__name__}: {error}")
                     failed[ask["ts"]] = want
         if moved or failed:
 

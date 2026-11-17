@@ -19,6 +19,7 @@ from lane import session as shapes
 FOLDER = "work"
 WORKERS = "workers"
 KINDS = ("rebase", "red", "review", "carry", "ask", "e2e", "staging-before", "staging-after")
+URGENCY = ("red", "ask", "carry", "staging-before", "review", "rebase", "e2e", "staging-after")
 FIX_KINDS = {"conflict": "rebase", "red": "red", "review": "review"}
 QUEUED, TAKEN, DONE, FAILED = "queued", "taken", "done", "failed"
 QUIET = timedelta(minutes=30)
@@ -114,10 +115,11 @@ def parked_lanes(drive: str) -> set[str]:
 
 
 def pull(drive: str) -> dict | None:
-    """The top queued item, ranked by its lane's place in the priority queue and then by when it was queued, with every other queued item a worker could finish beside it; None when nothing is queued."""
+    """The top queued item: an incident lane's first, then by URGENCY of its kind, so a red staging promotion never waits behind rebases and after-merge tests, then by its lane's place in the priority queue and when it was queued, with every other queued item a worker could finish beside it; None when nothing is queued."""
     order = {lane: index for index, lane in enumerate(rank.last(drive).get("order", []))}
+    lanes = store.load_all(drive)
     parked = parked_lanes(drive)
-    queued = sorted((item for item in items(drive) if item["state"] == QUEUED and item["lane"] not in parked), key=lambda item: (order.get(item["lane"], len(order)), item["queued"]))
+    queued = sorted((item for item in items(drive) if item["state"] == QUEUED and item["lane"] not in parked), key=lambda item: (not (lanes.get(item["lane"]) or {}).get("incident"), URGENCY.index(item["kind"]), order.get(item["lane"], len(order)), item["queued"]))
     if not queued:
         return None
     top = queued[0]

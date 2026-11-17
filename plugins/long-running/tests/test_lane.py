@@ -1820,3 +1820,12 @@ def test_a_conflicting_stack_is_not_ready_for_his_tap() -> None:
     seen = {"acme/app#1": pull(rollup="SUCCESS", head="h1", branch="b1") | {"review": "APPROVED", "mergeable": "CONFLICTING"}}
     stacks, counts = page.ready([{"repo": "acme/app", "number": 1}], seen)
     assert stacks == [] and counts == {"conflicting": 1}
+
+
+def test_a_red_item_is_pulled_before_rebases_queued_earlier(world: dict) -> None:
+    from lane import work
+
+    opened("a")
+    work.add(DRIVE, "rebase", "a", "acme/app#1", "rebase it", by="supervisor")
+    work.add(DRIVE, "red", "a", "staging promotion runs green", "make it green", by="supervisor")
+    assert work.pull(DRIVE)["top"]["kind"] == "red"
