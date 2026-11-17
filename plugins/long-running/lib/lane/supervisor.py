@@ -556,13 +556,28 @@ def gh_json(*args: str):
 
 
 def held_by(drive: str, version: str) -> str | None:
-    """Why the install is held: each held commit its tag carries, with who held it and why, or None. A hold keeps the drive on its code until lifted, whatever the install's CI says."""
+    """Why the install is held: each held commit its tag carries, with who held it and why, or None. A hold keeps the drive on its code until lifted, whatever the install's CI says, and lifts itself for a tag that reverts the held commit or no longer carries its change."""
     holds = installs_held(drive)
     if not holds:
         return None
     tag = gh_json("api", f"repos/{HOME_REPO}/commits/long-running--v{version}")["sha"]
-    carried = [f"{sha[:9]} ({hold['why']}, by {hold['by']})" for sha, hold in holds.items() if gh_json("api", f"repos/{HOME_REPO}/compare/{sha}...{tag}")["status"] in ("ahead", "identical")]
+    carried = [f"{sha[:9]} ({hold['why']}, by {hold['by']})" for sha, hold in holds.items() if still_carried(sha, tag)]
     return f"{version} carries {', '.join(carried)}" if carried else None
+
+
+def still_carried(sha: str, tag: str) -> bool:
+    """Whether the tag carries the held commit's change: its history holds the commit, no commit after it says it reverts it, and the files it changed do not read at the tag as they read before it."""
+    since = gh_json("api", f"repos/{HOME_REPO}/compare/{sha}...{tag}")
+    if since["status"] not in ("ahead", "identical") or any(f"This reverts commit {sha}" in commit["commit"]["message"] for commit in since["commits"]):
+        return False
+    held = gh_json("api", f"repos/{HOME_REPO}/commits/{sha}")
+    before = held["parents"][0]["sha"]
+    return any(blob(path, before) != blob(path, tag) for path in (change["filename"] for change in held["files"]))
+
+
+def blob(path: str, ref: str) -> str | None:
+    ran = subprocess.run(["gh", "api", f"repos/{HOME_REPO}/contents/{path}?ref={ref}", "--jq", ".sha"], capture_output=True, text=True, check=False, timeout=60)
+    return ran.stdout.strip() if ran.returncode == 0 else None
 
 
 def installs_beside(drive: str) -> list[Path]:
