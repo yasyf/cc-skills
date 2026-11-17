@@ -42,6 +42,7 @@ def write(drive: str) -> int:
         fresh.replace(path)
         if "result" in body and kept.get("lane"):
             finished(drive, body)
+            lived(drive, body)
         count += 1
     return count
 
@@ -85,3 +86,36 @@ def finished(drive: str, body: dict) -> None:
     reporters = ", ".join(body.get("reporters") or []) or "none named"
     left = "; ".join(f"{ts}: {why}" for ts, why in (body.get("leaves_out") or {}).items()) or "none"
     verbs.handover(drive, body["lane"], f"- release {body['ref']} is {body['result']}, carrying {', '.join(body.get('carries') or []) or 'nothing it names'}; it shipped asks {', '.join(body.get('asks') or []) or 'none'} and left out {left}. Tell each reporter once, in their thread, when it is live: {reporters}.", "lane-land")
+
+
+def lived(drive: str, body: dict) -> list[str]:
+    """Each lane PR a live production release carried, by its merge commit being in the release's commit, marked live on its row with the release, and given an e2e work item that proves the change on the live build, by his words that merged is not live: a release to a rehearsal env proves nothing live. The work items added."""
+    import subprocess
+
+    from drive import providers
+
+    from lane import landing, rows, work
+
+    checkout = Path(store.config(drive)["checkout"])
+    env = next((word for before, word in zip(body["words"], body["words"][1:]) if before == "--env"), None)
+    if body.get("result") != "live" or not body.get("commit") or env in providers.at(checkout).release.rehearsal_envs:
+        return []
+    read = rows.view(drive)
+    git = ["git", "-C", str(checkout)]
+    subprocess.run([*git, "fetch", "-q", "--no-tags", "origin", body["commit"]], capture_output=True, check=False)
+    added = []
+    for lane_id, lane in store.load_all(drive).items():
+        for row in lane["prs"]:
+            facts_of = read.get(landing.key(row)) or {}
+            if row.get("live") or not facts_of.get("merge_commit") or subprocess.run([*git, "merge-base", "--is-ancestor", facts_of["merge_commit"], body["commit"]], capture_output=True, check=False).returncode:
+                continue
+            key = landing.key(row)
+            store.update(drive, lane_id, lambda kept, key=key: marked(kept, key, {"release": body["ref"], "commit": body["commit"], "at": store.stamp()}))
+            added.append(work.add(drive, "e2e", lane_id, key, f"Prove {key} on the live build: release {body['ref']} carried it to {env or 'production'} at {body['commit'][:12]}. Exercise the change there as the person who asked for it would, read its logs and traces for the path it changed, and finish this item with what you saw, with links; a failure goes back to its lane with what broke.", head=facts_of["merge_commit"], touches=[key.rpartition("#")[0]], by="lane-land")["id"])
+    return added
+
+
+def marked(lane: dict, key: str, live: dict) -> None:
+    for row in lane["prs"]:
+        if f"{row['repo']}#{row['number']}" == key:
+            row["live"] = live

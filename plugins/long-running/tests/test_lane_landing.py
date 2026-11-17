@@ -459,3 +459,24 @@ def test_a_conflict_whose_commits_replay_cleanly_is_rebased_with_no_work_item(mo
     pr = row(57177, mergeable="CONFLICTING", branch="ha-3-tail", base="dev")
     cli.conflicted("durable-agents", lane(pr), ["Forge-AI/monorepo#57177"], lambda: "in rust/crates/x.rs")
     assert items == [] and "rebased mechanically Forge-AI/monorepo#57177 to cccccccccccc" in noted[0]
+
+
+def test_a_live_production_release_marks_each_merged_pr_it_carried_live_and_queues_its_live_build_proof(monkeypatch, tmp_path) -> None:
+    import subprocess
+
+    from drive import providers
+    from lane import releases, work
+
+    added, marks = [], {}
+    carried, later = row(56967, merged=True), row(57022, merged=True)
+    monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path)})
+    monkeypatch.setattr(providers, "at", lambda checkout: type("Found", (), {"release": type("Release", (), {"rehearsal_envs": frozenset({"plat-usw2-staging"})})()})())
+    monkeypatch.setattr(rows, "view", lambda drive, lane_ids=None: {landing.key(carried): {"merge_commit": "m1"}, landing.key(later): {"merge_commit": "m2"}})
+    monkeypatch.setattr(store, "load_all", lambda drive: {"run-page": lane(carried, later)})
+    monkeypatch.setattr(store, "update", lambda drive, lane_id, change: change(marks.setdefault(lane_id, lane(dict(carried), dict(later)))))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0 if "m2" not in argv else 1))
+    monkeypatch.setattr(work, "add", lambda drive, kind, lane_id, subject, words, head=None, touches=None, by="owner": added.append((kind, subject, head)) or {"id": "w"})
+    body = {"ref": "18900", "result": "live", "commit": "c" * 40, "words": ["runtime-api-next", "--env", "plat-usw2-prod"]}
+    assert releases.lived("durable-agents", body) == ["w"]
+    assert added == [("e2e", "Forge-AI/monorepo#56967", "m1")] and marks["run-page"]["prs"][0]["live"]["release"] == "18900"
+    assert releases.lived("durable-agents", body | {"words": ["runtime-api-next", "--env", "plat-usw2-staging"]}) == []
