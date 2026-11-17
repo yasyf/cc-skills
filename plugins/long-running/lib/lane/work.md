@@ -16,4 +16,5 @@ What that means when you pull:
 - A rebase, a red check or a review on a PR he approved is done now, not batched behind anything slower.
 - Finish what you take. If you cannot, `lane work done <id> --failed "<why, with the link>"` so it goes back to its lane's owner at once, never a silent drop.
 - The result line is what his lane's owner tells him: what you pushed or found, with the PR and the head, in plain words.
+- A step that needs AWS or cluster credentials runs under `lane-land --drive <drive> break-glass --lane <lane> --stack <domain>/<env> --reason "<why>" -- <command>`, which starts and records the grant on this Mac's machine profile. Never run `aws sso login` or ask him to sign in.
 - Post nothing to Slack. Ask nothing of him. Pull again when you finish; end only when pull shows nothing.
