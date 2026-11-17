@@ -119,6 +119,7 @@ def exclusive(path: Path) -> Iterator[bool]:
 
 def land(args: argparse.Namespace) -> None:
     """One landing pass, never two at once on one install: a pass that finds another on its own install running ends at once, so the supervisor's start each pass never piles landers up, while its lock is named by the install, so a pass of an older install, which ends before its next unit once a newer one is installed, never holds new code back, and a dead pass's lock goes with its process. It starts the stager when a lane waits on a staging test and the env is free, by stager.start, writes each waited release's result file by releases.write, reads every lane PR's state by rows.view, uses each head's verdict the judge worker already wrote, never judging inside the pass, prints what his Approve lands now in each lane, reads the merge queue's row for every unit in one call, and in live mode submits every unit the queue does not hold by merged(), UNITS_AT_ONCE at a time, and exits; the next pass reads what came of each."""
+    print(f"pass {os.getpid()} starts at {store.stamp()}")
 
     here = Path(__file__).resolve().parents[2]
     with exclusive(store.drive_dir(args.drive) / LANDING / f"pass-{here.name}{'-' + '-'.join(args.lane) if args.lane else ''}.lock") as mine:
@@ -183,7 +184,8 @@ def spawn(drive: str) -> None:
     folder = store.drive_dir(drive) / LANDING / LANDERS
     folder.mkdir(parents=True, exist_ok=True)
     for verb in ("land", "judge"):
-        started = subprocess.Popen([str(here / "bin" / "lane-land"), "--drive", drive, verb], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        with (folder / f"{verb}.log").open("a") as said:
+            started = subprocess.Popen([str(here / "bin" / "lane-land"), "--drive", drive, verb], stdout=said, stderr=subprocess.STDOUT, start_new_session=True, env=os.environ | {"PYTHONUNBUFFERED": "1"})
         (folder / f"{started.pid}.json").write_text(json.dumps({"pid": started.pid, "install": here.name, "at": store.stamp(), "verb": verb}) + "\n")
 
 
