@@ -1496,8 +1496,12 @@ def test_a_parked_lane_gets_no_queue_item_no_worker_and_no_card(world: dict, mon
     assert approve.draw(DRIVE) == [] and not store.load(DRIVE, "a").get("cards")
 
 
-def test_headless_roles_carry_a_dollar_cap_and_working_roles_none() -> None:
+def test_headless_roles_carry_a_dollar_cap_and_working_roles_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import agents
+
     from lane import session
+
+    monkeypatch.setattr(agents, "datadog_servers", lambda: {})
 
     assert session.flags({}, "auditor")[-2:] == ["--max-budget-usd", "2"] and session.flags({"budgets": {"acker": "0.1"}}, "acker")[-2:] == ["--max-budget-usd", "0.1"]
     assert "--max-budget-usd" not in session.flags({}, "owner")
@@ -1509,7 +1513,8 @@ def test_a_wait_on_a_release_grant_or_item_nothing_produces_fires_as_unproduced(
     opened("a")
     lane = store.load(DRIVE, "a")
     assert facts.unproduced(DRIVE, lane, {"kind": "work", "ref": "w-nothing"}, {}) == "no work item w-nothing exists"
-    assert "not in line for release" in facts.unproduced(DRIVE, lane, {"kind": "queue_grant", "ref": "release"}, {}) or queue.free_for(DRIVE, "release", "a")
+    granted = facts.unproduced(DRIVE, lane, {"kind": "queue_grant", "ref": "release"}, {})
+    assert (granted is None) == queue.free_for(DRIVE, "release", "a") and (granted is None or "not in line for release" in granted)
     assert facts.unproduced(DRIVE, lane, {"kind": "release", "ref": "r-1"}, {}) == "the release tool knows no release r-1"
 
 
