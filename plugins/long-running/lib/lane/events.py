@@ -80,7 +80,7 @@ def new_deliveries(drive: str) -> list[dict]:
 
 
 def named_keys(drive: str, deliveries: list[dict]) -> set[tuple[str, int]]:
-    """The lane PRs the deliveries name: by number, by the head a check or status ran at, by the branch a status is on, and every open lane PR on a base a push moved, whose mergeability that push can change."""
+    """The lane PRs the deliveries name: by number, by the head a check or status ran at, and by the branch a status is on. A push to a base names none, since every push to the default branch would name every lane PR; the pass's one GitHub read keeps mergeability."""
     from lane import page
 
     seen = page.view(drive)["prs"]
@@ -90,7 +90,7 @@ def named_keys(drive: str, deliveries: list[dict]) -> set[tuple[str, int]]:
         repo = delivery.get("repo")
         mine = {key for key in rows if key[0] == repo}
         keys |= {key for key in mine if key[1] in (delivery.get("numbers") or [])}
-        keys |= {key for key in mine if (pull := seen.get(f"{key[0]}#{key[1]}")) and (pull.get("head") == delivery.get("head") or pull.get("branch") in (delivery.get("branches") or []) or delivery.get("base") and pull.get("base") == delivery["base"] and pull.get("state") == "OPEN")}
+        keys |= {key for key in mine if (pull := seen.get(f"{key[0]}#{key[1]}")) and (pull.get("head") == delivery.get("head") or pull.get("branch") in (delivery.get("branches") or []))}
     return keys
 
 
@@ -113,6 +113,23 @@ def github(drive: str) -> list[str]:
     said += work.adds(drive)
     said += landing(drive, [f"{repo}#{number}" for (repo, number), pull in prs.items() if pull["state"] == "OPEN" and pull.get("rollup") == "SUCCESS"])
     return said
+
+
+GITHUB_LOCK = "github-events.lock"
+
+
+def handle_github(drive: str) -> None:
+    """Handle the deliveries in a process of their own, one at a time per drive, so the supervisor's loop never waits on a GitHub read or a landing; a delivery that arrives while one runs is read by the next."""
+    import subprocess
+
+    from lane import cli as lane_land
+
+    with lane_land.exclusive(store.drive_dir(drive) / GITHUB_LOCK) as free:
+        if not free:
+            return
+    log = store.drive_dir(drive) / "github-events.log"
+    with log.open("a") as out:
+        subprocess.Popen([str(store.launcher(drive)), "--drive", drive, "github-events"], stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
 
 
 def receiving(drive: str) -> list[str]:

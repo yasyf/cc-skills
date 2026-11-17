@@ -7,6 +7,7 @@ import runpy
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -26,6 +27,9 @@ GITHUB = "github.json"
 DEFECT_OPEN = timedelta(minutes=30)
 UNPRODUCED = "nothing is producing what it waits on"
 READERS = 6
+STEP_SECONDS = 120
+READ_SECONDS = 600
+RUNNING_STEPS: dict[str, threading.Thread] = {}
 BOOTOUT_SECONDS = 30
 BOOTSTRAP_TRIES = 10
 PREFLIGHT = "preflight"
@@ -105,16 +109,33 @@ def github_read(drive: str, whole: bool) -> None:
     path.write_text(json.dumps({"failed": 0 if whole else kept["failed"] + 1, "at": store.stamp()}) + "\n")
 
 
-def alone(drive: str, errors: list[str], what: str, step):
-    """Run one step of a pass on its own: what it returns, or, when it raises anything, None, with what failed and why in the pass's errors and in the drive's alerts.jsonl, which `lane check` shows, so no step stops another again, as the Approve card's 403 stopped every pass of 1.0.1691."""
-    try:
-        return step()
-    except Exception as failed:
-        line = f"{what}: {type(failed).__name__}: {failed}"
-        errors.append(line)
-        with (store.drive_dir(drive) / ALERTS).open("a") as out:
-            out.write(json.dumps({"at": store.stamp(), "step": what, "error": line, "trace": traceback.format_exc()[-2000:]}) + "\n")
+def alone(drive: str, errors: list[str], what: str, step, seconds: float = STEP_SECONDS):
+    """Run one step of a pass on its own, bounded in time: what it returns, or None when it raises anything or runs past seconds, with what failed and why in the pass's errors and in the drive's alerts.jsonl, which `lane check` shows, so no step stops another again, as the Approve card's 403 stopped every pass of 1.0.1691, and no step stalls the drive, as a GitHub read per landed PR stalled 1.0.1711's. A step that ran past its bound keeps running on its own and is not started again until it ends."""
+    if (still := RUNNING_STEPS.get(f"{drive}:{what}")) and still.is_alive():
+        errors.append(f"{what}: still running from an earlier pass, so this pass moves on without it")
         return None
+    kept: dict = {}
+
+    def running() -> None:
+        try:
+            kept["result"] = step()
+        except Exception as failed:
+            kept["failed"], kept["trace"] = failed, traceback.format_exc()[-2000:]
+
+    worker = threading.Thread(target=running, name=what, daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        RUNNING_STEPS[f"{drive}:{what}"] = worker
+        line, trace = f"{what}: ran past {seconds:.0f}s, so this pass moves on without it", ""
+    elif "failed" in kept:
+        line, trace = f"{what}: {type(kept['failed']).__name__}: {kept['failed']}", kept["trace"]
+    else:
+        return kept.get("result")
+    errors.append(line)
+    with (store.drive_dir(drive) / ALERTS).open("a") as out:
+        out.write(json.dumps({"at": store.stamp(), "step": what, "error": line, "trace": trace}) + "\n")
+    return None
 
 
 def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True) -> dict:
@@ -148,7 +169,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         posts = alone(drive, errors, "the voice listed no posts to follow", lambda: voice.followed(drive, moment)) or []
         lost: list[str] = []
         keys = facts.pr_keys(store.load_all(drive)) | voice.subject_keys(posts)
-        read = alone(drive, errors, "GitHub read failed", lambda: facts.read_prs(keys, commits=1, failed=lost))
+        read = alone(drive, errors, "GitHub read failed", lambda: facts.read_prs(keys, commits=1, failed=lost), READ_SECONDS)
         prs = read or {}
         errors += [f"GitHub read dropped {why}" for why in lost]
         github_read(drive, read is not None and not lost)
@@ -606,8 +627,7 @@ def supervise(drive: str) -> None:
         while time.monotonic() < deadline and (kick.stat().st_mtime if kick.exists() else 0.0) == seen:
             if delivered.is_file() and delivered.stat().st_size != delivered_at:
                 delivered_at = delivered.stat().st_size
-                for line in alone(drive, [], "a GitHub delivery was not handled", lambda: events.github(drive)) or []:
-                    print(f"{store.stamp()} {line}", flush=True)
+                events.handle_github(drive)
             time.sleep(1)
 
 

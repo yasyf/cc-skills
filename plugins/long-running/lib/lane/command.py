@@ -177,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     judged = carrying.add_mutually_exclusive_group(required=True)
     judged.add_argument("--compatible")
     judged.add_argument("--incompatible")
+    verbs_parser.add_parser("github-events", help="handle GitHub's deliveries since the last, one process per drive at a time")
     working = verbs_parser.add_parser("work", help="the work queue: add an item, pull and take items as a worker, finish one, or list them")
     work_verbs = working.add_subparsers(dest="work_verb", required=True)
     work_add = work_verbs.add_parser("add")
@@ -358,6 +359,14 @@ def run(args: argparse.Namespace) -> int:
         case "audit-miss":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             audit.missed(drive, args.line)
+        case "github-events":
+            from lane import cli as lane_land
+            from lane import events
+
+            with lane_land.exclusive(store.drive_dir(args.drive) / events.GITHUB_LOCK) as mine:
+                if mine:
+                    for line in events.github(args.drive):
+                        print(f"{store.stamp()} {line}", flush=True)
         case "carry":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             repo, number = pr_ref(args.pr)

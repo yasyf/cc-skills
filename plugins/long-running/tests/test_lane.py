@@ -1466,3 +1466,16 @@ def test_a_failed_item_is_queued_once_more_with_why_and_a_second_failure_tells_i
     work.take(DRIVE, "worker-2", [item["id"]])
     assert work.done(DRIVE, item["id"], "still no token", failed=True)["state"] == work.FAILED
     assert "re-plan it" in store.note_path(DRIVE, "a").read_text()
+
+
+def test_a_pass_step_that_runs_past_its_bound_lets_the_pass_move_on_and_is_not_started_twice(world: dict) -> None:
+    import threading
+
+    release = threading.Event()
+    errors: list[str] = []
+    assert supervisor.alone(DRIVE, errors, "slow step", lambda: release.wait(5), 0.1) is None
+    assert errors == ["slow step: ran past 0s, so this pass moves on without it"]
+    assert supervisor.alone(DRIVE, errors, "slow step", lambda: 1, 0.1) is None and "still running from an earlier pass" in errors[-1]
+    release.set()
+    supervisor.RUNNING_STEPS[f"{DRIVE}:slow step"].join(1)
+    assert supervisor.alone(DRIVE, errors, "slow step", lambda: 2, 1) == 2
