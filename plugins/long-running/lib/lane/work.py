@@ -17,7 +17,7 @@ from lane import session as shapes
 
 FOLDER = "work"
 WORKERS = "workers"
-KINDS = ("rebase", "red", "review", "ask", "e2e", "staging-before", "staging-after")
+KINDS = ("rebase", "red", "review", "carry", "ask", "e2e", "staging-before", "staging-after")
 FIX_KINDS = {"conflict": "rebase", "red": "red", "review": "review"}
 QUEUED, TAKEN, DONE, FAILED = "queued", "taken", "done", "failed"
 QUIET = timedelta(minutes=30)
@@ -261,6 +261,9 @@ def adds(drive: str) -> list[str]:
         for row in lane["prs"]:
             key = f"{row['repo']}#{row['number']}"
             pull_row = seen.get(key)
+            if pull_row and pull_row["state"] == "OPEN" and row.get("approved_head") and pull_row["head"] != row["approved_head"] and (row.get("carried") or {}).get("head") != pull_row["head"] and key not in fixing:
+                item = add(drive, "carry", lane_id, key, carry_brief(drive, key, row["approved_head"], pull_row), head=pull_row["head"], touches=[row["repo"]], by="supervisor")
+                added.append(f"{item['id']} carry {key} at {pull_row['head'][:7]}")
             if key in fixing or not fixes.wanted(row, pull_row) or not (kind_of := fixes.kind(row, pull_row)):
                 continue
             before = load(drive, item_id(FIX_KINDS[kind_of], key))
@@ -268,6 +271,14 @@ def adds(drive: str) -> list[str]:
             if not before or before.get("head") != item.get("head") or before["state"] != item["state"]:
                 added.append(f"{item['id']} {item['kind']} {key} at {pull_row['head'][:7]}")
     return added
+
+
+def carry_brief(drive: str, key: str, approved: str, pull: dict) -> str:
+    return (
+        f"His Approve of {key} was at {approved[:12]}; its head is now {pull['head'][:12]} (branch {pull['branch']}). Judge, by his words \"the approve carries if its semantically similar, as determined by the model (if its going to make a semantically incompatible change it needs to revoke the approval)\", whether what changed between the two is what he approved: "
+        f"`git fetch origin {approved} {pull['head']} {pull['base']}`, then `git range-diff origin/{pull['base']}...{approved} origin/{pull['base']}...{pull['head']}` and read every hunk that differs. A clean rebase or a fix that keeps the same behavior is compatible; a conflict resolved by changing behavior, new behavior, or a dropped change is not. "
+        f"Record it with `{LANE} --drive {drive} carry {key} --head {pull['head']} --compatible \"<one line why>\"` or `--incompatible \"<what changed, in his terms>\"`, then finish this item with the same line. Push nothing."
+    )
 
 
 def listed(drive: str) -> list[dict]:

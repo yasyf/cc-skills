@@ -13,7 +13,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from lane import facts, queue, rank, store
-from lane import rows as lane_rows
 
 VIEW = "view.json"
 LOOPBACK = "127.0.0.1"
@@ -60,16 +59,14 @@ def view(drive: str) -> dict:
 
 
 def tapless(lane: dict, seen: dict) -> list[dict]:
-    """The lane's open PRs that wait on his tap by lane-land's rule: no Approve of his on the row, or commits since his approved head that our lanes' account did not author, by rows.foreign, so every Approve carried at the rebuild stands through our own pushes; held ones are left out."""
+    """The lane's open PRs that wait on his tap: no Approve of his on the row, including one a model revoked at a new head as no longer what he approved; a moved head a model has not judged yet waits on its carry item, not on him; held ones are left out."""
     rows = []
     for row in lane.get("prs", []):
         pull = seen.get(f"{row['repo']}#{row['number']}")
         if row.get("held") or not pull or pull["state"] != "OPEN":
             continue
         if not row.get("approved_head"):
-            rows.append({**row, "checks": pull["rollup"], "moved": None})
-        elif row["approved_head"] != pull["head"] and (moved := lane_rows.foreign(pull.get("commits") or [], row["approved_head"], lane_rows.ours(), pull.get("whole", False))) != []:
-            rows.append({**row, "checks": pull["rollup"], "moved": moved or ["his approved head is not among its recent commits"]})
+            rows.append({**row, "checks": pull["rollup"], "moved": (row.get("revoked") or {}).get("why")})
     return rows
 
 

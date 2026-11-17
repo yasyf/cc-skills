@@ -48,8 +48,8 @@ def unready(row: dict) -> str | None:
     tool = judged(row) and tooling(row)
     if not tool and not row["approved_head"]:
         return "no Approve of his"
-    if not tool and row["approved_head"] != row["head"] and (moved := row.get("foreign")) != []:
-        return f"commits since his Approve need his tap again: {', '.join(moved)}" if moved else "his approved head is not among its recent commits, so his Approve needs his tap again"
+    if not tool and row["approved_head"] != row["head"] and ((row.get("carried") or {}).get("head") != row["head"] or not row["carried"]["compatible"]):
+        return "its head moved since his Approve, and a model has not yet judged the change compatible with what he approved"
     if row.get("checks") != "pass":
         return f"checks {row.get('checks') or 'unread'}"
     if row.get("mergeable") == "CONFLICTING":

@@ -1384,3 +1384,19 @@ def test_a_github_delivery_naming_a_lane_pr_wakes_the_lane_waiting_on_it_in_the_
     said = events.github(DRIVE)
     assert "woke a" in said and store.load(DRIVE, "a")["state"] != store.WAITING or store.load(DRIVE, "a")["wait"].get("fired")
     assert events.github(DRIVE) == []
+
+
+def test_replaying_57827_a_moved_head_after_his_approve_queues_a_carry_item_and_an_incompatible_verdict_revokes_it(world: dict) -> None:
+    from lane import page, work
+
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", prs=[("acme/app", 57827)], channel="C1")
+    store.update(DRIVE, "a", lambda lane: lane["prs"][0].__setitem__("approved_head", "149d6c76"))
+    world["prs"][("acme/app", 57827)] = pull(rollup="SUCCESS", head="f143038a", branch="b") | {"mergeable": "MERGEABLE", "commits": [], "commit_count": 0}
+    supervisor.run_pass(DRIVE)
+    [item] = [item for item in work.items(DRIVE) if item["kind"] == "carry"]
+    assert item["subject"] == "acme/app#57827" and "range-diff" in item["words"] and "149d6c76" in item["words"]
+    verbs.carry(DRIVE, "acme/app", 57827, "f143038a", False, "the turnEndNote conflict was resolved by changing when the note shows")
+    row = store.load(DRIVE, "a")["prs"][0]
+    assert row["approved_head"] is None and row["revoked"]["head"] == "149d6c76"
+    assert [tap["number"] for tap in page.tapless(store.load(DRIVE, "a"), page.view(DRIVE)["prs"])] == [57827]

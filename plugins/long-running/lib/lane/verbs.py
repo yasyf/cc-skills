@@ -54,6 +54,35 @@ def tapped(drive: str, repo: str, number: int, label: str, head: str, source: st
     return carrying
 
 
+def carry(drive: str, repo: str, number: int, head: str, compatible: bool, why: str) -> list[str]:
+    """A model's judgement of whether his Approve carries to a PR's new head, by his words "the approve carries if its semantically similar, as determined by the model (if its going to make a semantically incompatible change it needs to revoke the approval)": compatible, the Approve stands at head and lane-land may land it; incompatible, the Approve is revoked, the owner is told what changed, and his tap is needed again. The lanes it was written on."""
+    carrying = [lane_id for lane_id, lane in store.load_all(drive).items() if any((row["repo"], row["number"]) == (repo, number) for row in lane["prs"])]
+    if not carrying:
+        raise store.Refused(f"no lane of {drive} carries {repo}#{number}")
+
+    def judging(lane: dict) -> None:
+        for row in lane["prs"]:
+            if (row["repo"], row["number"]) == (repo, number):
+                if not row.get("approved_head"):
+                    raise store.Refused(f"{repo}#{number} carries no Approve of his to judge")
+                row["carried"] = {"head": head, "from": row["approved_head"], "compatible": compatible, "why": why, "at": store.stamp()}
+                if not compatible:
+                    row["revoked"] = {"head": row["approved_head"], "at": store.stamp(), "why": why}
+                    row["approved_head"] = None
+        store.note(lane, f"his Approve on {repo}#{number} {'carries' if compatible else 'is revoked'} at {head[:12]}: {why}")
+        if not compatible:
+            if lane["state"] == store.WAITING:
+                woken(lane, f"his Approve on {repo}#{number} was revoked at {head[:12]}: {why}")
+            elif lane["state"] == store.RUNNING:
+                with store.note_path(drive, lane["id"]).open("a") as note:
+                    note.write(f"His Approve on {repo}#{number} was revoked at its new head {head[:12]}, since the change is not what he approved: {why}. Tell him what changed and ask his tap again.\n\n")
+
+    for lane_id in carrying:
+        store.update(drive, lane_id, judging)
+    store.kick(drive)
+    return carrying
+
+
 def open_lane(drive: str, lane_id: str, title: str, words: str | None = None, channel: str | None = None, thread: str | None = None, link: str | None = None, ts: str | None = None, parks: str | None = None, park_words: str | None = None, prs: list[tuple[str, int]] = (), worktree: str | None = None, next_step: str | None = None, incident: dict | None = None) -> dict:
     """Open a lane, woken at once so the same call starts its owner; at the cap it must name the lane it parks, with his words."""
     cap = store.config(drive)["active"]

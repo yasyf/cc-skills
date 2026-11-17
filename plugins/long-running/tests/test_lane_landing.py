@@ -37,13 +37,13 @@ def test_an_unread_head_a_head_read_before_a_push_and_no_approve_never_land() ->
     assert [verdict.lands for stack in (unread, stale, unapproved) for verdict in landing.verdicts(lane(stack))] == [False, False, False]
 
 
-def test_his_approve_stands_on_a_head_only_our_own_commits_moved_and_a_teammates_commit_needs_his_tap_again() -> None:
-    ours = row(3, head="new") | {"approved_head": "old", "foreign": []}
-    theirs = row(3, head="new") | {"approved_head": "old", "foreign": ["new by a-teammate"]}
-    lost = row(3, head="new") | {"approved_head": "old", "foreign": None}
-    assert landing.verdicts(lane(ours))[0].lands is True
-    assert landing.verdicts(lane(theirs))[0].why == "Forge-AI/monorepo#3 waits: commits since his Approve need his tap again: new by a-teammate"
-    assert landing.verdicts(lane(lost))[0].lands is False
+def test_his_approve_stands_on_a_moved_head_only_once_a_model_judged_the_change_compatible() -> None:
+    unjudged = row(3, head="new") | {"approved_head": "old"}
+    carried = row(3, head="new") | {"approved_head": "old", "carried": {"head": "new", "compatible": True}}
+    stale = row(3, head="newer") | {"approved_head": "old", "carried": {"head": "new", "compatible": True}}
+    assert landing.verdicts(lane(unjudged))[0].why == "Forge-AI/monorepo#3 waits: its head moved since his Approve, and a model has not yet judged the change compatible with what he approved"
+    assert landing.verdicts(lane(carried))[0].lands is True
+    assert landing.verdicts(lane(stale))[0].lands is False
 
 
 def test_foreign_lists_the_commits_after_his_approved_head_that_another_account_authored() -> None:

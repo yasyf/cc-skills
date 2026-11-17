@@ -171,6 +171,12 @@ def main(argv: list[str] | None = None) -> int:
     fixing.add_argument("--commit", required=True)
     missing = verbs_parser.add_parser("audit-miss", help="a defect he found that the audits missed, kept as a rubric line every later audit checks")
     missing.add_argument("line")
+    carrying = verbs_parser.add_parser("carry", help="a model's judgement of whether his Approve carries to a PR's new head")
+    carrying.add_argument("pr")
+    carrying.add_argument("--head", required=True)
+    judged = carrying.add_mutually_exclusive_group(required=True)
+    judged.add_argument("--compatible")
+    judged.add_argument("--incompatible")
     working = verbs_parser.add_parser("work", help="the work queue: add an item, pull and take items as a worker, finish one, or list them")
     work_verbs = working.add_subparsers(dest="work_verb", required=True)
     work_add = work_verbs.add_parser("add")
@@ -351,6 +357,10 @@ def run(args: argparse.Namespace) -> int:
         case "audit-miss":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             audit.missed(drive, args.line)
+        case "carry":
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            repo, number = pr_ref(args.pr)
+            print(" ".join(verbs.carry(drive, repo, number, args.head, args.compatible is not None, args.compatible or args.incompatible)))
         case "work":
             from lane import work
 
