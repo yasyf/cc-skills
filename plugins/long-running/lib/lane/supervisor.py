@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import approve, fixes, facts, page, queue, rank, store, verbs, voice
+from lane import ack, approve, fixes, facts, page, queue, rank, store, verbs, voice
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -123,6 +123,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
                     heard[lane_id] = found
         if heard:
             alone(drive, errors, "his words reached no lane", lambda: store.transact(drive, lambda lanes: [verbs.take_messages(drive, lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()]))
+            alone(drive, errors, "his words got no 👀", lambda: ack.seen(drive, heard))
         posts = alone(drive, errors, "the voice listed no posts to follow", lambda: voice.followed(drive, moment)) or []
         prs = alone(drive, errors, "GitHub read failed", lambda: facts.read_prs(facts.pr_keys(store.load_all(drive)) | voice.subject_keys(posts), commits=1)) or {}
         if prs:
@@ -187,6 +188,8 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
 
     starts = store.transact(drive, deciding, leaving_unreplied=True)
     alone(drive, errors, "no owner was nudged", lambda: nudge(drive, store.now()))
+    if read_outside and store.live(drive):
+        alone(drive, errors, "his words got no working line", lambda: ack.working(drive))
     with ThreadPoolExecutor(max_workers=READERS) as pool:
         errors += [error for error in pool.map(lambda start: launching(drive, start, shape), starts) if error]
     if read_outside:

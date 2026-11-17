@@ -40,6 +40,9 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(lane_rows, "ours", lambda: "lanes-bot")
     monkeypatch.setattr(rank, "judge", lambda text, told: dict(seen["scores"]))
     monkeypatch.setattr(supervisor.lane_land, "spawn", lambda drive: None)
+    from lane import ack
+
+    monkeypatch.setattr(ack, "slack", lambda args: seen.setdefault("slack", []).append(args))
     folder = store.drive_dir(DRIVE)
     folder.mkdir(parents=True)
     (folder / "config.json").write_text(json.dumps({"active": 3, "slots": 2, "posting": False}))
@@ -1015,3 +1018,16 @@ def test_a_pass_step_that_raises_stops_no_other_step(world: dict, monkeypatch: p
     result = supervisor.run_pass(DRIVE)
     assert landed == [DRIVE] and any("no Approve card was drawn: RuntimeError: HTTP Error 403" in error for error in result["errors"])
     assert "HTTP Error 403" in (store.drive_dir(DRIVE) / supervisor.ALERTS).read_text()
+
+
+def test_his_words_get_eyes_when_a_lane_takes_them_and_a_working_line_once_its_owner_runs(world: dict) -> None:
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    opened("a", channel="C1")
+    supervisor.run_pass(DRIVE)
+    world["messages"]["a"] = [{"words": "have you merged these?", "ts": "200.0", "at": store.stamp(), "link": "https://x.slack.com/archives/C1/p200000"}]
+    supervisor.run_pass(DRIVE)
+    calls = world["slack"]
+    assert ["react", "--url", "https://x.slack.com/archives/C1/p200000", "--name", "eyes"] in calls
+    assert sum(call[0] == "pickup" and "https://x.slack.com/archives/C1/p200000" in call for call in calls) == 1
+    supervisor.run_pass(DRIVE)
+    assert sum(call[0] == "pickup" and "https://x.slack.com/archives/C1/p200000" in call for call in world["slack"]) == 1

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from lane import owner as owners
-from lane import page, queue, store, supervisor, verbs, voice
+from lane import ack, page, queue, store, supervisor, verbs, voice
 
 STOP_BLOCKS = 3
 PUSH = re.compile(r"\b(git push|jj git push|ccx vcs ship|gt submit|ccx vcs stack (submit|rebase))\b")
@@ -323,6 +323,10 @@ def run(args: argparse.Namespace) -> int:
                 print(f"{ask['at']} ts {ask.get('ts')}{'' if ask.get('replied') else ' UNANSWERED'}{' done' if ask.get('done') else ''}: {ask['words']}" + (f" ({ask['link']})" if ask.get("link") else ""))
         case "done":
             verbs.done(*where(args), token(), args.ts)
+            try:
+                ack.finished(*where(args), args.ts)
+            except store.Refused as failed:
+                print(f"marked done; no ✅ in Slack: {failed}", file=sys.stderr)
         case "pr":
             drive, lane_id = where(args)
             verbs.add_pr(drive, lane_id, token(), *pr_ref(args.ref), args.words)
