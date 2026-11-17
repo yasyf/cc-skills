@@ -42,6 +42,7 @@ HOME_REPO = "yasyf/cc-skills"
 HOME_CI = "long-running CI"
 CI_ANCESTORS = 5
 KNOWN_RED = "known-red.json"
+HOLDS = "holds.json"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 FAILED_TEST = re.compile(r"FAILED (plugins/\S+?\.py::\w+)")
 
@@ -465,8 +466,11 @@ def preflighted(drive: str, install: Path) -> bool:
         if not store.parses(drive, install / "bin" / "lane"):
             refused.write_text(f"{install.name}'s lane command does not parse: {(store.drive_dir(drive) / 'parses' / install.name).read_text()}")
             return False
+        if held := held_by(drive, install.name):
+            output.write_text(f"held: {held}; lift it with `lane --drive {drive} hold-install <sha> --lift`\n")
+            return False
         if not (folder / f"{install.name}.p0").exists() and (red := regressed(drive, install)):
-            output.write_text(f"waiting: {red}; mark one known-red with `lane --drive {drive} known-red <test> --lane <owner>`, or take a fix for live harm is taken anyway with `lane --drive {drive} take {install.name} --p0 \"<why>\"`\n")
+            output.write_text(f"waiting: {red}; mark one known-red with `lane --drive {drive} known-red <test> --lane <owner>`, or take a fix for live harm with `lane --drive {drive} take {install.name} --p0 \"<why>\"`\n")
             return False
         with output.open("w") as out:
             PREFLIGHTS[install.name] = (subprocess.Popen([str(install / "bin" / "lane"), "--drive", drive, "preflight"], stdout=out, stderr=subprocess.STDOUT), time.monotonic())
@@ -545,6 +549,36 @@ def failures(drive: str, version: str) -> set[str] | None:
 
 def gh_json(*args: str):
     return json.loads(subprocess.run(["gh", *args], capture_output=True, text=True, check=True, timeout=60).stdout)
+
+
+def held_by(drive: str, version: str) -> str | None:
+    """Why the install is held: each held commit its tag carries, with who held it and why, or None. A hold keeps the drive on its code until lifted, whatever the install's CI says."""
+    holds = installs_held(drive)
+    if not holds:
+        return None
+    tag = gh_json("api", f"repos/{HOME_REPO}/commits/long-running--v{version}")["sha"]
+    carried = [f"{sha[:9]} ({hold['why']}, by {hold['by']})" for sha, hold in holds.items() if gh_json("api", f"repos/{HOME_REPO}/compare/{sha}...{tag}")["status"] in ("ahead", "identical")]
+    return f"{version} carries {', '.join(carried)}" if carried else None
+
+
+def installs_held(drive: str) -> dict[str, dict]:
+    path = store.drive_dir(drive) / PREFLIGHT / HOLDS
+    return json.loads(path.read_text()) if path.is_file() else {}
+
+
+def hold_install(drive: str, sha: str, why: str | None, by: str | None) -> str:
+    """Hold every install whose tag carries the commit until the hold is lifted, or lift it with no why."""
+    path = store.drive_dir(drive) / PREFLIGHT / HOLDS
+    path.parent.mkdir(exist_ok=True)
+    holds = installs_held(drive)
+    full = gh_json("api", f"repos/{HOME_REPO}/commits/{sha}")["sha"]
+    if why:
+        holds[full] = {"why": why, "by": by or "unnamed", "at": store.stamp()}
+    else:
+        holds.pop(full)
+    path.write_text(json.dumps(holds, indent=1) + "\n")
+    (store.drive_dir(drive) / "kick").touch()
+    return f"{full[:9]}: {'held: ' + why if why else 'lifted'}"
 
 
 def known_red(drive: str) -> dict[str, str]:
