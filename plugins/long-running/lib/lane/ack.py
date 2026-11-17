@@ -42,20 +42,30 @@ def wanted(lane: dict, ask: dict) -> str | None:
 
 
 def working(drive: str) -> None:
-    """Each pass, move the reaction on each message of his to what its lane's state wants now, once per change: 🚧 comes off when the work ends, whether or not its owner ran lane done, and an answer that needed no work goes straight to ✅. One message the voice cannot react to never stops the others."""
+    """Each pass, move the reaction on each message of his to what its lane's state wants now, once per change: 🚧 comes off when the work ends, whether or not its owner ran lane done, and an answer that needed no work goes straight to ✅. One message the voice cannot react to never stops the others, and is tried once per reaction: a refusal is kept on the ask, so no pass fails on it again."""
     refused = []
     for lane_id, lane in store.load_all(drive).items():
-        moved = {}
+        moved, failed = {}, {}
         for ask in lane.get("asks", []):
             had = ask.get("reaction") or ("construction" if ask.get("picked") else "white_check_mark" if ask.get("done") else None)
-            if his(ask) and (want := wanted(lane, ask)) and want != had:
+            if his(ask) and (want := wanted(lane, ask)) and want != had and ask.get("reaction_refused") != want:
                 try:
                     react(lane, ask, want, REMOVES[want])
                     moved[ask["ts"]] = want
                 except store.Refused as error:
                     refused.append(str(error))
-        if moved:
-            store.update(drive, lane_id, lambda lane, moved=moved: [ask.__setitem__("reaction", moved[ask["ts"]]) for ask in lane["asks"] if ask.get("ts") in moved], leaving_unreplied=True)
+                    failed[ask["ts"]] = want
+        if moved or failed:
+
+            def keeping(lane: dict, moved: dict = moved, failed: dict = failed) -> None:
+                for ask in lane["asks"]:
+                    if ask.get("ts") in moved:
+                        ask["reaction"] = moved[ask["ts"]]
+                    elif ask.get("ts") in failed:
+                        ask["reaction_refused"] = failed[ask["ts"]]
+                        store.note(lane, f"the voice refused {failed[ask['ts']]} on his message {ask['ts']}; tried once, never again for that reaction")
+
+            store.update(drive, lane_id, keeping, leaving_unreplied=True)
     if refused:
         raise store.Refused("; ".join(refused))
 

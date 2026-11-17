@@ -1613,3 +1613,17 @@ def test_lane_config_set_writes_a_key_the_code_reads_and_logs_who_set_it(world: 
     with pytest.raises(store.Refused, match="no config key 'approve_card'"):
         store.set_config(DRIVE, "approve_card", True, "team-lead")
     assert json.loads((store.drive_dir(DRIVE) / "config.log").read_text().splitlines()[-1])["by"] == "team-lead"
+
+
+def test_the_launcher_link_only_moves_forward_and_a_refused_reaction_is_tried_once(world: dict, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from lane import ack
+
+    assert store.install_version(Path("/c/long-running/1.0.1711/bin/lane")) > store.install_version(Path("/c/long-running/1.0.1706/bin/lane")) and store.install_version(Path("/checkout/plugins/long-running/bin/lane")) == ()
+    tries = []
+    monkeypatch.setattr(ack, "react", lambda lane, ask, add, remove: tries.append(ask["ts"]) or (_ for _ in ()).throw(store.Refused("403 not one of the operator's channels")))
+    opened("a", channel="C1")
+    store.update(DRIVE, "a", lambda lane: lane["asks"][0].update(replied="QUEUED a1", ts="1794625385.692939"))
+    with pytest.raises(store.Refused):
+        ack.working(DRIVE)
+    ack.working(DRIVE)
+    assert tries == ["1794625385.692939"]

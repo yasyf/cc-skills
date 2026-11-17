@@ -344,11 +344,17 @@ def new_token() -> str:
     return secrets.token_hex(8)
 
 
+def install_version(path: Path) -> tuple[int, ...]:
+    """The version of the plugin install a path sits in, as numbers, () for a checkout."""
+    found = next((part for part in reversed(path.parts) if part.count(".") == 2 and part.replace(".", "").isdigit()), "")
+    return tuple(int(piece) for piece in found.split(".")) if found else ()
+
+
 def launcher(drive: str) -> Path:
-    """The drive's stable path to the lane command, a symlink in its state folder kept pointing at this install's bin/lane, so launchd's plist and every owner's hooks outlive the versioned plugin folder they started from."""
+    """The drive's stable path to the lane command, a symlink in its state folder pointing at an install's bin/lane, so launchd's plist and every owner's hooks outlive the versioned plugin folder they started from. A process moves it only forward, to its own install when that is newer than the link's, so an owner, worker or lander still running an older install never points the drive back at its own, as 1.0.1706's processes did to 1.0.1711's link."""
     path = drive_dir(drive) / "lane"
     target = Path(__file__).resolve().parents[2] / "bin" / "lane"
-    if not path.is_symlink() or path.resolve() != target:
+    if not path.is_symlink() or path.resolve() != target and install_version(target) > install_version(path.resolve()):
         path.parent.mkdir(parents=True, exist_ok=True)
         fresh = path.with_name(f".lane.{os.getpid()}")
         fresh.unlink(missing_ok=True)

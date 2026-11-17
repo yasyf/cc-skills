@@ -45,7 +45,7 @@ def heartbeat(drive: str, moment: datetime, errors: list[str]) -> None:
     path = store.drive_dir(drive) / "supervisor.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     fresh = path.with_name(".supervisor.json.tmp")
-    fresh.write_text(json.dumps({"pid": os.getpid(), "at": store.stamp(moment), "errors": errors}) + "\n")
+    fresh.write_text(json.dumps({"pid": os.getpid(), "at": store.stamp(moment), "install": Path(__file__).resolve().parents[2].name, "link": store.launcher(drive).resolve().parents[1].name, "errors": errors}) + "\n")
     fresh.replace(path)
 
 
