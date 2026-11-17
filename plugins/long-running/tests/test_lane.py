@@ -1569,7 +1569,7 @@ def test_an_answer_that_left_nothing_running_takes_a_check_and_construction_come
     store.update(DRIVE, "a", lambda lane: lane["asks"][0].update({"ts": "200.0", "link": "https://x.slack.com/archives/C1/p200000", "replied": "QUEUED a1"}))
     store.update(DRIVE, "a", lambda lane: lane.update({"state": store.RUNNING}))
     ack.working(DRIVE)
-    store.update(DRIVE, "a", lambda lane: lane.update({"state": store.WAITING, "wait": {"on": [{"kind": "his_reply"}], "until": store.stamp(), "why": "answered", "set": store.stamp()}}))
+    store.update(DRIVE, "a", lambda lane: lane.update({"state": store.WAITING, "owner": None, "wait": {"on": [{"kind": "his_reply"}], "until": store.stamp(), "why": "answered", "set": store.stamp()}}))
     ack.working(DRIVE)
     ack.working(DRIVE)
     assert world["slack"] == [("200.0", "construction", ["eyes"]), ("200.0", "white_check_mark", ["construction", "eyes"])]
@@ -1601,6 +1601,7 @@ def test_a_block_only_he_can_clear_wakes_its_owner_to_tell_him_then_files_a_defe
 
     opened("a")
     opened("b")
+    ended("a", ["pr_merged:acme/app#7"], "2h")
     filed = []
     monkeypatch.setattr(blocks, "judged", lambda fresh: {block["at"]: "Approve" in block["what"] for block in fresh})
     monkeypatch.setattr(audit, "defect", lambda drive, what, evidence, mechanism, owner: filed.append((what, owner)))
@@ -1613,6 +1614,8 @@ def test_a_block_only_he_can_clear_wakes_its_owner_to_tell_him_then_files_a_defe
     assert store.load(DRIVE, "b")["blocks"][0]["told"]
     blocks.told(DRIVE, later + blocks.TELL_WITHIN + timedelta(seconds=1))
     assert filed == [("lane a never told him of a block only he can clear", "lane-voice")]
+
+
 def test_lane_config_set_writes_a_key_the_code_reads_and_logs_who_set_it(world: dict) -> None:
     assert store.set_config(DRIVE, "approve_cards", False, "team-lead") is None and store.config(DRIVE)["approve_cards"] is False
     with pytest.raises(store.Refused, match="no config key 'approve_card'"):
