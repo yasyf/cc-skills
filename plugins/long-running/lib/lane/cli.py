@@ -153,7 +153,7 @@ def land(args: argparse.Namespace) -> None:
         rule = rows.rule_key(args.drive)
         checkout = Path(store.config(args.drive)["checkout"])
         units = []
-        for lane in [rows.seen(lane, read, rule) for lane in store.load_all(args.drive).values() if not args.lane or lane["id"] in args.lane]:
+        for lane in [rows.seen(lane, read, rule, store.config(args.drive)["premerge_lanes"]) for lane in store.load_all(args.drive).values() if not args.lane or lane["id"] in args.lane]:
             for verdict in landing.verdicts(lane):
                 print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
                 if verdict.lands and (stager.live(args.drive) or args.dry_run):
@@ -195,7 +195,7 @@ def judge(args: argparse.Namespace) -> None:
 def verdicts(args: argparse.Namespace) -> None:
     read = rows.view(args.drive)
     rule = rows.rule_key(args.drive)
-    for lane in [rows.seen(lane, read, rule) for lane in store.load_all(args.drive).values()]:
+    for lane in [rows.seen(lane, read, rule, store.config(args.drive)["premerge_lanes"]) for lane in store.load_all(args.drive).values()]:
         for verdict in landing.verdicts(lane):
             print(f"{lane['id']}: {'LANDS' if verdict.lands else 'HOLDS'} {', '.join(verdict.keys)}; {verdict.why}")
 

@@ -56,7 +56,7 @@ def lane_candidates(drive: str) -> list[dict]:
     asked = wants(drive)
     found = []
     for rank, lane_id in enumerate(order):
-        lane = rows.seen(store.load(drive, lane_id), read, rule)
+        lane = rows.seen(store.load(drive, lane_id), read, rule, store.config(drive)["premerge_lanes"])
         for stack in landing.stacks(lane):
             open_rows = [row for row in stack if not row.get("merged")]
             if any(landing.judged(row) and landing.dangerous(row) for row in open_rows) and not landing.proven(open_rows):
@@ -73,7 +73,7 @@ def lane_candidates(drive: str) -> list[dict]:
                         "dangerous": {landing.key(row): row["dangerous"] for row in open_rows if landing.judged(row) and landing.dangerous(row)},
                     }
                 )
-    found += [{"rank": rank, "lane": lane_id, "stack": [landing.key(row)], "top_head": row["head"], "after_merge": True} for rank, lane_id in enumerate(order) for row in rows.seen(store.load(drive, lane_id), read, rule)["prs"] if row.get("merged") and not row.get("staging") and row.get("approved_head")]
+    found += [{"rank": rank, "lane": lane_id, "stack": [landing.key(row)], "top_head": row["head"], "after_merge": True} for rank, lane_id in enumerate(order) for row in rows.seen(store.load(drive, lane_id), read, rule, store.config(drive)["premerge_lanes"])["prs"] if row.get("merged") and not row.get("staging") and row.get("approved_head")]
     return found
 
 
@@ -176,7 +176,7 @@ def starts(drive: str, cut: str) -> str | None:
 
 def premerge(drive: str, lane_id: str) -> list[str]:
     """The lane's open PRs the danger page in force holds for a staging test before merge, judged at their current heads, SandSQL work alone by his 5:00 PM words; a lane with none asks no cut, since its stacks merge on his Approve and are tested after."""
-    seen = rows.seen(store.load(drive, lane_id), rows.view(drive), rows.rule_key(drive))
+    seen = rows.seen(store.load(drive, lane_id), rows.view(drive), rows.rule_key(drive), store.config(drive)["premerge_lanes"])
     return [landing.key(row) for row in seen["prs"] if not row.get("merged") and landing.judged(row) and landing.dangerous(row)]
 
 

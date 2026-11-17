@@ -18,6 +18,7 @@ def row(number: int, head: str = "h", classes: dict | None = SAFE, under: int | 
         "dangerous": None if classes is None else {"head": head, "classes": classes},
         "guarded": None if classes is None else {"head": head, "classes": classes if guarded is None else guarded},
         "under": f"Forge-AI/monorepo#{under}" if under else None,
+        "premerge": False,
     } | changes
 
 
@@ -99,7 +100,7 @@ def test_a_verdict_judged_under_an_older_danger_page_is_dropped_so_the_head_hold
     current = row(1) | {"dangerous": {"head": "h", "classes": {}, "rule": "new"}, "guarded": {"head": "h", "classes": {}, "rule": "new"}}
     older = row(2) | {"dangerous": {"head": "h", "classes": {}, "rule": "old"}, "guarded": {"head": "h", "classes": {}, "rule": "old"}}
     read = {landing.key(pr): {"head": "h", "checks": "pass", "under": None} for pr in (current, older)}
-    seen = rows.seen(lane(current, older), read, "new")
+    seen = rows.seen(lane(current, older), read, "new", [])
     assert [verdict.lands for verdict in landing.verdicts(seen)] == [True, False]
     assert landing.verdicts(seen)[1].why == "Forge-AI/monorepo#2 waits: the dangerous reader has not judged its head"
 
@@ -198,3 +199,13 @@ def test_a_stager_is_told_the_staging_alerts_channel_to_read_into_each_stacks_re
     monkeypatch.setattr(subprocess, "run", lambda argv, **named: started.append(argv) or subprocess.CompletedProcess(argv, 0, "bg", ""))
     stager.start("durable-agents")
     assert "Staging alerts post in #alerts-staging" in str(started)
+
+
+def test_a_sandsql_lanes_pr_waits_on_a_staging_proof_whatever_the_judge_scored_and_another_lanes_lands(monkeypatch) -> None:
+    monkeypatch.setattr(rows, "ours", lambda: "lane-bot")
+    pr = row(56892) | {"dangerous": {"head": "h", "classes": {}, "rule": "r"}, "guarded": {"head": "h", "classes": {}, "rule": "r"}}
+    read = {landing.key(pr): {"head": "h", "checks": "pass", "under": None}}
+    sandsql = rows.seen({"id": "sandsql-engine", "prs": [pr]}, read, "r", ["sandsql-engine"])
+    other = rows.seen({"id": "run-page", "prs": [pr]}, read, "r", ["sandsql-engine"])
+    assert landing.verdicts(sandsql)[0] == landing.Verdict((), False, "Forge-AI/monorepo#56892 waits on a staging proof at h, the stack's top head")
+    assert landing.verdicts(other)[0].lands is True

@@ -30,6 +30,7 @@ DEFAULTS = {
     "restarts_before_backoff": 3,
     "checkout": None,
     "queue_cli": None,
+    "premerge_lanes": [],
     "staging_alerts": None,
     "staging_targets": ["plat-usw2-staging"],
 }
