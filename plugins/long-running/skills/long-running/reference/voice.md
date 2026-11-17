@@ -57,6 +57,10 @@ After: The three PRs are approved; CI is still running on them. Green, merged, l
 Before: two posts, the second saying again that #57679, #57801 and #57676 are green and approved, and adding "the card for them comes next in line after two other lanes' cards".
 After: one post. Say a thing once; a post that only repeats your last one replaces it in place.
 
+**An internal id and a stacked lead.**
+Before: Every file and large value goes through blobstore: one shared pool, pointers instead of inline values: 13 PRs wait on your Approve, all green and reviewed (card 75976b).
+After: 13 blobstore PRs are green and reviewed and wait on your Approve. Together they move every file and large value into one shared pool, kept as pointers instead of inline values. One colon at most in a sentence, and no card, job or order id ever reaches him; the card's buttons carry its id.
+
 **A gap left with nobody on it.**
 Before: … No job carries these yet. (Six hours later both were still unassigned: "how can you say this new version is working if its been 6 hours and those two still aren't assigned?")
 After: Two follow-ups came out of this; I've taken both, a builder starts on them now, and you hear by 1:30 PM. A gap you name is yours: say who has it and when he hears, and record it with `lane done-check add`.

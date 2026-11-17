@@ -34,6 +34,8 @@ PARENTHETICAL = re.compile(r"\s*\([^)]*\)")
 BUTTON_CLAUSE = re.compile(r"[,;:](?=\s)| - | — ")
 BUTTON_WORDS = 4
 BUTTON_CHARS = 24
+CARD_ID = re.compile(r"\s*\(card ([0-9a-f]{6})\)")
+RULINGS_SENT = 60
 TAPPED_PR = re.compile(r'^tapped "(Approve|Hold) #(\d+)"')
 
 
@@ -78,8 +80,11 @@ def edit_ts(edit: str | None) -> str | None:
 
 def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options: list[str] | None = None, edit: str | None = None, about: list[str] | None = None, pictures: list[str] | None = None) -> str:
     """lane.say's SENDER: queue one post in the lane's channel, in the thread of the ask it is about, with the role page beside it and a button for each option, and return QUEUED and its id."""
+    card = None
     if options:
         text, options = buttoned(text, options)
+        if found := CARD_ID.search(text):
+            text, card = CARD_ID.sub("", text, count=1), found[1]
     seen = page.view(drive)["prs"]
     drawn = linked(text, titled(lane.get("prs") or [], seen))
     body = {
@@ -94,6 +99,8 @@ def send(drive: str, lane: dict, text: str, about_ts: str | None = None, options
         "asked": "",
         **({"options": options} if options else {}),
         **({"edit_ts": edit} if edit else {}),
+        **({"card": card} if card else {}),
+        **({"rulings": rulings_of(drive, lane)} if options else {}),
         **({"files": [str(Path(picture).expanduser().resolve()) for picture in pictures]} if pictures else {}),
     }
     request = urllib.request.Request(VOICE_URL, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())})
@@ -128,6 +135,12 @@ def buttoned(text: str, options: list[str]) -> tuple[str, list[str]]:
         return text, labels
     listed = "\n".join(f"{n}. *{label}*: {option.strip()}" for n, (label, option) in enumerate(zip(labels, options, strict=True), 1))
     return f"{text.rstrip()}\n\n{listed}", labels
+
+
+def rulings_of(drive: str, lane: dict) -> list[dict]:
+    """His rulings that bind this lane and the drive, newest last, each as when he gave it and what it binds, so the voice can refuse a question one already answers ("never re-ask what he decided")."""
+    rulings = [*store.shared_rulings(drive), *(lane.get("rulings") or [])]
+    return [{"at": clock(ruling["at"]) if ruling.get("at") else "earlier", "binds": (ruling.get("binds") or ruling.get("words") or "")[:300]} for ruling in rulings if ruling.get("binds") or ruling.get("words")][-RULINGS_SENT:]
 
 
 def named_prs(text: str, seen: dict[str, dict], rows: list[dict] = ()) -> list[dict]:
@@ -254,6 +267,7 @@ def tapped_pr(drive: str, lane: dict, words: str, link: str | None, ts: str) -> 
 
 POSTS_URL = VOICE_URL + "/posts"
 STATUS_URL = VOICE_URL + "/status"
+RULED_URL = VOICE_URL + "/ruled"
 SETTLE_URL = VOICE_URL + "/settle"
 FOLLOWED_HOURS = 24
 SETTLED_FILE = "settled.json"
@@ -268,7 +282,7 @@ def followed(drive: str, moment: datetime) -> list[dict]:
     with urllib.request.urlopen(urllib.request.Request(f"{POSTS_URL}?since={since}", headers={"X-Claude-Pid": str(os.getpid())}), timeout=ENQUEUE_SECONDS) as answer:
         listed = json.load(answer)
     lanes, taps = store.load_all(drive), listed.get("taps") or {}
-    return [post | {"prs": post.get("prs") or named_prs(post.get("after") or "", {}), "about": [subject | ({"answer": taps.get(subject["ts"])} if subject["kind"] == "card" else {}) for subject in post.get("about") or []]} for post in listed.get("posts") or [] if post.get("lane") in lanes and post.get("ts")]
+    return [post | {"answer": taps.get(post["ts"]), "prs": post.get("prs") or named_prs(post.get("after") or "", {}), "about": [subject | ({"answer": taps.get(subject["ts"])} if subject["kind"] == "card" else {}) for subject in post.get("about") or []]} for post in listed.get("posts") or [] if post.get("lane") in lanes and post.get("ts")]
 
 
 def subject_keys(posts: list[dict]) -> set[tuple[str, int]]:
@@ -287,6 +301,13 @@ def settle(drive: str, posts: list[dict], prs: dict[tuple[str, int], dict]) -> l
         lane = lanes[post["lane"]]
         lines, stale = changes(post, lane, prs, releases)
         kept = done.setdefault(post["ts"], {})
+        if post.get("question") and not post.get("answer") and "ruled" not in kept:
+            body = json.dumps({"channel_id": post["channel_id"], "ts": post["ts"], "thread_ts": post.get("thread_ts") or "", "question": post.get("after") or "", "options": post.get("options") or [], "rulings": rulings_of(drive, lane)}).encode()
+            with urllib.request.urlopen(urllib.request.Request(RULED_URL, body, {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())}), timeout=ENQUEUE_SECONDS * 10) as answer:
+                kept["ruled"] = json.load(answer).get("line") or "none"
+            if kept["ruled"] != "none":
+                changed.append(post["permalink"])
+                continue
         if lines and (line := " · ".join(lines)) != kept.get("line"):
             body = json.dumps({"channel_id": post["channel_id"], "ts": post["ts"], "thread_ts": post.get("thread_ts") or "", "line": line, "only_if_buttons": line == RETIRED}).encode()
             with urllib.request.urlopen(urllib.request.Request(SETTLE_URL, body, {"Content-Type": "application/json", "X-Claude-Pid": str(os.getpid())}), timeout=ENQUEUE_SECONDS * 5) as answer:
