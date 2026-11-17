@@ -95,11 +95,12 @@ def test_his_message_reaches_its_lane_by_thread_and_every_lane_in_the_channel_wh
         ([], ""),
         ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/C1/p1794870764063919"}], "1794870764.063919"),
         ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/D9/p1794870764063919"}], ""),
-        ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/C1/p1794870764063919", "replied": "QUEUED a1"}], ""),
+        ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/C1/p1794870764063919", "replied": "QUEUED a1"}], "1794870764.063919"),
+        ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/C1/p1794870764063919", "replied": "QUEUED a1", "done": "2026-11-16T23:50:00Z"}], ""),
         ([{"ts": "1.1", "link": "l"}, {"ts": "1794871000.000100", "link": "https://x.slack.com/archives/C1/p1794871000000100?thread_ts=1794851267.832189&cid=C1"}], "1794851267.832189"),
     ],
 )
-def test_a_reply_goes_in_the_thread_of_his_newest_unanswered_ask_and_news_at_the_root(asks: list[dict], thread: str) -> None:
+def test_every_post_about_his_newest_ask_stays_in_its_thread_until_it_is_done_and_news_goes_at_the_root(asks: list[dict], thread: str) -> None:
     assert voice.asked_thread({"channel": "C1", "asks": asks}) == thread
 
 
