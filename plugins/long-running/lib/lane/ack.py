@@ -1,4 +1,4 @@
-"""His words acknowledged in Slack the way the old communicator did, by the supervisor and never by an owner: the voice puts 👀 on each message of his as a lane records it; 🚧 replaces it once the lane's owner is on it, and ✅ replaces that once the owner marks it done."""
+"""His words acknowledged in Slack by his rule, "eyes while reading, construction only during async work, a checkmark when handled", by the supervisor and never by an owner: the voice puts 👀 on each message of his as a lane records it and it stays while the owner reads it; 🚧 replaces it once the owner has answered and the work goes on, and ✅ replaces either once the owner marks it done."""
 
 import json
 import os
@@ -28,17 +28,15 @@ def his(ask: dict) -> bool:
 
 
 def working(drive: str) -> None:
-    """🚧 in place of 👀 on each message of his not yet answered whose lane's owner is running, once each."""
+    """🚧 in place of 👀 on each message of his its owner answered and is still working on, once each: a message still being read keeps its 👀."""
     for lane_id, lane in store.load_all(drive).items():
-        if lane["state"] != store.RUNNING:
-            continue
-        fresh = [ask for ask in store.unreplied(lane) if his(ask) and not ask.get("picked")]
+        fresh = [ask for ask in lane.get("asks", []) if his(ask) and ask.get("replied") and not ask.get("done") and not ask.get("picked")]
         for ask in fresh:
             react(lane, ask, "construction", ["eyes"])
         if fresh:
             picked = {ask["ts"] for ask in fresh}
 
-            def marking(lane: dict) -> None:
+            def marking(lane: dict, picked: set[str] = picked) -> None:
                 for ask in lane["asks"]:
                     if ask.get("ts") in picked:
                         ask["picked"] = store.stamp()

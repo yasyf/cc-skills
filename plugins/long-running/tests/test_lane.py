@@ -1060,11 +1060,18 @@ def test_a_pass_step_that_raises_stops_no_other_step(world: dict, monkeypatch: p
     assert "HTTP Error 403" in (store.drive_dir(DRIVE) / supervisor.ALERTS).read_text()
 
 
-def test_his_words_get_a_construction_mark_once_its_owner_runs_and_a_check_once_done(world: dict) -> None:
+def test_his_words_keep_their_eyes_while_read_get_construction_once_answered_with_work_going_on_and_a_check_once_done(world: dict) -> None:
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     opened("a", channel="C1")
     supervisor.run_pass(DRIVE)
     world["messages"]["a"] = [{"words": "have you merged these?", "ts": "200.0", "at": store.stamp(), "link": "https://x.slack.com/archives/C1/p200000"}]
+    supervisor.run_pass(DRIVE)
+    assert ("200.0", "construction", ["eyes"]) not in world["slack"]
+
+    def answered(lane: dict) -> None:
+        lane["asks"][0]["replied"] = "QUEUED a1"
+
+    store.update(DRIVE, "a", answered)
     supervisor.run_pass(DRIVE)
     supervisor.run_pass(DRIVE)
     assert world["slack"].count(("200.0", "construction", ["eyes"])) == 1

@@ -137,15 +137,16 @@ def test_a_post_naming_an_ask_the_lane_never_heard_is_refused_before_it_goes_out
 @pytest.mark.parametrize(
     ("title", "words"),
     [
-        ("Fix: litestream-next takes no snapshot of a forked child at its base TXID, now on ssql-litestream", "litestream-next takes no snapshot of a forked child…"),
-        ("feat(cc-slack): SandDB reads its own bucket", "SandDB reads its own bucket"),
-        ("✨ New: migration gates as four simple rules", "migration gates as four simple rules"),
-        ("⚡️ run_tallies reads each step's kept page row", "run_tallies reads each step's kept page row"),
+        ("Fix: litestream-next takes no snapshot of a forked child at its base TXID, now on ssql-litestream", "litestream-next takes no snapshot"),
+        ("feat(cc-slack): SandDB reads its own bucket", "SandDB reads its own"),
+        ("✨ New: migration gates as four simple rules", "migration gates as four"),
+        ("⚡️ run_tallies reads each step's kept page row", "run_tallies reads each step's"),
         (":fire: delete today's run page", "delete today's run page"),
         (":recycle: Cleanup", ""),
+        ("atablemovedeletesandcopiesnorowatoneroworahundredthousand now waits", ""),
         ("♻️ Refactor", ""),
-        (":sparkles: New: migration gates as four simple rules", "migration gates as four simple rules"),
-        ("New: a sync ends each LTX file", "a sync ends each LTX file"),
+        (":sparkles: New: migration gates as four simple rules", "migration gates as four"),
+        ("New: a sync ends each LTX file", "a sync ends each"),
     ],
 )
 def test_a_title_reads_as_a_few_words(title: str, words: str) -> None:
@@ -156,7 +157,7 @@ def test_a_lane_pr_with_no_words_takes_them_from_its_title() -> None:
     rows = [{"repo": "Forge-AI/monorepo", "number": 57630}, {"repo": "Forge-AI/monorepo", "number": 1, "words": "own words"}]
     seen = {"Forge-AI/monorepo#57630": {"title": "Fix: sandbox cluster access for the admin and break-glass roles"}, "Forge-AI/monorepo#1": {"title": "ignored"}, "Forge-AI/monorepo#57908": {"title": "Fix: release-tool promotions run again"}}
     assert voice.linked("Merged #57630, {pr:1} and #57908.", voice.titled(rows, seen)) == (
-        "Merged <https://github.com/Forge-AI/monorepo/pull/57630|#57630 sandbox cluster access for the admin and break-glass…>,"
+        "Merged <https://github.com/Forge-AI/monorepo/pull/57630|#57630 sandbox cluster access>,"
         " <https://github.com/Forge-AI/monorepo/pull/1|#1 own words> and <https://github.com/Forge-AI/monorepo/pull/57908|#57908 release-tool promotions run again>."
     )
 
@@ -223,8 +224,8 @@ def test_a_pr_whose_title_is_one_generic_word_takes_its_bodys_first_line(monkeyp
         return __import__("subprocess").CompletedProcess(argv, 0, "## Summary\n\n**Drops the old card queue** and its tests.\n", "")
 
     monkeypatch.setattr(words_module.subprocess, "run", viewed)
-    assert words_module.pr_words("Forge-AI/monorepo", 57649, ":recycle: Cleanup") == "Drops the old card queue and its tests."
-    assert words_module.pr_words("Forge-AI/monorepo", 57649, ":recycle: Cleanup") == "Drops the old card queue and its tests."
+    assert words_module.pr_words("Forge-AI/monorepo", 57649, ":recycle: Cleanup") == "Drops the old card"
+    assert words_module.pr_words("Forge-AI/monorepo", 57649, ":recycle: Cleanup") == "Drops the old card"
     assert len(calls) == 1
     assert words_module.pr_words("Forge-AI/monorepo", 1, "♻️ Drop the card queue") == "Drop the card queue"
 
