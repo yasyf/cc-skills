@@ -416,3 +416,29 @@ def test_an_open_incident_freezes_its_services_other_releases_once_and_lifts_the
     live = {"id": "runtime-api-next-app-errors", "incident": {"link": "l", "fix_live": "https://release", "hotfix_only": "runtime-api-next,api", "freeze": "f-1"}}
     assert cli.frozen("durable-agents", [live]) == ["runtime-api-next-app-errors: lifted the incident freeze f-1"]
     assert ran == ["ci release unfreeze f-1"] and stored["runtime-api-next-app-errors"]["incident"]["freeze"] is None
+
+
+def test_a_lane_break_glass_records_its_grant_before_the_command_runs(monkeypatch, tmp_path) -> None:
+    import argparse
+    import json
+    from contextlib import contextmanager
+
+    from drive import providers, reads
+    from lane import cli
+
+    ran = []
+
+    @contextmanager
+    def grant(stack, reason, holder, started):
+        started("https://buildkite.com/forge/break-glass/builds/7")
+        yield type("Granted", (), {"link": "https://buildkite.com/forge/break-glass/builds/7"})()
+
+    monkeypatch.setattr(providers, "at", lambda checkout: type("Found", (), {"access": type("Access", (), {"grant": staticmethod(grant)})()})())
+    monkeypatch.setattr(store, "config", lambda drive: {"checkout": str(tmp_path)})
+    monkeypatch.setattr(store, "drive_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(store, "update", lambda drive, lane_id, change: None)
+    monkeypatch.setattr(reads, "held", lambda granted: "")
+    monkeypatch.setattr(reads, "run_granted", lambda command, granted: ran.append((command, json.loads((tmp_path / "breakglass.jsonl").read_text())["grant"])) or 0)
+    args = argparse.Namespace(drive="durable-agents", lane="sandsql-engine", stack="sandsql/plat-usw2-prod", reason="count the table copies, read only", command=["psql", "-c", "select 1"])
+    assert cli.break_glass(args) == 0
+    assert ran == [(["psql", "-c", "select 1"], "https://buildkite.com/forge/break-glass/builds/7")]

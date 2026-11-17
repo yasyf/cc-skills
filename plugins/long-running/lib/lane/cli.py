@@ -4,8 +4,10 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
+import sys
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
@@ -376,6 +378,26 @@ def targets(args: argparse.Namespace) -> None:
     print(json.dumps(stager.targets(args.drive, args.target)))
 
 
+def break_glass(args: argparse.Namespace) -> int:
+    """Run one command under the repository's access grant for a stack, for one lane, through its AccessProvider with the reason, holding only the credentials the grant mints, which end with the grant: the grant is recorded the moment it starts on the lane's log and in breakglass.jsonl, with the lane, stack, reason, command and grant link, so every use of production access has a record. The command's exit code."""
+    from drive import providers, reads
+
+    command = args.command
+
+    def started(link: str) -> None:
+        record = {"at": store.stamp(), "lane": args.lane, "stack": args.stack, "reason": args.reason, "command": command, "grant": link}
+        with (store.drive_dir(args.drive) / "breakglass.jsonl").open("a") as kept:
+            kept.write(json.dumps(record) + "\n")
+        store.update(args.drive, args.lane, lambda lane: store.note(lane, f"break-glass grant {link} on {args.stack} for: {shlex.join(command)}; reason: {args.reason}"))
+
+    try:
+        with providers.at(Path(store.config(args.drive)["checkout"])).access.grant(args.stack, args.reason, f"{args.drive} {args.lane}", started) as granted:
+            print(f"break-glass grant {granted.link} passed; running {command[0]} {reads.held(granted)}", file=sys.stderr, flush=True)
+            return reads.run_granted(command, granted)
+    except (reads.ReadError, providers.ProviderError) as error:
+        raise store.Refused(f"break-glass: {error}") from None
+
+
 def release(args: argparse.Namespace) -> None:
     words = args.words[1:] if args.words[:1] == ["--"] else args.words
     print(releases.start(args.drive, args.lane, words, args.ask or [], args.leaves_out or [], args.reporter or [], args.also or []))
@@ -386,6 +408,8 @@ def result(args: argparse.Namespace) -> None:
 
 
 def main() -> int:
+    from drive import reads
+
     parser = argparse.ArgumentParser(prog="lane-land", description="His Approve merges and the staging tester's verbs over the lane files; shadow until cutover writes the live marker.")
     parser.add_argument("--drive", required=True)
     verbs = parser.add_subparsers(required=True)
@@ -411,6 +435,10 @@ def main() -> int:
     verb = verbs.add_parser("targets", help="set the drive's staging targets, each '<env>' or '<env> <generation>', refused when one does not exist on the default branch")
     verb.add_argument("target", nargs="+")
     verb.set_defaults(run=targets)
+    verb = verbs.add_parser("break-glass", help="run one command under the repository's access grant for a stack, for one lane, with a grant record on the lane and in breakglass.jsonl")
+    verb.add_argument("--lane", required=True)
+    reads.break_glass_options(verb)
+    verb.set_defaults(run=break_glass)
     verb = verbs.add_parser("release", help="start one release for a lane through the release provider, refused when its plan pulls in a component not named with --with or an open ask of the lane is neither shipped with --ask nor left out with --leaves-out; prints the release to wait on")
     verb.add_argument("--lane", required=True)
     verb.add_argument("--ask", action="append", help="the ts of an ask of the lane this release ships; repeatable")
@@ -424,5 +452,4 @@ def main() -> int:
     verb.add_argument("file")
     verb.set_defaults(run=result)
     args = parser.parse_args()
-    args.run(args)
-    return 0
+    return args.run(args) or 0
