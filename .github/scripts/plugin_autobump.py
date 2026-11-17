@@ -345,7 +345,7 @@ def commit_and_push(repo: Path, bumps: list[Result], branch: str, lockstep: tupl
         args += ["-m", m]
     if _git(repo, "diff", "--cached", "--quiet").returncode:
         subprocess.run(["git", *args], cwd=repo, env=env, check=True)
-    for _ in range(3):
+    for _ in range(8):
         # env carries the bot identity: rebase creates commits too, and a bare
         # runner has none — without it every retry dies on "empty ident name".
         pull = subprocess.run(["git", "pull", "--rebase", "--tags", "origin", branch], cwd=repo, env=env)
