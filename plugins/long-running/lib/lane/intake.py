@@ -127,6 +127,7 @@ def pending(drive: str) -> list[dict]:
 
 
 def kept(drive: str, rows: list[dict]) -> None:
+    folder(drive).mkdir(parents=True, exist_ok=True)
     (folder(drive) / PENDING).write_text(json.dumps(rows, ensure_ascii=False) + "\n")
 
 

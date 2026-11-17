@@ -23,7 +23,7 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict:
     seen: dict = {"launched": [], "stopped": [], "leases": {}, "prs": {}, "scores": {}, "messages": {}, "fail": set()}
     from lane import cardline
 
-    monkeypatch.setattr(cardline, "extract_sync", lambda prompt, model, **kwargs: cardline.Line(line="Files move to the shared pool, and the next staging release waits on your tap."))
+    monkeypatch.setattr(cardline, "extract_sync", lambda prompt, response_model, **kwargs: cardline.Line(line="Files move to the shared pool, and the next staging release waits on your tap."))
 
     def launch(drive: str, lane: dict, token: str, woke: str) -> dict:
         if lane["id"] in seen["fail"]:
