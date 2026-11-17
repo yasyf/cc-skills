@@ -52,7 +52,7 @@ def promise(drive: str, lane_id: str, text: str, sent: str, next_step: str | Non
                 lane["wait"] = {**wait, "until": store.stamp(bound)}
         for ask in lane["asks"]:
             if not ask.get("replied") and (answers is None or ask.get("ts") in answers):
-                ask["replied"] = sent
+                ask["replied"], ask["replied_at"] = sent, store.stamp()
         store.note(lane, f"said ({sent}): {text}")
 
     store.update(drive, lane_id, saying)

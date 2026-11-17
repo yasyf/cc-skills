@@ -205,6 +205,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
 
     starts = store.transact(drive, deciding, leaving_unreplied=True)
     alone(drive, errors, "no owner was nudged", lambda: nudge(drive, store.now()))
+    alone(drive, errors, "no late ask was redelivered", lambda: redeliver(drive, store.now()))
     if read_outside and store.live(drive):
         alone(drive, errors, "his words got no working line", lambda: ack.working(drive))
     with ThreadPoolExecutor(max_workers=READERS) as pool:
@@ -217,6 +218,26 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         alone(drive, errors, "no audit started", lambda: audit.start(drive))
         heartbeat(drive, store.now(), errors)
     return {"started": [start["lane"] for start in starts if start["token"]], "errors": errors}
+
+
+REDELIVER_AFTER = timedelta(minutes=2)
+
+
+def redeliver(drive: str, moment: datetime) -> None:
+    """The last-resort cap on his wait: an ask of his still unreplied REDELIVER_AFTER after he sent it is put before its running owner once more as a message that starts its turn, busy or not, once per ask."""
+    for lane_id, lane in store.load_all(drive).items():
+        late = [ask for ask in store.unreplied(lane) if lane["state"] == store.RUNNING and ask.get("ts") and not ask.get("redelivered") and moment.timestamp() - float(ask["ts"]) >= REDELIVER_AFTER.total_seconds()]
+        if not late:
+            continue
+        stamps = {ask["ts"] for ask in late}
+
+        def marking(lane: dict) -> None:
+            for ask in lane["asks"]:
+                if ask.get("ts") in stamps:
+                    ask["redelivered"] = store.stamp(moment)
+
+        store.update(drive, lane_id, marking, leaving_unreplied=True)
+        owners.deliver(lane["owner"], "".join(f"His words to lane {lane_id}, sent {int((moment.timestamp() - float(ask['ts'])) // 60)} minutes ago and not answered yet{', ' + ask['link'] if ask.get('link') else ''}; answer them with `lane say --re {ask['ts']}` before anything else:\n{ask['words']}\n\n" for ask in late))
 
 
 def nudge(drive: str, moment: datetime) -> None:

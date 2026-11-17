@@ -1175,3 +1175,19 @@ def test_a_lane_whose_home_is_his_dm_posts_nothing_until_it_moves_to_a_project_c
     verbs.home(DRIVE, "a", "C0PROJECT", None)
     saying.say(DRIVE, "a", "on it")
     assert store.load(DRIVE, "a")["channel"] == "C0PROJECT"
+
+
+def test_an_ask_unreplied_two_minutes_after_he_sent_it_is_put_before_its_owner_again_once_and_his_page_shows_reply_minutes(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import board
+
+    delivered = []
+    monkeypatch.setattr(owners, "deliver", lambda owner, text: delivered.append(text))
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    sent = store.now().timestamp() - 300
+    opened("a", ts=f"{sent:.6f}")
+    supervisor.run_pass(DRIVE)
+    supervisor.run_pass(DRIVE)
+    assert len(delivered) == 1 and "sent 5 minutes ago" in delivered[0] and "do a" in delivered[0]
+    answered("a")
+    [shown] = board.screens(DRIVE)["now"]
+    assert shown["replies"][0]["minutes"] >= 5
