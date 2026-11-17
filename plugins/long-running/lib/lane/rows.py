@@ -2,6 +2,7 @@
 
 import hashlib
 import subprocess
+from fnmatch import fnmatchcase
 from concurrent.futures import ThreadPoolExecutor
 from functools import cache
 from pathlib import Path
@@ -16,6 +17,7 @@ PR_STATE = ("head", "checks", "merged", "under", "commits", "whole", "foreign", 
 DANGER = Path(__file__).with_name("danger.md")
 BEFORE_MERGE = "plainly needs a staging pass before merge, by his 17:00 ruling"
 DANGER_AT = 0.6
+MARKS = "marks: classes, tooling"
 JUDGED_AT = 20
 JUDGES = 6
 FILES_SHOWN = 150
@@ -156,14 +158,21 @@ def readable(keys: list[str]) -> dict[str, tuple[str, list[str]]]:
 
 
 def rule_key(drive: str) -> str:
-    return hashlib.sha256(rule(drive).encode()).hexdigest()[:16]
+    return hashlib.sha256((rule(drive) + MARKS).encode()).hexdigest()[:16]
 
 
 def presence(drive: str, files: dict[str, tuple[str, list[str]]], key: str) -> dict[str, dict]:
-    """Each head's presence mark, {head, classes, rule}: the repository's broad [[dangerous]] tables and its provider's dangerous_paths, by state.dangerous_in as the providers of the drive's checkout read them, which mark the head and never ask a staging pass; none with no checkout configured, so those heads stay unjudged and hold."""
+    """Each head's repository mark, {head, classes, tooling, rule}: the repository's broad [[dangerous]] tables and its provider's dangerous_paths, by state.dangerous_in as the providers of the drive's checkout read them, which gate nothing since his 6:13 PM words "if I approve something its approved" and are kept for the record; and tooling, every path CI configuration, checkout tooling or a [[tooling]] glob with no dangerous class, which lands on green with no Approve of his by his rulings 02a1e36 and d2a8213. None with no checkout configured, so those heads stay unjudged and hold."""
     from drive import providers, state
 
     if not (checkout := store.config(drive)["checkout"]):
         return {}
     found = providers.at(Path(checkout))
-    return {pr: {"head": head, "classes": state.dangerous_in(found.config, found.repo, paths), "rule": key} for pr, (head, paths) in files.items()}
+    globs = [glob for table in found.config.get("tooling", []) for glob in table["paths"]]
+
+    def mark(head: str, paths: list[str]) -> dict:
+        classes = state.dangerous_in(found.config, found.repo, paths)
+        tool = bool(paths) and not classes and all(found.repo.ci_config(path) or found.repo.checkout_tools(path) or any(fnmatchcase(path, glob) for glob in globs) for path in paths)
+        return {"head": head, "classes": classes, "tooling": tool, "rule": key}
+
+    return {pr: mark(head, paths) for pr, (head, paths) in files.items()}

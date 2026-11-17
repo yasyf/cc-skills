@@ -102,3 +102,10 @@ def test_a_verdict_judged_under_an_older_danger_page_is_dropped_so_the_head_hold
     seen = rows.seen(lane(current, older), read, "new")
     assert [verdict.lands for verdict in landing.verdicts(seen)] == [True, False]
     assert landing.verdicts(seen)[1].why == "Forge-AI/monorepo#2 waits: the dangerous reader has not judged its head"
+
+
+def test_a_tooling_pr_lands_on_green_with_no_approve_of_his_and_a_red_one_waits() -> None:
+    tool = row(57908, approved_head=None) | {"guarded": {"head": "h", "classes": {}, "tooling": True}}
+    assert landing.verdicts(lane(tool))[0].lands is True
+    assert landing.verdicts(lane(tool | {"checks": "fail"}))[0].why == "Forge-AI/monorepo#57908 waits: checks fail"
+    assert landing.verdicts(lane(row(1, approved_head=None)))[0].why == "Forge-AI/monorepo#1 waits: no Approve of his"

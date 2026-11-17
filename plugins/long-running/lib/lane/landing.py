@@ -22,9 +22,9 @@ def judged(row: dict) -> bool:
     return all(bool(row.get(gate)) and row[gate]["head"] == row["head"] for gate in ("dangerous", "guarded"))
 
 
-def guarded(row: dict) -> bool:
-    """Whether the repository's broad [[dangerous]] classes mark the head; it lands on his Approve like any other."""
-    return bool(row["guarded"]["classes"])
+def tooling(row: dict) -> bool:
+    """Whether the repository's tooling rule marks the head, so it lands on green with no Approve of his, by his rulings 02a1e36 and d2a8213."""
+    return bool(row["guarded"].get("tooling"))
 
 
 def dangerous(row: dict) -> bool:
@@ -43,9 +43,10 @@ def unready(row: dict) -> str | None:
         return "merged"
     if row["held"]:
         return f"he holds it: {row['held']}"
-    if not row["approved_head"]:
+    tool = judged(row) and tooling(row)
+    if not tool and not row["approved_head"]:
         return "no Approve of his"
-    if row["approved_head"] != row["head"] and (moved := row.get("foreign")) != []:
+    if not tool and row["approved_head"] != row["head"] and (moved := row.get("foreign")) != []:
         return f"commits since his Approve need his tap again: {', '.join(moved)}" if moved else "his approved head is not among its recent commits, so his Approve needs his tap again"
     if row.get("checks") != "pass":
         return f"checks {row.get('checks') or 'unread'}"
