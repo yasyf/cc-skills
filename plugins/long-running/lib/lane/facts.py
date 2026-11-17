@@ -128,7 +128,7 @@ def holds(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], dict])
 
 
 def unproduced(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], dict]) -> str | None:
-    """Why nothing is producing the fact a wait names, or None while something is: a staging result with no stager's ask open for its cut, checks with no CI at the PR's head, a merge of a PR no Approve of his, no card asking for one and no tooling mark will land. His reply, for a lane with an unmet done check, needs a card or question of the lane's still open to him: one he has not tapped since it was asked."""
+    """Why nothing is producing the fact a wait names, or None while something is: a staging result with no stager's ask open for its cut, checks with no CI at the PR's head, a merge of a PR no Approve of his, no card asking for one and no tooling mark will land, a work item that does not exist, a queue grant the lane is not in line for, and a release the release tool has no record of. His reply, for a lane with an unmet done check, needs a card or question of the lane's still open to him: one he has not tapped since it was asked."""
     match event["kind"]:
         case "staging_result":
             from lane import stager
@@ -148,6 +148,19 @@ def unproduced(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], d
             return f"nothing will merge {event['ref']}: no Approve of his, no tooling mark, and no card asks him for one"
         case "his_reply":
             return None if store.unreplied(lane) or asking(lane) or not any(not check.get("met_at") for check in lane.get("done", [])) else "no card or question of this lane is open to him, so nothing he could answer would end it"
+        case "work":
+            from lane import work
+
+            item = work.load(drive, event["ref"])
+            if item is None:
+                return f"no work item {event['ref']} exists"
+            return None if item["state"] in (work.QUEUED, work.TAKEN, work.DONE, work.FAILED) and lane["state"] != store.PARKED else f"work item {event['ref']} waits on a parked lane"
+        case "queue_grant":
+            from lane import queue
+
+            return None if event["ref"] in queue.asking(drive, lane["id"]) or queue.free_for(drive, event["ref"], lane["id"]) else f"this lane is not in line for {event['ref']}: ask with `lane queue take {event['ref']}`"
+        case "release":
+            return None if side_path(drive, "releases", event["ref"]).is_file() else f"the release tool knows no release {event['ref']}"
     return None
 
 
