@@ -12,7 +12,7 @@ from contextlib import contextmanager, suppress
 from datetime import timedelta
 from pathlib import Path
 
-from lane import fixes, landing, releases, rows, stager, store, supervisor, verbs
+from lane import fixes, landing, page, releases, rows, stager, store, supervisor, verbs, work
 
 LANDING = "landing"
 CONFLICTS = "conflicts"
@@ -108,8 +108,13 @@ def reviewed(drive: str, key: str, head: str) -> None:
 
 
 def conflicted(drive: str, lane: dict, keys: list[str], said: Callable[[], str]) -> None:
-    """Tell the lane's owner in one line, once per set of heads, that a unit conflicts with the default branch and a fix job rebases it, by fixes.start, so the owner does no rebase and waits on nothing for it."""
-    woken(drive, lane, keys, "conflicts", lambda: f"{', '.join(keys)} conflicts with the default branch {said()}; a fix job is rebasing it and the next landing pass queues it, so it needs nothing from you.", block=False)
+    """Queue a rebase item for each PR of a unit that conflicts with the default branch, in this call, for a queue worker to run, and tell the lane's owner in one line, once per set of heads, that the rebase is in flight, so the owner does no rebase and waits on nothing for it."""
+    seen = page.view(drive)["prs"]
+    for key in keys:
+        if pull := seen.get(key):
+            repo, _, number = key.rpartition("#")
+            work.add(drive, "rebase", lane["id"], key, fixes.brief("conflict", repo, int(number), pull), head=pull["head"], touches=[repo], by="lane-land")
+    woken(drive, lane, keys, "conflicts", lambda: f"{', '.join(keys)} conflicts with the default branch {said()}; a rebase item is queued for a worker and the next landing pass queues it once rebased, so it needs nothing from you.", block=False)
 
 
 def ejected(drive: str, lane: dict, keys: list[str], row: dict) -> str:
