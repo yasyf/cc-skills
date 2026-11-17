@@ -242,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     said.add_argument("--lane")
     said.add_argument("--next")
     said.add_argument("--by")
-    said.add_argument("--answers", action="append", help="the ts of an ask this line answers; every unanswered ask when left out")
+    said.add_argument("--answers", action="append", help="the ts of an ask this line answers; left out, the one ask still waiting on a reply, or none when several are")
     said.add_argument("--options", action="append", help="a button label, one per option, recommended first, at most 5 of up to 75 characters: the line goes out as his question and his tap comes back as his words")
     said.add_argument("--about", action="append", help="what else the post is about, as release:<ref> or card:<ts>, so it follows it")
     said.add_argument("--edit", help="the ts of your earlier post this line rewrites in place, such as one a stale note names")

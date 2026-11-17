@@ -24,10 +24,18 @@ def say(drive: str, lane_id: str, text: str, next_step: str | None = None, by: s
     if (lane.get("channel") or "").startswith(DIRECT):
         raise store.Refused(f"lane {lane_id}'s home is his DM, and drive work never posts there, by his words \"drive stuff leaves DMs entirely\": give it its project channel with `lane home {lane_id} --channel <id>`, then post")
     sent = SENDER(drive, store.load(drive, lane_id), text, re, options, edit, about, pictures) if store.config(drive)["posting"] else logged(drive, store.load(drive, lane_id), text, re, options, edit, about, pictures)
-    promise(drive, lane_id, text, sent, next_step, by, token, answers or ([re] if re else None), re or "")
+    promise(drive, lane_id, text, sent, next_step, by, token, named(lane, answers, re), re or "")
     if options:
         store.update(drive, lane_id, lambda lane: lane.__setitem__("asked_at", store.stamp()), leaving_unreplied=True)
     return sent
+
+
+def named(lane: dict, answers: list[str] | None, re: str | None) -> list[str]:
+    """The asks a post answers: those --answers or --re name, or with neither the one ask of his still waiting on a reply; with several waiting, a post naming none answers none, so his unanswered ask stays open."""
+    if answers or re:
+        return answers or [re]
+    waiting = [ask["ts"] for ask in lane["asks"] if ask.get("ts") and not ask.get("replied") and not ask.get("done")]
+    return waiting if len(waiting) == 1 else []
 
 
 def checked(next_step: str | None, by: str | None) -> None:
@@ -54,7 +62,7 @@ def stated(text: str, moment: datetime) -> datetime | None:
 
 
 def promise(drive: str, lane_id: str, text: str, sent: str, next_step: str | None = None, by: str | None = None, token: str | None = None, answers: list[str] | None = None, thread: str = "") -> None:
-    """The lane write a post makes, in one locked write, before or as it goes out: the promise and the wait's bound clamped to it, and each ask it answers marked replied with sent, the sender's queued id or permalink: every unanswered ask, or those whose ts answers names."""
+    """The lane write a post makes, in one locked write, before or as it goes out: the promise and the wait's bound clamped to it, and each ask whose ts answers names marked replied with sent, the sender's queued id or permalink."""
     checked(next_step, by)
     moment = store.now()
     bound = store.when(by, moment) if by else None
@@ -69,7 +77,7 @@ def promise(drive: str, lane_id: str, text: str, sent: str, next_step: str | Non
             if wait and store.parse(wait["until"]) > bound:
                 lane["wait"] = {**wait, "until": store.stamp(bound)}
         for ask in lane["asks"]:
-            if not ask.get("replied") and (answers is None or ask.get("ts") in answers):
+            if not ask.get("replied") and ask.get("ts") in (answers or []):
                 ask["replied"], ask["replied_at"] = sent, store.stamp()
         for kept in lane.get("promises", []):
             if kept["thread"] == thread and not kept.get("followed"):
