@@ -234,6 +234,10 @@ def end_turn(drive: str, lane_id: str, token: str, on: list[dict], until: str, w
         raise store.Refused(f"{why_unserved}, and your step names none: write `lane next \"<plan>\" --says \"<sentence>\" --serves <n>`, or `--serves-none \"<why>\"`, before you wait")
     if missing := [resource for resource in queue.asking(drive, lane_id) if {"kind": "queue_grant", "ref": resource} not in on]:
         raise store.Refused(f"this lane stands in line for {', '.join(missing)}: wait on {' and '.join(f'queue_grant:{resource}' for resource in missing)}, which wakes it the moment its grant is free, so its wait never reads as his reply")
+    from lane import stager
+
+    if unstarted := [event["ref"] for event in on if event["kind"] == "staging_result" and not stager.starts(drive, event["ref"])]:
+        raise store.Refused(f"no stager has taken or queued cut {', '.join(unstarted)}, so a wait on it names no start and never fires: ask with `lane-land want --lane {lane_id}` and wait on the cut id it prints, or wait on what this step does wait on")
     prs = facts.read_prs({facts.pr_ref(event["ref"]) for event in on if event["kind"] in ("pr_merged", "check")})
     if held := [event for event in on if event["kind"] != "his_reply" and facts.holds(drive, lane, event, prs)]:
         raise store.Refused(f"already true, act on it instead of waiting: {held}")

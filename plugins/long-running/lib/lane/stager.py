@@ -164,6 +164,16 @@ def want(drive: str, lane_id: str) -> str:
     return cut
 
 
+def starts(drive: str, cut: str) -> str | None:
+    """When a cut a lane waits on starts, as the lane's wait names it: the time a stager took its ask, `next` when its ask waits for a free target, or the result already written; None for a cut no ask or result names, which no stager will ever run."""
+    if (lanes_dir(drive) / CUTS / f"{cut}.json").is_file():
+        return "written"
+    asked = next((ask for ask in wants(drive).values() if ask["cut"] == cut), None)
+    if asked is None:
+        return None
+    return asked.get("claimed") or "next"
+
+
 def premerge(drive: str, lane_id: str) -> list[str]:
     """The lane's open PRs the danger page in force holds for a staging test before merge, judged at their current heads, SandSQL work alone by his 5:00 PM words; a lane with none asks no cut, since its stacks merge on his Approve and are tested after."""
     seen = rows.seen(store.load(drive, lane_id), rows.view(drive), rows.rule_key(drive))

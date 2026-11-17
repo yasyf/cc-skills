@@ -169,3 +169,16 @@ def test_53810s_conflict_holds_it_and_wakes_run_page_v3_once_naming_stepnames_te
     cli.conflicted("durable-agents", v3, ["Forge-AI/monorepo#53810"], lambda: said)
     assert [(lane_id, by) for lane_id, _, by in woken] == [("run-page-v3", "lane-land")]
     assert "stepnames_test.go" in woken[0][1] and noted == ["run-page-v3"]
+
+
+def test_a_staging_cut_wait_names_when_its_cut_starts_and_one_no_ask_names_never_starts(monkeypatch, tmp_path) -> None:
+    from lane import stager
+
+    monkeypatch.setattr(stager, "lanes_dir", lambda drive: tmp_path)
+    stager.written(tmp_path / stager.WANTS / "sandsql-ha-release-3.json", {"lane": "sandsql-ha-release-3", "cut": "ha-1", "at": "2026-11-16T23:28:50Z"})
+    stager.written(tmp_path / stager.WANTS / "blobstore.json", {"lane": "blobstore", "cut": "blob-1", "at": "2026-11-16T23:24:41Z", "claimed": "2026-11-17T01:05:13Z"})
+    stager.written(tmp_path / stager.CUTS / "done-1.json", {"lane": "run-page-v3", "result": "after_merge"})
+    assert stager.starts("durable-agents", "ha-1") == "next"
+    assert stager.starts("durable-agents", "blob-1") == "2026-11-17T01:05:13Z"
+    assert stager.starts("durable-agents", "done-1") == "written"
+    assert stager.starts("durable-agents", "sandsql-ha-release-3-20261116232850") is None
