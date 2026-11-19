@@ -25,6 +25,7 @@ Stdlib only.
 """
 import argparse, datetime, json, os, re, subprocess, sys, tempfile, urllib.parse
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 RETRO_DIR = "incident-retros"
 LIVE_BRANCH = "live/{slug}"
@@ -313,13 +314,29 @@ def windows_of(state: dict, retro, now: datetime.datetime) -> list:
     return [{"id": "W1", "h": "the incident window", "kind": "outage", "start": start, "end": end, "teams": teams}]
 
 
-def impact_rows(state: dict) -> list:
+def hurt_span(team: dict, retro, zone: ZoneInfo) -> str:
+    def at(key: str) -> datetime.datetime | None:
+        return retro.parse_ts(team[key]).astimezone(zone) if team.get(key) else None
+
+    def clock(dt: datetime.datetime) -> str:
+        return f"{dt:%-I:%M%p}".lower()
+
+    start, end = at("from"), at("to")
+    if start and end:
+        return f" from {clock(start)} to {clock(end)} {end:%Z}"
+    if start:
+        return f" from {clock(start)} {start:%Z}"
+    return ""
+
+
+def impact_rows(state: dict, retro, zone: ZoneInfo) -> list:
     rows = []
     for team in state.get("teams") or []:
         if not (isinstance(team, dict) and team.get("codename")):
             continue
-        name, runs = team["codename"], team.get("runs")
-        text = f"{name} had {runs} failed runs." if isinstance(runs, int) else f"{name} was hurt; nothing measured its failed runs."
+        name, runs, span = team["codename"], team.get("runs"), hurt_span(team, retro, zone)
+        text = (f"{runs:,} of {name}'s runs failed{span}." if isinstance(runs, int)
+                else f"{name} was hurt{span}; nothing counted its failed runs.")
         rows.append({"codename": name, "text": text,
                      **{key: team[key] for key in ("from", "to", "runs", "sessions", "refs") if team.get(key) is not None}})
     return rows
@@ -429,7 +446,7 @@ def rebuild(state: dict, messages: list, R: dict, retro, now: datetime.datetime,
     before_causes = {c["id"]: c for c in retro.entries(R, "causes") if c.get("id")}
     before_actions = {a["id"]: a for a in retro.entries(R, "actions") if a.get("id")}
     R["windows"] = windows_of(state, retro, now)
-    R["impact"] = {**(R.get("impact") or {}), "teams": impact_rows(state)}
+    R["impact"] = {**(R.get("impact") or {}), "teams": impact_rows(state, retro, ZoneInfo(R["meta"]["timezone"]))}
     R["timeline"] = timeline_of(state, messages, retro, R["timestamps"].get("onset"))
     R["causes"] = causes_of(state, retro, before_causes, now)
     R["actions"] = actions_of(state, retro, before_actions, {c["id"] for c in R["causes"]}, now)

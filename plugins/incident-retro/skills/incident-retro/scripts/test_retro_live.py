@@ -230,10 +230,10 @@ class CleanedTimeline(unittest.TestCase):
 
     def test_each_customer_hurt_is_an_impact_row_with_what_measured_it(self):
         self.assertEqual(self.R["impact"]["teams"], [
-            {"codename": "Polar", "text": "Polar had 227 failed runs.", "from": "2026-09-02T14:05:00-07:00",
+            {"codename": "Polar", "text": "227 of Polar's runs failed from 2:05pm to 2:40pm PDT.", "from": "2026-09-02T14:05:00-07:00",
              "to": "2026-09-02T14:40:00-07:00", "runs": 227,
              "refs": ["https://example.slack.com/archives/C0TEST0001/p1789762983924459"]},
-            {"codename": "Ursa", "text": "Ursa was hurt; nothing measured its failed runs."}])
+            {"codename": "Ursa", "text": "Ursa was hurt; nothing counted its failed runs."}])
 
     def test_the_severity_is_carried_as_the_page_reads_it(self):
         self.assertEqual(self.R["meta"]["incident"]["severity"], "sev-2")
