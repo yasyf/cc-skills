@@ -949,8 +949,6 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
 
 <div class="gl" id="glanceHost" hidden></div>
 
-<div class="it" id="impactTableHost" aria-label="Impact by customer"></div>
-
 <div class="xs" id="execHost" hidden></div>
 
 <details class="disc diffsum" id="diffPanel" hidden></details>
@@ -991,8 +989,10 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
   <h2>Impact</h2>
   <p class="sub" data-sub="impact"></p>
   <p class="takeaway" data-take="impact" hidden></p>
+  <div class="ir-tiles" id="impactStats" hidden></div>
+  <div id="impactChart"></div>
+  <div class="it" id="impactTeams" aria-label="Impact by customer"></div>
   <div id="impactText"></div>
-  <div id="impactTeams"></div>
   <div class="ir-metrics" id="impactMetrics" hidden></div>
   <div id="impactComponent"></div>
 </section>
@@ -1817,25 +1817,47 @@ function impactSpan(from,to){
  if(tsOf(to)==null)return `since ${fmtLocal(from)} ${tzName()}`;
  return `${fmtLocal(from)}–${dayKey(from)===dayKey(to)?fmtTime(to):fmtLocal(to)} ${tzName()}`;
 }
-function renderImpactTable(){
- const host=$("#impactTableHost");
- const rows=(IMPACT.teams||[]).filter(t=>t&&typeof t==="object"&&t.codename);
- const counted=k=>rows.some(t=>Number.isInteger(t[k]));
- if(!counted("runs")&&!counted("sessions")){
-  const named=rows.map(t=>t.codename);
-  host.innerHTML=`<p class="none">No impact numbers were measured for this incident${named.length?`; it reached ${esc(named.join(", "))}`:""}.</p>`;
-  return;
- }
+function impactRows(){
  const on=tsAt("onset"),end=tsAt("allClear")||tsAt("resolved");
- const num=v=>Number.isInteger(v)?v.toLocaleString("en-US"):"not measured";
+ return (IMPACT.teams||[]).filter(t=>t&&typeof t==="object"&&t.codename).map(t=>Object.assign({},t,{from:t.from||on,to:t.to||end}));
+}
+function impactStats(rows){
+ const host=$("#impactStats");
+ host.innerHTML="";
+ const byTime=k=>rows.map(t=>t[k]).filter(x=>tsOf(x)!=null).sort((a,b)=>tsOf(a)-tsOf(b));
+ const froms=byTime("from"),tos=byTime("to");
+ const from=froms[0],to=tos[tos.length-1];
+ const sum=k=>{const n=rows.filter(t=>Number.isInteger(t[k]));return n.length?{total:n.reduce((a,t)=>a+t[k],0),of:n.length}:null};
+ const partly=c=>c.of<rows.length?`counted for ${c.of} of ${rows.length} customers`:"";
+ const runs=sum("runs"),sessions=sum("sessions");
+ const tiles=[];
+ if(runs)tiles.push({value:runs.total.toLocaleString("en-US"),label:runs.total===1?"run failed":"runs failed",delta:partly(runs)});
+ if(sessions)tiles.push({value:sessions.total.toLocaleString("en-US"),label:sessions.total===1?"session hit":"sessions hit",delta:partly(sessions)});
+ if(rows.length)tiles.push({value:String(rows.length),label:rows.length===1?"customer affected":"customers affected",delta:rows.map(t=>t.codename).join(", ")});
+ if(from&&to)tiles.push({value:dur(from,to),label:"how long they were hurt",delta:impactSpan(from,to)});
+ const on=tsAt("onset"),fixed=tsAt("resolved");
+ if(on&&fixed)tiles.push({value:dur(on,fixed),label:"time to resolve",delta:`${TS_LABEL.onset} → ${TS_LABEL.resolved}`});
+ tiles.forEach(m=>host.append(metricTile(m)));
+ host.hidden=!tiles.length;
+}
+function impactChart(rows){
+ const host=$("#impactChart");
+ host.innerHTML="";
+ const wins=rows.filter(t=>tsOf(t.from)!=null&&tsOf(t.to)!=null&&tsOf(t.to)>tsOf(t.from))
+  .map(t=>({id:"",label:t.codename,kind:"outage",start:t.from,end:t.to,teams:[t.codename]}));
+ if(!wins.length)return;
+ const box=irFrame({},"ir.windows","When each customer was hurt");
+ fxMount(box,()=>ganttSvg({lanes:"team",marks:true},wins));
+ host.append(box);
+}
+function impactTeams(rows){
+ const host=$("#impactTeams");
+ const counted=rows.some(t=>Number.isInteger(t.runs)||Number.isInteger(t.sessions));
  const source=t=>(Array.isArray(t.refs)?t.refs:[]).filter(u=>safeUrl(u)).map(u=>hostChipHtml(u)).join(" ");
- const cells=t=>`<td>${esc(impactSpan(t.from||on,t.to||end))}</td><td class="n num">${esc(num(t.runs))}</td><td class="n num">${esc(num(t.sessions))}</td>`;
- const sum=k=>counted(k)?rows.reduce((n,t)=>n+(Number.isInteger(t[k])?t[k]:0),0):null;
- const froms=rows.map(t=>t.from||on).filter(x=>tsOf(x)!=null).sort((a,b)=>tsOf(a)-tsOf(b));
- const tos=rows.map(t=>t.to||end).filter(x=>tsOf(x)!=null).sort((a,b)=>tsOf(a)-tsOf(b));
- const total=rows.length>1?`<tr class="tot"><td>Total</td>${cells({from:froms[0],to:tos[tos.length-1],runs:sum("runs"),sessions:sum("sessions")})}<td></td></tr>`:"";
- host.innerHTML=`<table><thead><tr><th>Customer</th><th>When</th><th class="n">Runs failed</th><th class="n">Sessions hit</th><th>Source</th></tr></thead><tbody>`+
-  rows.map(t=>`<tr><td>${esc(t.codename)}</td>${cells(t)}<td>${source(t)}</td></tr>`).join("")+total+`</tbody></table>`;
+ host.innerHTML=(counted?"":`<p class="none">No run or session counts were measured for this incident.</p>`)+
+  (rows.length?`<table><thead><tr><th>Customer</th><th>What they saw</th><th>When</th><th>Source</th></tr></thead><tbody>`+
+  rows.map(t=>`<tr><td><span class="theme-chip">${esc(t.codename)}</span></td><td>${inline(t.text||"")}</td><td class="num">${esc(impactSpan(t.from,t.to))}</td><td>${source(t)}</td></tr>`).join("")+`</tbody></table>`:"");
+ host.hidden=!host.innerHTML;
 }
 function renderIncidents(){
  const host=$("#incidentsHost");
@@ -1998,12 +2020,11 @@ function metricTile(m){
  return tile;
 }
 function renderImpact(){
- const t=$("#impactText");
- t.innerHTML=intro("What it cost, in full",twin(IMPACT,IMPACT.text||""));
- const teams=Array.isArray(IMPACT.teams)?IMPACT.teams:[];
- $("#impactTeams").innerHTML=teams.length?folded(`What each of ${teams.length} team${teams.length===1?"":"s"} saw`,
-  `<div class="twrap"><table class="ir-teams"><thead><tr><th>Team</th><th>What they saw</th></tr></thead><tbody>${teams.map(x=>`<tr><td><span class="theme-chip">${esc(x.codename||"")}</span></td><td>${inline(x.text||"")}</td></tr>`).join("")}</tbody></table></div>`,
-  nameList(teams.map(x=>x.codename).filter(Boolean))):"";
+ const rows=impactRows();
+ impactStats(rows);
+ impactChart(rows);
+ impactTeams(rows);
+ $("#impactText").innerHTML=intro("What it cost, in full",twin(IMPACT,IMPACT.text||""));
  const metrics=Array.isArray(IMPACT.metrics)?IMPACT.metrics:[];
  const h=$("#impactMetrics");
  h.innerHTML="";
@@ -3398,7 +3419,6 @@ function renderAll({evidence=true}={}){
  indexCiteable();
  renderDoctop();
  renderGlance();
- renderImpactTable();
  renderOverview();
  setupTimeline();
  setupCauses();
@@ -3745,17 +3765,17 @@ function ganttSvg(spec,wins){
    const a=tsOf(w.start),b=tsOf(w.end);
    if(a==null||b==null)return;
    const bx=X(a),bw=Math.max(3,X(b)-bx);
-   const label=handleOf(w.id),d=durMs(b-a),both=label+" · "+d,bothW=textWidth(both,"bar-l");
+   const label=w.label||handleOf(w.id),d=durMs(b-a),both=label+" · "+d,bothW=textWidth(both,"bar-l");
    const cy=y+GANTT_ROW/2+4;
    let text;
    if(textWidth(label,"bar-l")+textWidth(d,"bar-d")+24<bw)text=irText("bar-l",bx+8,cy,label)+irText("bar-d",bx+bw-8,cy,d,"end");
    else if(bothW+8<=x1-(bx+bw)&&free(bx+bw+8,bx+bw+8+bothW))text=irText("bar-l",bx+bw+8,cy,both);
    else if(bothW+8<=bx-x0&&free(bx-8-bothW,bx-8))text=irText("bar-l",bx-8,cy,both,"end");
    else text=irText("bar-l",bx+6,cy,fitText(label,"bar-l",bw-12));
-   parts.push(`<g class="win" data-ref="${esc(w.id)}" data-window="${esc(w.id)}" tabindex="0" role="link" aria-label="${esc(label)}: ${esc(fmtLocal(w.start))} to ${esc(fmtLocal(w.end))}, ${esc(d)}"><rect class="bar" data-kind="${esc(w.kind||"outage")}" x="${irNum(bx)}" y="${y+7}" width="${irNum(bw)}" height="${GANTT_ROW-14}"/>${text}</g>`);
+   parts.push(`<g class="win"${w.id?` data-ref="${esc(w.id)}" data-window="${esc(w.id)}" tabindex="0" role="link"`:""} aria-label="${esc(label)}: ${esc(fmtLocal(w.start))} to ${esc(fmtLocal(w.end))}, ${esc(d)}"><rect class="bar" data-kind="${esc(w.kind||"outage")}" x="${irNum(bx)}" y="${y+7}" width="${irNum(bw)}" height="${GANTT_ROW-14}"/>${text}</g>`);
   });
  });
- return irSvg(GANTT_W,h,parts.join(""),`Outage windows: ${wins.map(w=>handleOf(w.id)+" "+dur(w.start,w.end)).join("; ")}.`);
+ return irSvg(GANTT_W,h,parts.join(""),`Outage windows: ${wins.map(w=>(w.label||handleOf(w.id))+" "+dur(w.start,w.end)).join("; ")}.`);
 }
 function irWindows(spec){
  const live=winsAt();

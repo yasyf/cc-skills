@@ -303,7 +303,7 @@ class LivePollRebuildsThePage(unittest.TestCase):
             server.server_close()
             chrome.close()
 
-    def test_the_page_opens_on_each_customers_impact_with_a_total_or_says_nothing_was_measured(self):
+    def test_impact_opens_on_big_numbers_a_chart_per_customer_and_a_table_or_says_nothing_was_counted(self):
         chrome = B.Chrome(self.chrome_path)
         server, base = B.serve(self.root)
         try:
@@ -311,27 +311,32 @@ class LivePollRebuildsThePage(unittest.TestCase):
             session = self.open_page(chrome, base)
             time.sleep(1.5)
             measured = record(timeline=TIMELINE[:1], impact={"teams": [
-                {"codename": "Polar", "text": "Polar had 227 failed runs.", "runs": 227,
+                {"codename": "Polar", "text": "227 of Polar's runs failed.", "runs": 227,
                  "from": "2026-09-18T19:32:00Z", "to": "2026-09-18T19:50:00Z"},
-                {"codename": "Ursa", "text": "Ursa had 81 failed runs.", "runs": 81}]})
+                {"codename": "Ursa", "text": "81 of Ursa's runs failed.", "runs": 81,
+                 "from": "2026-09-18T19:40:00Z", "to": "2026-09-18T20:13:00Z"}]})
             measured["meta"]["status"] = "draft"
             measured["live"].pop("source")
             self.publish(measured)
             B.evaluate(chrome, session, "(window.irLiveTick(),1)")
             time.sleep(1.5)
+            tiles = json.loads(B.evaluate(chrome, session, """JSON.stringify([...document.querySelectorAll(
+              '#impactStats .ir-tile')].map(t => [t.querySelector('.v').textContent.trim(), t.querySelector('.l').textContent.trim()]))"""))
+            self.assertEqual(tiles[:3], [["308", "runs failed"], ["2", "customers affected"], ["41m", "how long they were hurt"]])
+            bars = B.evaluate(chrome, session, "document.querySelectorAll('#impactChart g.win').length")
+            self.assertEqual(bars, 2)
             table = json.loads(B.evaluate(chrome, session, """JSON.stringify([...document.querySelectorAll(
-              '#impactTableHost tr')].map(r => [...r.children].map(c => c.textContent.trim())))"""))
-            self.assertEqual([row[0] for row in table], ["Customer", "Polar", "Ursa", "Total"])
-            self.assertEqual([row[2] for row in table[1:]], ["227", "81", "308"])
-            self.assertEqual(table[2][3], "not measured")
+              '#impactTeams tr')].map(r => [...r.children].map(c => c.textContent.trim())))"""))
+            self.assertEqual([row[:2] for row in table], [["Customer", "What they saw"], ["Polar", "227 of Polar's runs failed."], ["Ursa", "81 of Ursa's runs failed."]])
+            self.assertFalse(B.evaluate(chrome, session, "!!document.querySelector('#impactTeams details')"))
             unmeasured = record(timeline=TIMELINE[:1], impact={"teams": [{"codename": "Polar", "text": "Polar was hurt."}]})
             unmeasured["meta"]["status"] = "draft"
             unmeasured["live"].pop("source")
             self.publish(unmeasured)
             B.evaluate(chrome, session, "(window.irLiveTick(),1)")
             time.sleep(1.5)
-            line = B.evaluate(chrome, session, "document.querySelector('#impactTableHost').textContent")
-            self.assertEqual(line, "No impact numbers were measured for this incident; it reached Polar.")
+            line = B.evaluate(chrome, session, "document.querySelector('#impactTeams .none').textContent")
+            self.assertEqual(line, "No run or session counts were measured for this incident.")
         finally:
             self.publish(record())
             server.shutdown()
