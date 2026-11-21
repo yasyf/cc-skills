@@ -4,3 +4,4 @@ from pathlib import Path
 
 TEAMMATE = Path(__file__).parent / "fixtures" / "teammate" / "sess.jsonl"
 MATE = "amate-1a2b"
+CODEX_MATE = "acodex-1a2b"

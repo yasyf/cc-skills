@@ -199,8 +199,10 @@ conversation — the one place Monitor wakes actually deliver — dispatch with
 run). The watch emits one JSONL record per run as it settles — completed,
 failed, or died, never silence — and exits once all watched runs have
 settled. Arm it after dispatching: a lane that hasn't dispatched yet reads
-`no-run` and settles immediately. Placement rule: top-level async is
-Monitor + `--watch`; an owner subagent waits on its `AWAIT:` line in the
+`no-run` and settles immediately. A top-level session may instead run the
+`AWAIT:` line with `run_in_background: true`, which notifies when the run
+settles. Placement rule: top-level async is Monitor + `--watch` or a
+background `AWAIT:` line; an owner subagent waits on its `AWAIT:` line in the
 foreground (Monitor wakes are dropped inside subagents); a workflow stage's
 own dispatch stays script-driven and blocking, though a workflow may spawn
 owner subagents.
