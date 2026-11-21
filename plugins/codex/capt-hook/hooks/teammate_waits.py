@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import re
+from fnmatch import fnmatch
+from os.path import basename
+
 from captain_hook import (
     Allow,
     And,
+    Annotated,
     BaseHookEvent,
+    Block,
     Call,
     CustomCondition,
     Event,
@@ -21,13 +27,40 @@ from .tests.teammate_fixtures import MATE, TEAMMATE
 
 POLL_UNIT_MS = 60_000
 WAIT_ARGS = frozenset({"watch", "wait", "await", "--watch", "--wait", "--await"})
+WAIT_SCRIPT = "wait-*.sh"
 MAIL_WAIT = "desk-wait.sh"
+TIMEOUT_VALUE_OPTIONS = frozenset({"-k", "-s", "--kill-after", "--signal"})
+DURATION = re.compile(r"(\d+(?:\.\d+)?)([smhd]?)")
+SECONDS_PER_UNIT = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
 def wakes_on_mail(call: Call) -> bool:
     waits = call.name == MAIL_WAIT or (call.name == "lr" and call.args[:1] == ("wait",))
     sources = call.args[: call.args.index("--")] if "--" in call.args else call.args
     return waits and any("=" in source or source.startswith("cci:") for source in sources[1:])
+
+
+def timeout_seconds(call: Call) -> float:
+    stripped = call.source.words[: len(call.source.words) - len(call.command.words)]
+    words = [word.value if word.value is not None else word.raw for word in stripped]
+    heads = [index for index, word in enumerate(words) if basename(word) == "timeout"]
+    if not heads:
+        return 0
+    rest = words[heads[0] + 1 :]
+    while rest and rest[0].startswith("-"):
+        rest = rest[2:] if rest[0] in TIMEOUT_VALUE_OPTIONS else rest[1:]
+    if not rest or not (duration := DURATION.fullmatch(rest[0])):
+        return 0
+    return float(duration[1]) * SECONDS_PER_UNIT[duration[2]]
+
+
+def waits(call: Call) -> bool:
+    return not wakes_on_mail(call) and (
+        call.name == "sleep"
+        or bool(WAIT_ARGS.intersection(call.args))
+        or fnmatch(call.name, WAIT_SCRIPT)
+        or timeout_seconds(call) > POLL_UNIT_MS / 1000
+    )
 
 
 class InProcessTeammate(CustomCondition):
@@ -45,12 +78,7 @@ class PrWait(CustomCondition):
 class LongPoll(CustomCondition):
     def check(self, evt: BaseHookEvent) -> bool:
         timeout = evt.input.raw.get("timeout")
-        polls = any(
-            call.name == "sleep" or WAIT_ARGS.intersection(call.args)
-            for call in evt.command.calls()
-            if not wakes_on_mail(call)
-        )
-        return polls and (timeout is None or int(timeout) > POLL_UNIT_MS)
+        return any(waits(call) for call in evt.command.calls()) and (timeout is None or int(timeout) > POLL_UNIT_MS)
 
 
 hook(
@@ -62,8 +90,8 @@ hook(
     ],
     skip_if=[PrWait()],
     message=(
-        "An in-process teammate is never woken by a Monitor event or a background Bash completion. Run the wait as "
-        f"foreground Bash with `timeout: {POLL_UNIT_MS}` and rerun it until it reports completion."
+        "An in-process teammate is never woken by its own Monitor event or background Bash completion once its turn"
+        " ends. Before you end it, hand that wait to the root with `SendMessage`; the root's watcher messages you."
     ),
     max_fires=1,
     tests={
@@ -93,19 +121,61 @@ hook(
 hook(
     Event.PreToolUse,
     only_if=[Tool("Bash"), FromSubagent(), InProcessTeammate(), LongPoll()],
-    skip_if=[PrWait()],
+    skip_if=[PrWait(), ToolInput(run_in_background="true"), Annotated("raw")],
     message=(
-        "A foreground wait past 60 seconds holds your parent's messages undelivered. Rerun it as foreground Bash with "
-        f"`timeout: {POLL_UNIT_MS}` or less until it reports completion."
+        "A teammate reads mail only when its turn ends, so it never runs a foreground wait past 60 seconds. Hand the"
+        " wait to the root with `SendMessage` and end your turn; the root's watcher messages you."
     ),
-    max_fires=1,
+    block=True,
     tests={
+        Input(
+            command="timeout 580 wait-build.sh 20515",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "timeout 580 wait-build.sh 20515", "timeout": 600000},
+        ): Block(pattern="turn ends"),
+        Input(
+            command="wait-build.sh 20515",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "wait-build.sh 20515"},
+        ): Block(pattern="turn ends"),
+        Input(
+            command="timeout -k 5 10m go test ./...",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "timeout -k 5 10m go test ./...", "timeout": 600000},
+        ): Block(pattern="turn ends"),
+        Input(
+            command="timeout 30 wait-build.sh 20515",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "timeout 30 wait-build.sh 20515", "timeout": 60000},
+        ): Allow(),
+        Input(
+            command="timeout 580 wait-build.sh 20515",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "timeout 580 wait-build.sh 20515", "run_in_background": True},
+        ): Allow(),
+        Input(
+            command="timeout 580 wait-build.sh 20515",
+            agent_id="a266d86820f8d3efd",
+            tool_input={"command": "timeout 580 wait-build.sh 20515", "timeout": 600000},
+        ): Allow(),
+        Input(command="timeout 580 wait-build.sh 20515", tool_input={"command": "timeout 580 wait-build.sh 20515"}): Allow(),
+        Input(
+            command="timeout 580 wait-build.sh 20515  # ccx:raw",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "timeout 580 wait-build.sh 20515  # ccx:raw", "timeout": 600000},
+        ): Allow(),
         Input(
             command="cc-slack watch --session s1",
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "cc-slack watch --session s1", "timeout": 590000},
-        ): Warn(pattern=r"timeout: 60000"),
+        ): Block(pattern="turn ends"),
         Input(
             command="until gh pr checks 12; do sleep 30; done",
             agent_id=MATE,
@@ -156,19 +226,19 @@ hook(
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "lr wait 540 -- bk build watch 4292", "timeout": 570000},
-        ): Warn(pattern="parent's messages"),
+        ): Block(pattern="turn ends"),
         Input(
             command="desk-wait.sh 540 -- bk build watch 4292",
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "desk-wait.sh 540 -- bk build watch 4292", "timeout": 570000},
-        ): Warn(pattern="parent's messages"),
+        ): Block(pattern="turn ends"),
         Input(
             command="desk-wait.sh 540 /h/mate.json=/h/mate.cursor -- true; sleep 600",
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "desk-wait.sh 540 /h/mate.json=/h/mate.cursor -- true; sleep 600", "timeout": 600000},
-        ): Warn(pattern="parent's messages"),
+        ): Block(pattern="turn ends"),
         Input(
             command="cc-slack watch --session s1",
             agent_id="a266d86820f8d3efd",
