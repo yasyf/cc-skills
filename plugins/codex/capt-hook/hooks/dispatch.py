@@ -5,11 +5,14 @@ from pathlib import Path
 
 from captain_hook import (
     Allow,
+    And,
     BaseHookEvent,
     CommandSchema,
     CustomCondition,
     Event,
+    FromSubagent,
     Input,
+    Not,
     Operand,
     Option,
     Or,
@@ -21,7 +24,16 @@ from captain_hook import (
 from captain_hook.command_schema import Arguments
 from captain_hook.types import TOOL_EVENTS, Command as CommandCondition
 
-from .shell import Detached, Invokes, InvokesProseWrapper, LaneSelected, expanded_calls, head_name, runs_prose_wrapper
+from .shell import (
+    Detached,
+    Invokes,
+    InvokesProseWrapper,
+    LaneSelected,
+    expanded_calls,
+    head_name,
+    invocations,
+    runs_prose_wrapper,
+)
 
 PLUGIN_BIN = str(Path(__file__).resolve().parents[2] / "bin" / "codex-ask")
 
@@ -85,6 +97,16 @@ class CodexExecDirect(CustomCondition):
 codex_ask_detached = Detached(lambda call: head_name(call) == "codex-ask")
 wrapper_detached = Detached(runs_prose_wrapper)
 
+
+class AwaitsOnly(CustomCondition):
+    valid_events = TOOL_EVENTS
+
+    def check(self, evt: BaseHookEvent) -> bool:
+        return not codex_ask_detached.check(evt) and all(
+            "--await" in call.args for call in invocations(evt.command, "codex-ask")
+        )
+
+
 hook(
     Event.PreToolUse,
     only_if=[
@@ -92,9 +114,10 @@ hook(
         Invokes("codex-ask"),
         Or(ToolInput(run_in_background="true"), codex_ask_detached),
     ],
+    skip_if=[And(ToolInput(run_in_background="true"), AwaitsOnly(), Not(FromSubagent()))],
     message=(
         "Run `codex-ask` in the foreground, never with `&`, `nohup`, `setsid`, or `run_in_background`. "
-        f"For async work run `{PLUGIN_BIN} --dispatch`, then run its `AWAIT:` line in the foreground."
+        f"For async work run `{PLUGIN_BIN} --dispatch`, then run its `AWAIT:` line in the foreground or, at top level, the background."
     ),
     max_fires=1,
     tests={
@@ -135,6 +158,27 @@ hook(
         Input(command="codex-ask --watch --all"): Allow(),
         Input(command="codex-ask --dispatch 'summarize the diff' &"): Warn(),
         Input(command="codex-ask --await /tmp/x/lane && echo done"): Allow(),
+        Input(
+            command="codex-ask --await /tmp/x/lane",
+            tool_input={"command": "codex-ask --await /tmp/x/lane", "run_in_background": True},
+        ): Allow(),
+        Input(
+            command="'/h/.claude/plugins/cache/skills/codex/1.16.12/bin/codex-ask' --await /c/runs/r1",
+            tool_input={
+                "command": "'/h/.claude/plugins/cache/skills/codex/1.16.12/bin/codex-ask' --await /c/runs/r1",
+                "run_in_background": True,
+            },
+        ): Allow(),
+        Input(
+            command="codex-ask --await /tmp/x/lane",
+            agent_id="a266d86820f8d3efd",
+            tool_input={"command": "codex-ask --await /tmp/x/lane", "run_in_background": True},
+        ): Warn(),
+        Input(
+            command="codex-ask --dispatch 'summarize the diff'",
+            tool_input={"command": "codex-ask --dispatch 'summarize the diff'", "run_in_background": True},
+        ): Warn(),
+        Input(command="codex-ask --await /tmp/x/lane &"): Warn(),
         Input(command="grep codex-ask notes.md"): Allow(),
         Input(command="sleep 5 &"): Allow(),
     },

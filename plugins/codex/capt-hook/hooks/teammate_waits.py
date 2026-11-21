@@ -23,7 +23,7 @@ from captain_hook import (
 )
 
 from . import common
-from .tests.teammate_fixtures import MATE, TEAMMATE
+from .tests.teammate_fixtures import CODEX_MATE, MATE, TEAMMATE
 
 POLL_UNIT_MS = 60_000
 WAIT_ARGS = frozenset({"watch", "wait", "await", "--watch", "--wait", "--await"})
@@ -32,6 +32,8 @@ MAIL_WAIT = "desk-wait.sh"
 TIMEOUT_VALUE_OPTIONS = frozenset({"-k", "-s", "--kill-after", "--signal"})
 DURATION = re.compile(r"(\d+(?:\.\d+)?)([smhd]?)")
 SECONDS_PER_UNIT = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
+TEXT_SEARCHES = frozenset({"grep", "egrep", "rg"})
+CODEX_WRAPPERS = frozenset({"codex:codex-wrapper", "codex:codex-wrapper-async"})
 
 
 def wakes_on_mail(call: Call) -> bool:
@@ -55,7 +57,7 @@ def timeout_seconds(call: Call) -> float:
 
 
 def waits(call: Call) -> bool:
-    return not wakes_on_mail(call) and (
+    return not wakes_on_mail(call) and call.name not in TEXT_SEARCHES and (
         call.name == "sleep"
         or bool(WAIT_ARGS.intersection(call.args))
         or fnmatch(call.name, WAIT_SCRIPT)
@@ -73,6 +75,13 @@ class PrWait(CustomCondition):
         calls = list(evt.command.calls())
         reads = [call for call in calls if call.name == "gh" and call.args[:2] in {("pr", "checks"), ("pr", "view")}]
         return any("--watch" in call.args for call in reads) or bool(reads and any(call.name == "sleep" for call in calls))
+
+
+class CodexWrapperAwait(CustomCondition):
+    def check(self, evt: BaseHookEvent) -> bool:
+        return common.spawned_agent_type(evt) in CODEX_WRAPPERS and all(
+            call.name == "codex-ask" and "--await" in call.args for call in evt.command.calls() if waits(call)
+        )
 
 
 class LongPoll(CustomCondition):
@@ -121,7 +130,7 @@ hook(
 hook(
     Event.PreToolUse,
     only_if=[Tool("Bash"), FromSubagent(), InProcessTeammate(), LongPoll()],
-    skip_if=[PrWait(), ToolInput(run_in_background="true"), Annotated("raw")],
+    skip_if=[PrWait(), ToolInput(run_in_background="true"), Annotated("raw"), CodexWrapperAwait()],
     message=(
         "A teammate reads mail only when its turn ends, so it never runs a foreground wait past 60 seconds. Hand the"
         " wait to the root with `SendMessage` and end your turn; the root's watcher messages you."
@@ -245,6 +254,45 @@ hook(
             tool_input={"command": "cc-slack watch --session s1", "timeout": 590000},
         ): Allow(),
         Input(command="sleep 300", tool_input={"command": "sleep 300", "timeout": 600000}): Allow(),
+        Input(
+            command="codex-ask --await /c/runs/r1",
+            agent_id=CODEX_MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "codex-ask --await /c/runs/r1", "timeout": 600000},
+        ): Allow(),
+        Input(
+            command="'/h/.claude/plugins/cache/skills/codex/1.16.12/bin/codex-ask' --await /c/runs/r1",
+            agent_id=CODEX_MATE,
+            transcript=TEAMMATE,
+            tool_input={
+                "command": "'/h/.claude/plugins/cache/skills/codex/1.16.12/bin/codex-ask' --await /c/runs/r1",
+                "timeout": 600000,
+            },
+        ): Allow(),
+        Input(
+            command='"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --await /c/runs/r1',
+            agent_id=CODEX_MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": '"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --await /c/runs/r1', "timeout": 600000},
+        ): Allow(),
+        Input(
+            command="codex-ask --await /c/runs/r1",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "codex-ask --await /c/runs/r1", "timeout": 600000},
+        ): Block(pattern="turn ends"),
+        Input(
+            command="codex-ask --await /c/runs/r1; sleep 600",
+            agent_id=CODEX_MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "codex-ask --await /c/runs/r1; sleep 600", "timeout": 600000},
+        ): Block(pattern="turn ends"),
+        Input(
+            command="grep -n await notes.md",
+            agent_id=MATE,
+            transcript=TEAMMATE,
+            tool_input={"command": "grep -n await notes.md"},
+        ): Allow(),
     },
 )
 
