@@ -159,12 +159,12 @@ Agent(subagent_type: "open-pr:pr-watcher", run_in_background: true,
               "Run PR_POLL_WINDOW=40 <poll: command> alone as foreground Bash with timeout: 60000, rerun it at once on DONE window-elapsed, and keep calling until a final verdict: never arm a Monitor or background the call, since neither wakes a subagent, never wrap it in a loop, and never substitute a hand-rolled gh pr checks/bk loop, which cannot see a queue landing. On DONE ready-to-merge, SendMessage main before anything else.")
 ```
 
-A teammate, an agent spawned into a team with a `name`, wakes only on a
-`SendMessage`, and its own `Agent` call runs in the foreground and takes no
-`name`. It drops `name:`, ends the prompt with `reply_to: <its own name>` and
-`Wait for go before the first poll.`, then sends the watcher `go` with
-`SendMessage`, which resumes it in the background. It runs the check below
-with a `50` timeout and ends its turn; the watcher's report wakes it.
+A teammate, an agent spawned into a team with a `name`, never spawns the
+watcher: its own `Agent` call runs in the foreground and holds its turn open,
+so it stops hearing messages until the watcher returns. It sends team-lead the
+PR (number, url, head, branch, cache) with `SendMessage` and ends its turn.
+Team-lead spawns the watcher as above with `reply_to: <the teammate's name>`
+appended to the prompt, and the watcher's report wakes the teammate.
 
 After spawning, verify that the poll script wrote its state file:
 

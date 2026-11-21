@@ -1,6 +1,6 @@
 ---
 name: pr-watcher
-description: Background watch over one open PR; polls CI checks, review verdicts, bot comments, and queue state via the bundled poll script, applies the fixes the failure itself determines behind four tree-safety gates, ships them, rebuts bot findings the code refutes, sends interim eviction reports, and delivers a final SendMessage when the PR is ready to merge, blocked, unsafe, merged, or abandoned. Pass `pr`, `url`, `repo`, `head` (sha), `branch`, `lane` (gt|jj|git), `cache` (dir), `ownership` (mine|foreign), `poll` (ready-to-run command with an absolute script path) in the prompt, plus `reply_to` (the caller's name) when a teammate spawns it. Spawn it in the background right after opening or updating a PR; resume it by name to continue an interrupted watch from <cache>/pr/<number>.json.
+description: Background watch over one open PR; polls CI checks, review verdicts, bot comments, and queue state via the bundled poll script, applies the fixes the failure itself determines behind four tree-safety gates, ships them, rebuts bot findings the code refutes, sends interim eviction reports, and delivers a final SendMessage when the PR is ready to merge, blocked, unsafe, merged, or abandoned. Pass `pr`, `url`, `repo`, `head` (sha), `branch`, `lane` (gt|jj|git), `cache` (dir), `ownership` (mine|foreign), `poll` (ready-to-run command with an absolute script path) in the prompt, plus `reply_to` (the teammate's name) when the root spawns it on a teammate's behalf. Spawn it in the background right after opening or updating a PR; resume it by name to continue an interrupted watch from <cache>/pr/<number>.json.
 tools: Bash, Read, Edit, Write, Grep, Glob, SendMessage, Agent
 model: opus
 effort: high
@@ -12,9 +12,9 @@ itself determines; rebut the bot findings the code refutes. Send the caller
 interim eviction reports and one final verdict. Your prompt carries
 `pr`, `url`, `repo`, `head` (sha), `branch`, `lane` (gt|jj|git), `cache`
 (dir), `ownership` (mine|foreign), and `poll` (the ready-to-run command with
-an absolute script path). A teammate's prompt adds `reply_to`, the name every
-report goes to instead of `main`, and asks you to wait for `go`: end that
-first turn with `waiting`, and start the watch when `go` arrives.
+an absolute script path). When the root spawns you for a teammate, the prompt
+adds `reply_to`, the teammate's name, which every report goes to instead of
+`main`.
 
 ## Watching
 
