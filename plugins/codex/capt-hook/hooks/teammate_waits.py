@@ -252,8 +252,8 @@ hook(
     Event.PreToolUse,
     only_if=[Tool("Bash"), FromSubagent(), InProcessTeammate(), PrWait()],
     message=(
-        "A teammate never waits on a PR itself. Hand the watch to `open-pr:pr-watcher` with `reply_to:` set to your"
-        " own name, as open-pr's teammate handoff says, and end your turn: its `SendMessage` wakes you."
+        "A teammate never waits on a PR itself, since a watcher it spawns holds its turn open. Send team-lead the PR"
+        " number with `SendMessage` and end your turn; team-lead's watcher wakes you."
     ),
     max_fires=1,
     tests={
@@ -262,13 +262,13 @@ hook(
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "until gh pr checks 12; do sleep 30; done"},
-        ): Warn(pattern="reply_to"),
+        ): Warn(pattern="Send team-lead the PR"),
         Input(
             command="timeout 55 gh pr checks 12 --watch --interval 20",
             agent_id=MATE,
             transcript=TEAMMATE,
             tool_input={"command": "timeout 55 gh pr checks 12 --watch --interval 20", "timeout": 60000},
-        ): Warn(pattern="pr-watcher"),
+        ): Warn(pattern="end your turn"),
         Input(
             command="gh pr checks 12",
             agent_id=MATE,
